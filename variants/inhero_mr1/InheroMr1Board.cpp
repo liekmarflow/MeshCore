@@ -210,7 +210,7 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
     const char* imax = boardConfig.getChargeCurrentAsStr();
     bool mpptEnabled = boardConfig.getMPPTEnabled();
     
-    snprintf(reply, maxlen, "B:%s F:%s M:%s I:%smA Vco:%.2f",
+    snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f",
              batType, frostBehaviour, mpptEnabled ? "1" : "0", imax, chargeVoltage);
     return true;
   }
@@ -260,11 +260,17 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
     }
   } else if (strncmp(setCommand, "life ", 5) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
-    if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0) {
+    // Convert to lowercase for case-insensitive comparison
+    char lowerValue[20];
+    strncpy(lowerValue, value, sizeof(lowerValue) - 1);
+    lowerValue[sizeof(lowerValue) - 1] = '\0';
+    for (char* p = lowerValue; *p; ++p) *p = tolower(*p);
+    
+    if (strcmp(lowerValue, "true") == 0 || strcmp(lowerValue, "1") == 0) {
       boardConfig.setReducedChargeVoltage(true);
       snprintf(ret, sizeof(ret), "Charge cutoff voltage changed to %.2fV", boardConfig.getMaxChargeVoltage());
       return ret;
-    } else if (strcmp(value, "false") == 0 || strcmp(value, "0") == 0) {
+    } else if (strcmp(lowerValue, "false") == 0 || strcmp(lowerValue, "0") == 0) {
       boardConfig.setReducedChargeVoltage(false);
       snprintf(ret, sizeof(ret), "Charge cutoff voltage changed to %.2fV", boardConfig.getMaxChargeVoltage());
       return ret;
@@ -276,18 +282,24 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
     int ma = atoi(value);
     if (ma >= 10 && ma <= 1000) {
       boardConfig.setMaxChargeCurrent_mA(ma);
-      snprintf(ret, sizeof(ret), "Max charge current set to %smA", boardConfig.getChargeCurrentAsStr());
+      snprintf(ret, sizeof(ret), "Max charge current set to %s", boardConfig.getChargeCurrentAsStr());
       return ret;
     } else {
       return "Err: Try 10-1000";
     }
   } else if (strncmp(setCommand, "mppt ", 5) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
-    if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0) {
+    // Convert to lowercase for case-insensitive comparison
+    char lowerValue[20];
+    strncpy(lowerValue, value, sizeof(lowerValue) - 1);
+    lowerValue[sizeof(lowerValue) - 1] = '\0';
+    for (char* p = lowerValue; *p; ++p) *p = tolower(*p);
+    
+    if (strcmp(lowerValue, "true") == 0 || strcmp(lowerValue, "1") == 0) {
       boardConfig.setMPPTEnable(true);
       snprintf(ret, sizeof(ret), "MPPT enabled");
       return ret;
-    } else if (strcmp(value, "false") == 0 || strcmp(value, "0") == 0) {
+    } else if (strcmp(lowerValue, "false") == 0 || strcmp(lowerValue, "0") == 0) {
       boardConfig.setMPPTEnable(false);
       snprintf(ret, sizeof(ret), "MPPT disabled");
       return ret;
