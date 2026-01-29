@@ -364,13 +364,14 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
     } else if (memcmp(config, "bridge.secret", 13) == 0) {
       sprintf(reply, "> %s", _prefs->bridge_secret);
 #endif
-#ifdef INHERO_MR1
     } else if (memcmp(config, "board.", 6) == 0) {
       char res[100];
-      memset(res, 0, sizeof(res));  // Initialize buffer to prevent garbage data
-      _board->getCustomGetter(&config[6], res, sizeof(res));
-      strcpy(reply, res);
-#endif
+      memset(res, 0, sizeof(res));
+      if (_board->getCustomGetter(&config[6], res, sizeof(res))) {
+        strcpy(reply, res);
+      } else {
+        strcpy(reply, "Error: unknown board command");
+      }
     } else if (memcmp(config, "adc.multiplier", 14) == 0) {
       float adc_mult = _board->getAdcMultiplier();
       if (adc_mult == 0.0f) {
@@ -612,11 +613,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       savePrefs();
       strcpy(reply, "OK");
 #endif
-#ifdef INHERO_MR1
     } else if (memcmp(config, "board.", 6) == 0) {
       const char* result = _board->setCustomSetter(&config[6]);
-      strcpy(reply, result);
-#endif
+      if (result != nullptr) {
+        strcpy(reply, result);
+      } else {
+        strcpy(reply, "Error: unknown board command");
+      }
     } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
       _prefs->adc_multiplier = atof(&config[15]);
       if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {

@@ -1,8 +1,6 @@
 #pragma once
 
-#ifdef INHERO_MR1
 class CayenneLPP;
-#endif
 
 #include <stdint.h>
 #include <math.h>
@@ -76,11 +74,10 @@ public:
   virtual uint8_t getShutdownReason() const { return 0; }
   virtual const char* getShutdownReasonString(uint8_t reason) { return "Not available"; }
 
-#ifdef INHERO_MR1
-  virtual bool getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) = 0;
-  virtual const char* setCustomSetter(const char* setCommand) = 0;
+  // Custom board commands and telemetry (boards can override these)
+  virtual bool getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) { return false; }
+  virtual const char* setCustomSetter(const char* setCommand) { return nullptr; }
   virtual bool queryBoardTelemetry(CayenneLPP& telemetry) { return false; }
-#endif
 };
 
 /**
