@@ -216,7 +216,7 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf>");
-  return false;
+  return true;
 }
 
 /// @brief Handles custom CLI setter commands for board configuration
@@ -296,7 +296,8 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
     }
   }
 
-  return "Err: Try board.<bat|imax|life|frost|mppt>";
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt>");
+  return ret;
 }
 
 void InheroMr1Board::begin() {
