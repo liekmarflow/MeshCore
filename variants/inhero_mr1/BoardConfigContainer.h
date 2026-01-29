@@ -112,6 +112,7 @@ public:
   static void heartbeatTask(void* pvParameters);
   static void onBqInterrupt();
   static bool loadMpptEnabled(bool& enabled);
+  static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
 
   bool setBatteryType(BatteryType type);
   bool setReducedChargeVoltage(bool reduce);

@@ -98,6 +98,7 @@ uint8_t InheroMr1Board::findNextFreeChannel(CayenneLPP& lpp) {
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
+#include <nrf_soc.h>
 
 static BLEDfu bledfu;
 
@@ -333,6 +334,11 @@ uint16_t InheroMr1Board::getBattMilliVolts() {
 }
 
 bool InheroMr1Board::startOTAUpdate(const char* id, char reply[]) {
+  // Stop all background tasks and clean up peripherals before OTA
+  // This is critical - without stopping tasks, OTA will fail
+  BoardConfigContainer::stopBackgroundTasks();
+  
+  // Use standard NRF52Board OTA implementation (same as RAK4631)
   // Config the peripheral connection with maximum bandwidth
   // more SRAM required by SoftDevice
   // Note: All config***() function must be called before begin()
@@ -343,7 +349,7 @@ bool InheroMr1Board::startOTAUpdate(const char* id, char reply[]) {
   // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
   Bluefruit.setTxPower(4);
   // Set the BLE device name
-  Bluefruit.setName("INHERO_MR1_OTA");
+  Bluefruit.setName("InheroMR1_OTA");
 
   Bluefruit.Periph.setConnectCallback(connect_callback);
   Bluefruit.Periph.setDisconnectCallback(disconnect_callback);

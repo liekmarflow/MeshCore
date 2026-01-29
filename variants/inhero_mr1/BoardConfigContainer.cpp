@@ -251,6 +251,44 @@ void BoardConfigContainer::onBqInterrupt() {
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
+/// @brief Stops all background FreeRTOS tasks
+/// @details This must be called before OTA update to prevent task interference
+void BoardConfigContainer::stopBackgroundTasks() {
+  MESH_DEBUG_PRINTLN("Stopping background tasks for OTA...");
+  
+  // Detach interrupt first to prevent new events
+  detachInterrupt(digitalPinToInterrupt(BQ_INT_PIN));
+  MESH_DEBUG_PRINTLN("BQ interrupt detached");
+  
+  // Delete MPPT task if running
+  if (mpptTaskHandle != NULL) {
+    vTaskDelete(mpptTaskHandle);
+    mpptTaskHandle = NULL;
+    MESH_DEBUG_PRINTLN("MPPT task stopped");
+  }
+  
+  // Delete heartbeat task if running
+  if (heartbeatTaskHandle != NULL) {
+    vTaskDelete(heartbeatTaskHandle);
+    heartbeatTaskHandle = NULL;
+    MESH_DEBUG_PRINTLN("Heartbeat task stopped");
+  }
+  
+  // Clean up semaphore
+  if (solarEventSem != NULL) {
+    vSemaphoreDelete(solarEventSem);
+    solarEventSem = NULL;
+    MESH_DEBUG_PRINTLN("Semaphore deleted");
+  }
+  
+  // NOTE: Don't call Wire.end() here - it can interfere with SoftDevice/BLE
+  // The I2C peripheral will be reconfigured if needed after OTA
+  
+  // Longer delay to ensure all FreeRTOS resources are fully released
+  delay(500);
+  MESH_DEBUG_PRINTLN("Background cleanup complete");
+}
+
 void BoardConfigContainer::heartbeatTask(void* pvParameters) {
   (void)pvParameters;
 
