@@ -26,6 +26,7 @@
 #include <Arduino.h>
 #include <CayenneLPP.h>
 #include <MeshCore.h>
+#include <helpers/NRF52Board.h>
 
 // LoRa radio module pins for Inhero MR-1
 #define P_LORA_DIO_1             47
@@ -52,15 +53,11 @@
 #define PIN_VBAT_READ            5
 #define ADC_MULTIPLIER           (3 * 1.73 * 1.187 * 1000)
 
-class InheroMr1Board : public mesh::MainBoard {
-protected:
-  uint8_t startup_reason;
-
+class InheroMr1Board : public NRF52BoardDCDC {
 public:
+  InheroMr1Board() : NRF52Board("InheroMR1_OTA") {}
   void begin();
   // void configure();
-
-  uint8_t getStartupReason() const override { return startup_reason; }
 
   uint16_t getBattMilliVolts() override;
 

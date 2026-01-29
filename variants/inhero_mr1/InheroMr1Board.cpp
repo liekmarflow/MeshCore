@@ -301,8 +301,6 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
 }
 
 void InheroMr1Board::begin() {
-  // for future use, sub-classes SHOULD call this from their begin()
-  startup_reason = BD_STARTUP_NORMAL;
   pinMode(PIN_VBAT_READ, INPUT);
 
 #ifdef PIN_USER_BTN
@@ -320,6 +318,10 @@ void InheroMr1Board::begin() {
   Wire.begin();
 
   boardConfig.begin();
+  
+  // Enable DC/DC converter for improved power efficiency
+  // Done after peripheral initialization to avoid voltage glitches
+  NRF52BoardDCDC::begin();
   pinMode(LED_BLUE, OUTPUT);
   digitalWrite(LED_BLUE, LOW);
 
