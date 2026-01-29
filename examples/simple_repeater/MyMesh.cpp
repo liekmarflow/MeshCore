@@ -1,44 +1,45 @@
 #include "MyMesh.h"
+
 #include <algorithm>
 
 /* ------------------------------ Config -------------------------------- */
 
 #ifndef LORA_FREQ
-  #define LORA_FREQ 915.0
+#define LORA_FREQ 915.0
 #endif
 #ifndef LORA_BW
-  #define LORA_BW 250
+#define LORA_BW 250
 #endif
 #ifndef LORA_SF
-  #define LORA_SF 10
+#define LORA_SF 10
 #endif
 #ifndef LORA_CR
-  #define LORA_CR 5
+#define LORA_CR 5
 #endif
 #ifndef LORA_TX_POWER
-  #define LORA_TX_POWER 20
+#define LORA_TX_POWER 20
 #endif
 
 #ifndef ADVERT_NAME
-  #define ADVERT_NAME "repeater"
+#define ADVERT_NAME "repeater"
 #endif
 #ifndef ADVERT_LAT
-  #define ADVERT_LAT 0.0
+#define ADVERT_LAT 0.0
 #endif
 #ifndef ADVERT_LON
-  #define ADVERT_LON 0.0
+#define ADVERT_LON 0.0
 #endif
 
 #ifndef ADMIN_PASSWORD
-  #define ADMIN_PASSWORD "password"
+#define ADMIN_PASSWORD "password"
 #endif
 
 #ifndef SERVER_RESPONSE_DELAY
-  #define SERVER_RESPONSE_DELAY 300
+#define SERVER_RESPONSE_DELAY 300
 #endif
 
 #ifndef TXT_ACK_DELAY
-  #define TXT_ACK_DELAY 200
+#define TXT_ACK_DELAY 200
 #endif
 
 #define FIRMWARE_VER_LEVEL       2
@@ -58,13 +59,13 @@
 
 #define CLI_REPLY_DELAY_MILLIS      600
 
-#define LAZY_CONTACTS_WRITE_DELAY    5000
+#define LAZY_CONTACTS_WRITE_DELAY   5000
 
-void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
+void MyMesh::putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
   // find existing neighbour, else use least recently updated
   uint32_t oldest_timestamp = 0xFFFFFFFF;
-  NeighbourInfo *neighbour = &neighbours[0];
+  NeighbourInfo* neighbour = &neighbours[0];
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
     // if neighbour already known, we should update it
     if (id.matches(neighbours[i].id)) {
@@ -87,21 +88,22 @@ void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float sn
 #endif
 }
 
-uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood) {
+uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp,
+                               const uint8_t* data, bool is_flood) {
   ClientInfo* client = NULL;
-  if (data[0] == 0) {   // blank password, just check if sender is in ACL
+  if (data[0] == 0) { // blank password, just check if sender is in ACL
     client = acl.getClient(sender.pub_key, PUB_KEY_SIZE);
     if (client == NULL) {
-    #if MESH_DEBUG
+#if MESH_DEBUG
       MESH_DEBUG_PRINTLN("Login, sender not in ACL");
-    #endif
+#endif
     }
   }
   if (client == NULL) {
     uint8_t perms;
-    if (strcmp((char *)data, _prefs.password) == 0) { // check for valid admin password
+    if (strcmp((char*)data, _prefs.password) == 0) { // check for valid admin password
       perms = PERM_ACL_ADMIN;
-    } else if (strcmp((char *)data, _prefs.guest_password) == 0) { // check guest password
+    } else if (strcmp((char*)data, _prefs.guest_password) == 0) { // check guest password
       perms = PERM_ACL_GUEST;
     } else {
 #if MESH_DEBUG
@@ -110,10 +112,10 @@ uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secr
       return 0;
     }
 
-    client = acl.putClient(sender, 0);  // add to contacts (if not already known)
+    client = acl.putClient(sender, 0); // add to contacts (if not already known)
     if (sender_timestamp <= client->last_timestamp) {
       MESH_DEBUG_PRINTLN("Possible login replay attack!");
-      return 0;  // FATAL: client table is full -OR- replay attack
+      return 0; // FATAL: client table is full -OR- replay attack
     }
 
     MESH_DEBUG_PRINTLN("Login success!");
@@ -123,25 +125,25 @@ uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secr
     client->permissions |= perms;
     memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
 
-    if (perms != PERM_ACL_GUEST) {   // keep number of FS writes to a minimum
+    if (perms != PERM_ACL_GUEST) { // keep number of FS writes to a minimum
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
     }
   }
 
   if (is_flood) {
-    client->out_path_len = -1;  // need to rediscover out_path
+    client->out_path_len = -1; // need to rediscover out_path
   }
 
   uint32_t now = getRTCClock()->getCurrentTimeUnique();
-  memcpy(reply_data, &now, 4);   // response packets always prefixed with timestamp
+  memcpy(reply_data, &now, 4); // response packets always prefixed with timestamp
   reply_data[4] = RESP_SERVER_LOGIN_OK;
-  reply_data[5] = 0;  // Legacy: was recommended keep-alive interval (secs / 16)
+  reply_data[5] = 0; // Legacy: was recommended keep-alive interval (secs / 16)
   reply_data[6] = client->isAdmin() ? 1 : 0;
   reply_data[7] = client->permissions;
-  getRNG()->random(&reply_data[8], 4);   // random blob to help packet-hash uniqueness
-  reply_data[12] = FIRMWARE_VER_LEVEL;  // New field
+  getRNG()->random(&reply_data[8], 4); // random blob to help packet-hash uniqueness
+  reply_data[12] = FIRMWARE_VER_LEVEL; // New field
 
-  return 13;  // reply length
+  return 13; // reply length
 }
 
 uint8_t MyMesh::handleAnonRegionsReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data) {
@@ -205,9 +207,10 @@ uint8_t MyMesh::handleAnonClockReq(const mesh::Identity& sender, uint32_t sender
 int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t *payload, size_t payload_len) {
   // uint32_t now = getRTCClock()->getCurrentTimeUnique();
   // memcpy(reply_data, &now, 4);   // response packets always prefixed with timestamp
-  memcpy(reply_data, &sender_timestamp, 4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
+  memcpy(reply_data, &sender_timestamp,
+         4); // reflect sender_timestamp back in response packet (kind of like a 'tag')
 
-  if (payload[0] == REQ_TYPE_GET_STATUS) {  // guests can also access this now
+  if (payload[0] == REQ_TYPE_GET_STATUS) { // guests can also access this now
     RepeaterStats stats;
     stats.batt_milli_volts = board.getBattMilliVolts();
     stats.curr_tx_queue_len = _mgr->getOutboundCount(0xFFFFFFFF);
@@ -223,8 +226,8 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.n_recv_direct = getNumRecvDirect();
     stats.err_events = _err_flags;
     stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
-    stats.n_direct_dups = ((SimpleMeshTables *)getTables())->getNumDirectDups();
-    stats.n_flood_dups = ((SimpleMeshTables *)getTables())->getNumFloodDups();
+    stats.n_direct_dups = ((SimpleMeshTables*)getTables())->getNumDirectDups();
+    stats.n_flood_dups = ((SimpleMeshTables*)getTables())->getNumFloodDups();
     stats.total_rx_air_time_secs = getReceiveAirTime() / 1000;
     stats.n_recv_errors = radio_driver.getPacketsRecvErrors();
     memcpy(&reply_data[4], &stats, sizeof(stats));
@@ -232,16 +235,24 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     return 4 + sizeof(stats); //  reply_len
   }
   if (payload[0] == REQ_TYPE_GET_TELEMETRY_DATA) {
-    uint8_t perm_mask = ~(payload[1]); // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
+    uint8_t perm_mask =
+        ~(payload[1]); // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
 
     telemetry.reset();
     telemetry.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
 
     // query other sensors -- target specific
     if ((sender->permissions & PERM_ACL_ROLE_MASK) == PERM_ACL_GUEST) {
-      perm_mask = 0x00;  // just base telemetry allowed
+      perm_mask = 0x00; // just base telemetry allowed
     }
     sensors.querySensors(perm_mask, telemetry);
+
+#ifdef INHERO_MR1
+    // MR-1 specific telemetry
+    if (perm_mask & TELEM_PERM_ENVIRONMENT) {
+      board.queryBoardTelemetry(telemetry);
+    }
+#endif
 
 	// This default temperature will be overridden by external sensors (if any)
     float temperature = board.getMCUTemperature();
@@ -254,14 +265,15 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     return 4 + tlen; // reply_len
   }
   if (payload[0] == REQ_TYPE_GET_ACCESS_LIST && sender->isAdmin()) {
-    uint8_t res1 = payload[1];   // reserved for future  (extra query params)
+    uint8_t res1 = payload[1]; // reserved for future  (extra query params)
     uint8_t res2 = payload[2];
     if (res1 == 0 && res2 == 0) {
       uint8_t ofs = 4;
       for (int i = 0; i < acl.getNumClients() && ofs + 7 <= sizeof(reply_data) - 4; i++) {
         auto c = acl.getClientByIdx(i);
-        if (c->permissions == 0) continue;  // skip deleted entries
-        memcpy(&reply_data[ofs], c->id.pub_key, 6); ofs += 6;  // just 6-byte pub_key prefix
+        if (c->permissions == 0) continue; // skip deleted entries
+        memcpy(&reply_data[ofs], c->id.pub_key, 6);
+        ofs += 6; // just 6-byte pub_key prefix
         reply_data[ofs++] = c->permissions;
       }
       return ofs;
@@ -278,16 +290,19 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       uint8_t count = payload[2]; // how many neighbours to fetch (0-255)
       uint16_t offset;
       memcpy(&offset, &payload[3], 2); // offset from start of neighbours list (0-65535)
-      uint8_t order_by = payload[5]; // how to order neighbours. 0=newest_to_oldest, 1=oldest_to_newest, 2=strongest_to_weakest, 3=weakest_to_strongest
+      uint8_t order_by = payload[5];   // how to order neighbours. 0=newest_to_oldest, 1=oldest_to_newest,
+                                       // 2=strongest_to_weakest, 3=weakest_to_strongest
       uint8_t pubkey_prefix_length = payload[6]; // how many bytes of neighbour pub key we want
       // we also send a 4 byte random blob in payload[7...10] to help packet uniqueness
 
-      MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS count=%d, offset=%d, order_by=%d, pubkey_prefix_length=%d", count, offset, order_by, pubkey_prefix_length);
+      MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS count=%d, offset=%d, order_by=%d, pubkey_prefix_length=%d",
+                         count, offset, order_by, pubkey_prefix_length);
 
       // clamp pub key prefix length to max pub key length
-      if(pubkey_prefix_length > PUB_KEY_SIZE){
+      if (pubkey_prefix_length > PUB_KEY_SIZE) {
         pubkey_prefix_length = PUB_KEY_SIZE;
-        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS invalid pubkey_prefix_length=%d clamping to %d", pubkey_prefix_length, PUB_KEY_SIZE);
+        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS invalid pubkey_prefix_length=%d clamping to %d",
+                           pubkey_prefix_length, PUB_KEY_SIZE);
       }
 
       // create copy of neighbours list, skipping empty entries so we can sort it separately from main list
@@ -305,38 +320,42 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       if (order_by == 0) {
         // sort by newest to oldest
         MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting newest to oldest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->heard_timestamp > b->heard_timestamp; // desc
-        });
+        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count,
+                  [](const NeighbourInfo* a, const NeighbourInfo* b) {
+                    return a->heard_timestamp > b->heard_timestamp; // desc
+                  });
       } else if (order_by == 1) {
         // sort by oldest to newest
         MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting oldest to newest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->heard_timestamp < b->heard_timestamp; // asc
-        });
+        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count,
+                  [](const NeighbourInfo* a, const NeighbourInfo* b) {
+                    return a->heard_timestamp < b->heard_timestamp; // asc
+                  });
       } else if (order_by == 2) {
         // sort by strongest to weakest
         MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting strongest to weakest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->snr > b->snr; // desc
-        });
+        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count,
+                  [](const NeighbourInfo* a, const NeighbourInfo* b) {
+                    return a->snr > b->snr; // desc
+                  });
       } else if (order_by == 3) {
         // sort by weakest to strongest
         MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting weakest to strongest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->snr < b->snr; // asc
-        });
+        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count,
+                  [](const NeighbourInfo* a, const NeighbourInfo* b) {
+                    return a->snr < b->snr; // asc
+                  });
       }
 
       // build results buffer
       int results_count = 0;
       int results_offset = 0;
       uint8_t results_buffer[130];
-      for(int index = 0; index < count && index + offset < neighbours_count; index++){
-        
+      for (int index = 0; index < count && index + offset < neighbours_count; index++) {
+
         // stop if we can't fit another entry in results
         int entry_size = pubkey_prefix_length + 4 + 1;
-        if(results_offset + entry_size > sizeof(results_buffer)){
+        if (results_offset + entry_size > sizeof(results_buffer)) {
           MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS no more entries can fit in results buffer");
           break;
         }
@@ -344,18 +363,24 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
         // add next neighbour to results
         auto neighbour = sorted_neighbours[index + offset];
         uint32_t heard_seconds_ago = getRTCClock()->getCurrentTime() - neighbour->heard_timestamp;
-        memcpy(&results_buffer[results_offset], neighbour->id.pub_key, pubkey_prefix_length); results_offset += pubkey_prefix_length;
-        memcpy(&results_buffer[results_offset], &heard_seconds_ago, 4); results_offset += 4;
-        memcpy(&results_buffer[results_offset], &neighbour->snr, 1); results_offset += 1;
+        memcpy(&results_buffer[results_offset], neighbour->id.pub_key, pubkey_prefix_length);
+        results_offset += pubkey_prefix_length;
+        memcpy(&results_buffer[results_offset], &heard_seconds_ago, 4);
+        results_offset += 4;
+        memcpy(&results_buffer[results_offset], &neighbour->snr, 1);
+        results_offset += 1;
         results_count++;
-
       }
 
       // build reply
-      MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS neighbours_count=%d results_count=%d", neighbours_count, results_count);
-      memcpy(&reply_data[reply_offset], &neighbours_count, 2); reply_offset += 2;
-      memcpy(&reply_data[reply_offset], &results_count, 2); reply_offset += 2;
-      memcpy(&reply_data[reply_offset], &results_buffer, results_offset); reply_offset += results_offset;
+      MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS neighbours_count=%d results_count=%d", neighbours_count,
+                         results_count);
+      memcpy(&reply_data[reply_offset], &neighbours_count, 2);
+      reply_offset += 2;
+      memcpy(&reply_data[reply_offset], &results_count, 2);
+      reply_offset += 2;
+      memcpy(&reply_data[reply_offset], &results_buffer, results_offset);
+      reply_offset += results_offset;
 
       return reply_offset;
     }
@@ -366,14 +391,14 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
   return 0; // unknown command
 }
 
-mesh::Packet *MyMesh::createSelfAdvert() {
+mesh::Packet* MyMesh::createSelfAdvert() {
   uint8_t app_data[MAX_ADVERT_DATA_SIZE];
   uint8_t app_data_len = _cli.buildAdvertData(ADV_TYPE_REPEATER, app_data);
 
   return createAdvert(self_id, app_data, app_data_len);
 }
 
-File MyMesh::openAppend(const char *fname) {
+File MyMesh::openAppend(const char* fname) {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   return _fs->open(fname, FILE_O_WRITE);
 #elif defined(RP2040_PLATFORM)
@@ -383,17 +408,18 @@ File MyMesh::openAppend(const char *fname) {
 #endif
 }
 
-bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
+bool MyMesh::allowPacketForward(const mesh::Packet* packet) {
   if (_prefs.disable_fwd) return false;
   if (packet->isRouteFlood() && packet->path_len >= _prefs.flood_max) return false;
   if (packet->isRouteFlood() && recv_pkt_region == NULL) {
-    MESH_DEBUG_PRINTLN("allowPacketForward: unknown transport code, or wildcard not allowed for FLOOD packet");
+    MESH_DEBUG_PRINTLN(
+        "allowPacketForward: unknown transport code, or wildcard not allowed for FLOOD packet");
     return false;
   }
   return true;
 }
 
-const char *MyMesh::getLogDateTime() {
+const char* MyMesh::getLogDateTime() {
   static char tmp[32];
   uint32_t now = getRTCClock()->getCurrentTime();
   DateTime dt = DateTime(now);
@@ -411,7 +437,7 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 #endif
 }
 
-void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+void MyMesh::logRx(mesh::Packet* pkt, int len, float score) {
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 1) {
     bridge.sendPacket(pkt);
@@ -437,7 +463,7 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
   }
 }
 
-void MyMesh::logTx(mesh::Packet *pkt, int len) {
+void MyMesh::logTx(mesh::Packet* pkt, int len) {
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 0) {
     bridge.sendPacket(pkt);
@@ -462,7 +488,7 @@ void MyMesh::logTx(mesh::Packet *pkt, int len) {
   }
 }
 
-void MyMesh::logTxFail(mesh::Packet *pkt, int len) {
+void MyMesh::logTxFail(mesh::Packet* pkt, int len) {
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -479,13 +505,15 @@ int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
   return (int)((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
 }
 
-uint32_t MyMesh::getRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.tx_delay_factor);
-  return getRNG()->nextInt(0, 5*t + 1);
+uint32_t MyMesh::getRetransmitDelay(const mesh::Packet* packet) {
+  uint32_t t =
+      (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.tx_delay_factor);
+  return getRNG()->nextInt(0, 5 * t + 1);
 }
-uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
-  uint32_t t = (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
-  return getRNG()->nextInt(0, 5*t + 1);
+uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet* packet) {
+  uint32_t t =
+      (_radio->getEstAirtimeFor(packet->path_len + packet->payload_len + 2) * _prefs.direct_tx_delay_factor);
+  return getRNG()->nextInt(0, 5 * t + 1);
 }
 
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
@@ -496,7 +524,7 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
     if (region_map.getWildcard().flags & REGION_DENY_FLOOD) {
       recv_pkt_region = NULL;
     } else {
-      recv_pkt_region =  &region_map.getWildcard();
+      recv_pkt_region = &region_map.getWildcard();
     }
   } else {
     recv_pkt_region = NULL;
@@ -505,14 +533,14 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
   return false;
 }
 
-void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
-                            uint8_t *data, size_t len) {
+void MyMesh::onAnonDataRecv(mesh::Packet* packet, const uint8_t* secret, const mesh::Identity& sender,
+                            uint8_t* data, size_t len) {
   if (packet->getPayloadType() == PAYLOAD_TYPE_ANON_REQ) { // received an initial request by a possible admin
                                                            // client (unknown at this stage)
     uint32_t timestamp;
     memcpy(&timestamp, data, 4);
 
-    data[len] = 0;  // ensure null terminator
+    data[len] = 0; // ensure null terminator
     uint8_t reply_len;
 
     reply_path_len = -1;
@@ -528,7 +556,7 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
       reply_len = 0;  // unknown/invalid request type
     }
 
-    if (reply_len == 0) return;   // invalid request
+    if (reply_len == 0) return; // invalid request
 
     if (packet->isRouteFlood()) {
       // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
@@ -545,17 +573,18 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
   }
 }
 
-int MyMesh::searchPeersByHash(const uint8_t *hash) {
+int MyMesh::searchPeersByHash(const uint8_t* hash) {
   int n = 0;
   for (int i = 0; i < acl.getNumClients(); i++) {
     if (acl.getClientByIdx(i)->id.isHashMatch(hash)) {
-      matching_peer_indexes[n++] = i; // store the INDEXES of matching contacts (for subsequent 'peer' methods)
+      matching_peer_indexes[n++] =
+          i; // store the INDEXES of matching contacts (for subsequent 'peer' methods)
     }
   }
   return n;
 }
 
-void MyMesh::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
+void MyMesh::getPeerSharedSecret(uint8_t* dest_secret, int peer_idx) {
   int i = matching_peer_indexes[peer_idx];
   if (i >= 0 && i < acl.getNumClients()) {
     // lookup pre-calculated shared_secret
@@ -565,15 +594,16 @@ void MyMesh::getPeerSharedSecret(uint8_t *dest_secret, int peer_idx) {
   }
 }
 
-static bool isShare(const mesh::Packet *packet) {
+static bool isShare(const mesh::Packet* packet) {
   if (packet->hasTransportCodes()) {
-    return packet->transport_codes[0] == 0 && packet->transport_codes[1] == 0;  // codes { 0, 0 } means 'send to nowhere'
+    return packet->transport_codes[0] == 0 &&
+           packet->transport_codes[1] == 0; // codes { 0, 0 } means 'send to nowhere'
   }
   return false;
 }
 
-void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
-                          const uint8_t *app_data, size_t app_data_len) {
+void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp,
+                          const uint8_t* app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
@@ -585,10 +615,11 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
   }
 }
 
-void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, const uint8_t *secret,
-                            uint8_t *data, size_t len) {
+void MyMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender_idx, const uint8_t* secret,
+                            uint8_t* data, size_t len) {
   int i = matching_peer_indexes[sender_idx];
-  if (i < 0 || i >= acl.getNumClients()) { // get from our known_clients table (sender SHOULD already be known in this context)
+  if (i < 0 || i >= acl.getNumClients()) { // get from our known_clients table (sender SHOULD already be known
+                                           // in this context)
     MESH_DEBUG_PRINTLN("onPeerDataRecv: invalid peer idx: %d", i);
     return;
   }
@@ -607,11 +638,11 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
 
       if (packet->isRouteFlood()) {
         // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
-        mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
+        mesh::Packet* path = createPathReturn(client->id, secret, packet->path, packet->path_len,
                                               PAYLOAD_TYPE_RESPONSE, reply_data, reply_len);
         if (path) sendFlood(path, SERVER_RESPONSE_DELAY);
       } else {
-        mesh::Packet *reply =
+        mesh::Packet* reply =
             createDatagram(PAYLOAD_TYPE_RESPONSE, client->id, secret, reply_data, reply_len);
         if (reply) {
           if (client->out_path_len >= 0) { // we have an out_path, so send DIRECT
@@ -627,7 +658,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
   } else if (type == PAYLOAD_TYPE_TXT_MSG && len > 5 && client->isAdmin()) { // a CLI command
     uint32_t sender_timestamp;
     memcpy(&sender_timestamp, data, 4); // timestamp (by sender's RTC clock - which could be wrong)
-    uint8_t flags = (data[4] >> 2);        // message attempt number, and other flags
+    uint8_t flags = (data[4] >> 2);     // message attempt number, and other flags
 
     if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA)) {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: unsupported text type received: flags=%02x", (uint32_t)flags);
@@ -642,10 +673,10 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       if (flags == TXT_TYPE_PLAIN) { // for legacy CLI, send Acks
         uint32_t ack_hash; // calc truncated hash of the message timestamp + text + sender pub_key, to prove
                            // to sender that we got it
-        mesh::Utils::sha256((uint8_t *)&ack_hash, 4, data, 5 + strlen((char *)&data[5]), client->id.pub_key,
+        mesh::Utils::sha256((uint8_t*)&ack_hash, 4, data, 5 + strlen((char*)&data[5]), client->id.pub_key,
                             PUB_KEY_SIZE);
 
-        mesh::Packet *ack = createAck(ack_hash);
+        mesh::Packet* ack = createAck(ack_hash);
         if (ack) {
           if (client->out_path_len < 0) {
             sendFlood(ack, TXT_ACK_DELAY);
@@ -656,8 +687,8 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       }
 
       uint8_t temp[166];
-      char *command = (char *)&data[5];
-      char *reply = (char *)&temp[5];
+      char* command = (char*)&data[5];
+      char* reply = (char*)&temp[5];
       if (is_retry) {
         *reply = 0;
       } else {
@@ -688,12 +719,13 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
   }
 }
 
-bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t *secret, uint8_t *path,
-                            uint8_t path_len, uint8_t extra_type, uint8_t *extra, uint8_t extra_len) {
+bool MyMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const uint8_t* secret, uint8_t* path,
+                            uint8_t path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) {
   // TODO: prevent replay attacks
   int i = matching_peer_indexes[sender_idx];
 
-  if (i >= 0 && i < acl.getNumClients()) { // get from our known_clients table (sender SHOULD already be known in this context)
+  if (i >= 0 && i < acl.getNumClients()) { // get from our known_clients table (sender SHOULD already be known
+                                           // in this context)
     MESH_DEBUG_PRINTLN("PATH to client, path_len=%d", (uint32_t)path_len);
     auto client = acl.getClientByIdx(i);
 
@@ -707,8 +739,8 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t 
   return false;
 }
 
-#define CTL_TYPE_NODE_DISCOVER_REQ   0x80
-#define CTL_TYPE_NODE_DISCOVER_RESP  0x90
+#define CTL_TYPE_NODE_DISCOVER_REQ  0x80
+#define CTL_TYPE_NODE_DISCOVER_RESP 0x90
 
 void MyMesh::onControlDataRecv(mesh::Packet* packet) {
   uint8_t type = packet->payload[0] & 0xF0;    // just test upper 4 bits
@@ -716,12 +748,14 @@ void MyMesh::onControlDataRecv(mesh::Packet* packet) {
       && !_prefs.disable_fwd && discover_limiter.allow(rtc_clock.getCurrentTime())
   ) {
     int i = 1;
-    uint8_t  filter = packet->payload[i++];
+    uint8_t filter = packet->payload[i++];
     uint32_t tag;
-    memcpy(&tag, &packet->payload[i], 4); i += 4;
+    memcpy(&tag, &packet->payload[i], 4);
+    i += 4;
     uint32_t since;
-    if (packet->payload_len >= i+4) {   // optional since field
-      memcpy(&since, &packet->payload[i], 4); i += 4;
+    if (packet->payload_len >= i + 4) { // optional since field
+      memcpy(&since, &packet->payload[i], 4);
+      i += 4;
     } else {
       since = 0;
     }
@@ -729,29 +763,32 @@ void MyMesh::onControlDataRecv(mesh::Packet* packet) {
     if ((filter & (1 << ADV_TYPE_REPEATER)) != 0 && _prefs.discovery_mod_timestamp >= since) {
       bool prefix_only = packet->payload[0] & 1;
       uint8_t data[6 + PUB_KEY_SIZE];
-      data[0] = CTL_TYPE_NODE_DISCOVER_RESP | ADV_TYPE_REPEATER;   // low 4-bits for node type
-      data[1] = packet->_snr;   // let sender know the inbound SNR ( x 4)
-      memcpy(&data[2], &tag, 4);     // include tag from request, for client to match to
+      data[0] = CTL_TYPE_NODE_DISCOVER_RESP | ADV_TYPE_REPEATER; // low 4-bits for node type
+      data[1] = packet->_snr;                                    // let sender know the inbound SNR ( x 4)
+      memcpy(&data[2], &tag, 4); // include tag from request, for client to match to
       memcpy(&data[6], self_id.pub_key, PUB_KEY_SIZE);
       auto resp = createControlData(data, prefix_only ? 6 + 8 : 6 + PUB_KEY_SIZE);
       if (resp) {
-        sendZeroHop(resp, getRetransmitDelay(resp)*4);  // apply random delay (widened x4), as multiple nodes can respond to this
+        sendZeroHop(resp, getRetransmitDelay(resp) *
+                              4); // apply random delay (widened x4), as multiple nodes can respond to this
       }
     }
   }
 }
 
-MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondClock &ms, mesh::RNG &rng,
-               mesh::RTCClock &rtc, mesh::MeshTables &tables)
+MyMesh::MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng,
+               mesh::RTCClock& rtc, mesh::MeshTables& tables)
     : mesh::Mesh(radio, ms, rng, rtc, *new StaticPoolPacketManager(32), tables),
       _cli(board, rtc, sensors, acl, &_prefs, this), telemetry(MAX_PACKET_PAYLOAD - 4), region_map(key_store), temp_map(key_store),
       discover_limiter(4, 120),  // max 4 every 2 minutes
       anon_limiter(4, 180)   // max 4 every 3 minutes
 #if defined(WITH_RS232_BRIDGE)
-      , bridge(&_prefs, WITH_RS232_BRIDGE, _mgr, &rtc)
+      ,
+      bridge(&_prefs, WITH_RS232_BRIDGE, _mgr, &rtc)
 #endif
 #if defined(WITH_ESPNOW_BRIDGE)
-      , bridge(&_prefs, _mgr, &rtc)
+      ,
+      bridge(&_prefs, _mgr, &rtc)
 #endif
 {
   last_millis = 0;
@@ -768,9 +805,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
-  _prefs.airtime_factor = 1.0;   // one half
-  _prefs.rx_delay_base = 0.0f;   // turn off by default, was 10.0;
-  _prefs.tx_delay_factor = 0.5f; // was 0.25f
+  _prefs.airtime_factor = 1.0;          // one half
+  _prefs.rx_delay_base = 0.0f;          // turn off by default, was 10.0;
+  _prefs.tx_delay_factor = 0.5f;        // was 0.25f
   _prefs.direct_tx_delay_factor = 0.2f; // was zero
   StrHelper::strncpy(_prefs.node_name, ADVERT_NAME, sizeof(_prefs.node_name));
   _prefs.node_lat = ADVERT_LAT;
@@ -787,11 +824,11 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.interference_threshold = 0; // disabled
 
   // bridge defaults
-  _prefs.bridge_enabled = 1;    // enabled
-  _prefs.bridge_delay   = 500;  // milliseconds
-  _prefs.bridge_pkt_src = 0;    // logTx
-  _prefs.bridge_baud = 115200;  // baud rate
-  _prefs.bridge_channel = 1;    // channel 1
+  _prefs.bridge_enabled = 1;   // enabled
+  _prefs.bridge_delay = 500;   // milliseconds
+  _prefs.bridge_pkt_src = 0;   // logTx
+  _prefs.bridge_baud = 115200; // baud rate
+  _prefs.bridge_channel = 1;   // channel 1
 
   StrHelper::strncpy(_prefs.bridge_secret, "LVSITANOS", sizeof(_prefs.bridge_secret));
 
@@ -803,7 +840,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.adc_multiplier = 0.0f; // 0.0f means use default board multiplier
 }
 
-void MyMesh::begin(FILESYSTEM *fs) {
+void MyMesh::begin(FILESYSTEM* fs) {
   mesh::Mesh::begin();
   _fs = fs;
   // load persisted prefs
@@ -832,7 +869,8 @@ void MyMesh::begin(FILESYSTEM *fs) {
 }
 
 void MyMesh::applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, int timeout_mins) {
-  set_radio_at = futureMillis(2000); // give CLI reply some time to be sent back, before applying temp radio params
+  set_radio_at =
+      futureMillis(2000); // give CLI reply some time to be sent back, before applying temp radio params
   pending_freq = freq;
   pending_bw = bw;
   pending_sf = sf;
@@ -903,8 +941,8 @@ void MyMesh::setTxPower(uint8_t power_dbm) {
   radio_set_tx_power(power_dbm);
 }
 
-void MyMesh::formatNeighborsReply(char *reply) {
-  char *dp = reply;
+void MyMesh::formatNeighborsReply(char* reply) {
+  char* dp = reply;
 
 #if MAX_NEIGHBOURS
   // create copy of neighbours list, skipping empty entries so we can sort it separately from main list
@@ -919,12 +957,13 @@ void MyMesh::formatNeighborsReply(char *reply) {
   }
 
   // sort neighbours newest to oldest
-  std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-    return a->heard_timestamp > b->heard_timestamp; // desc
-  });
+  std::sort(sorted_neighbours, sorted_neighbours + neighbours_count,
+            [](const NeighbourInfo* a, const NeighbourInfo* b) {
+              return a->heard_timestamp > b->heard_timestamp; // desc
+            });
 
   for (int i = 0; i < neighbours_count && dp - reply < 134; i++) {
-    NeighbourInfo *neighbour = sorted_neighbours[i];
+    NeighbourInfo* neighbour = sorted_neighbours[i];
 
     // add new line if not first item
     if (i > 0) *dp++ = '\n';
@@ -947,10 +986,10 @@ void MyMesh::formatNeighborsReply(char *reply) {
   *dp = 0; // null terminator
 }
 
-void MyMesh::removeNeighbor(const uint8_t *pubkey, int key_len) {
+void MyMesh::removeNeighbor(const uint8_t* pubkey, int key_len) {
 #if MAX_NEIGHBOURS
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-    NeighbourInfo *neighbour = &neighbours[i];
+    NeighbourInfo* neighbour = &neighbours[i];
     if (memcmp(neighbour->id.pub_key, pubkey, key_len) == 0) {
       neighbours[i] = NeighbourInfo(); // clear neighbour entry
     }
@@ -958,16 +997,16 @@ void MyMesh::removeNeighbor(const uint8_t *pubkey, int key_len) {
 #endif
 }
 
-void MyMesh::formatStatsReply(char *reply) {
+void MyMesh::formatStatsReply(char* reply) {
   StatsFormatHelper::formatCoreStats(reply, board, *_ms, _err_flags, _mgr);
 }
 
-void MyMesh::formatRadioStatsReply(char *reply) {
+void MyMesh::formatRadioStatsReply(char* reply) {
   StatsFormatHelper::formatRadioStats(reply, _radio, radio_driver, getTotalAirTime(), getReceiveAirTime());
 }
 
-void MyMesh::formatPacketStatsReply(char *reply) {
-  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(), 
+void MyMesh::formatPacketStatsReply(char* reply) {
+  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(),
                                        getNumRecvFlood(), getNumRecvDirect());
 }
 
@@ -987,36 +1026,42 @@ void MyMesh::saveIdentity(const mesh::LocalIdentity &new_id) {
 void MyMesh::clearStats() {
   radio_driver.resetStats();
   resetStats();
-  ((SimpleMeshTables *)getTables())->resetStats();
+  ((SimpleMeshTables*)getTables())->resetStats();
 }
 
-void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply) {
+void MyMesh::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
   if (region_load_active) {
-    if (StrHelper::isBlank(command)) {  // empty/blank line, signal to terminate 'load' operation
-      region_map = temp_map;  // copy over the temp instance as new current map
+    if (StrHelper::isBlank(command)) { // empty/blank line, signal to terminate 'load' operation
+      region_map = temp_map;           // copy over the temp instance as new current map
       region_load_active = false;
 
       sprintf(reply, "OK - loaded %d regions", region_map.getCount());
     } else {
-      char *np = command;
-      while (*np == ' ') np++;   // skip indent
+      char* np = command;
+      while (*np == ' ')
+        np++; // skip indent
       int indent = np - command;
 
-      char *ep = np;
-      while (RegionMap::is_name_char(*ep)) ep++;
-      if (*ep) { *ep++ = 0; }  // set null terminator for end of name
+      char* ep = np;
+      while (RegionMap::is_name_char(*ep))
+        ep++;
+      if (*ep) {
+        *ep++ = 0;
+      } // set null terminator for end of name
 
-      while (*ep && *ep != 'F') ep++;  // look for (optional) flags
+      while (*ep && *ep != 'F')
+        ep++; // look for (optional) flags
 
       if (indent > 0 && indent < 8 && strlen(np) > 0) {
         auto parent = load_stack[indent - 1];
         if (parent) {
           auto old = region_map.findByName(np);
-          auto nw = temp_map.putRegion(np, parent->id, old ? old->id : 0);  // carry-over the current ID (if name already exists)
+          auto nw = temp_map.putRegion(
+              np, parent->id, old ? old->id : 0); // carry-over the current ID (if name already exists)
           if (nw) {
-            nw->flags = old ? old->flags : (*ep == 'F' ? 0 : REGION_DENY_FLOOD);   // carry-over flags from curr
+            nw->flags = old ? old->flags : (*ep == 'F' ? 0 : REGION_DENY_FLOOD); // carry-over flags from curr
 
-            load_stack[indent] = nw;  // keep pointers to parent regions, to resolve parent_id's
+            load_stack[indent] = nw; // keep pointers to parent regions, to resolve parent_id's
           }
         }
       }
@@ -1025,7 +1070,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     return;
   }
 
-  while (*command == ' ') command++; // skip leading spaces
+  while (*command == ' ')
+    command++; // skip leading spaces
 
   if (strlen(command) > 4 && command[2] == '|') { // optional prefix (for companion radio CLI)
     memcpy(reply, command, 3);                    // reflect the prefix back
@@ -1034,20 +1080,20 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
   }
 
   // handle ACL related commands
-  if (memcmp(command, "setperm ", 8) == 0) {   // format:  setperm {pubkey-hex} {permissions-int8}
+  if (memcmp(command, "setperm ", 8) == 0) { // format:  setperm {pubkey-hex} {permissions-int8}
     char* hex = &command[8];
-    char* sp = strchr(hex, ' ');   // look for separator char
+    char* sp = strchr(hex, ' '); // look for separator char
     if (sp == NULL) {
       strcpy(reply, "Err - bad params");
     } else {
-      *sp++ = 0;   // replace space with null terminator
+      *sp++ = 0; // replace space with null terminator
 
       uint8_t pubkey[PUB_KEY_SIZE];
-      int hex_len = min(sp - hex, PUB_KEY_SIZE*2);
+      int hex_len = min(sp - hex, PUB_KEY_SIZE * 2);
       if (mesh::Utils::fromHex(pubkey, hex_len / 2, hex)) {
         uint8_t perms = atoi(sp);
         if (acl.applyPermissions(self_id, pubkey, hex_len / 2, perms)) {
-          dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);   // trigger acl.save()
+          dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // trigger acl.save()
           strcpy(reply, "OK");
         } else {
           strcpy(reply, "Err - invalid params");
@@ -1060,7 +1106,7 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     Serial.println("ACL:");
     for (int i = 0; i < acl.getNumClients(); i++) {
       auto c = acl.getClientByIdx(i);
-      if (c->permissions == 0) continue;  // skip deleted (or guest) entries
+      if (c->permissions == 0) continue; // skip deleted (or guest) entries
 
       Serial.printf("%02X ", c->permissions);
       mesh::Utils::printHex(Serial, c->id.pub_key, PUB_KEY_SIZE);
@@ -1075,12 +1121,13 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     if (n == 1) {
       region_map.exportTo(reply, 160);
     } else if (n >= 2 && strcmp(parts[1], "load") == 0) {
-      temp_map.resetFrom(region_map);   // rebuild regions in a temp instance
+      temp_map.resetFrom(region_map); // rebuild regions in a temp instance
       memset(load_stack, 0, sizeof(load_stack));
       load_stack[0] = &temp_map.getWildcard();
       region_load_active = true;
     } else if (n >= 2 && strcmp(parts[1], "save") == 0) {
-      _prefs.discovery_mod_timestamp = rtc_clock.getCurrentTime();   // this node is now 'modified' (for discovery info)
+      _prefs.discovery_mod_timestamp =
+          rtc_clock.getCurrentTime(); // this node is now 'modified' (for discovery info)
       savePrefs();
       bool success = region_map.save(_fs);
       strcpy(reply, success ? "OK" : "Err - save failed");
@@ -1105,7 +1152,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       if (region) {
         auto parent = region_map.findById(region->parent);
         if (parent && parent->id != 0) {
-          sprintf(reply, " %s (%s) %s", region->name, parent->name, (region->flags & REGION_DENY_FLOOD) ? "" : "F");
+          sprintf(reply, " %s (%s) %s", region->name, parent->name,
+                  (region->flags & REGION_DENY_FLOOD) ? "" : "F");
         } else {
           sprintf(reply, " %s %s", region->name, (region->flags & REGION_DENY_FLOOD) ? "" : "F");
         }
@@ -1168,8 +1216,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     } else {
       strcpy(reply, "Err - ??");
     }
-  } else{
-    _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
+  } else {
+    _cli.handleCommand(sender_timestamp, command, reply); // common CLI commands
   }
 }
 
@@ -1181,13 +1229,13 @@ void MyMesh::loop() {
   mesh::Mesh::loop();
 
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
-    mesh::Packet *pkt = createSelfAdvert();
+    mesh::Packet* pkt = createSelfAdvert();
     if (pkt) sendFlood(pkt);
 
     updateFloodAdvertTimer(); // schedule next flood advert
     updateAdvertTimer();      // also schedule local advert (so they don't overlap)
   } else if (next_local_advert && millisHasNowPassed(next_local_advert)) {
-    mesh::Packet *pkt = createSelfAdvert();
+    mesh::Packet* pkt = createSelfAdvert();
     if (pkt) sendZeroHop(pkt);
 
     updateAdvertTimer(); // schedule next local advert
