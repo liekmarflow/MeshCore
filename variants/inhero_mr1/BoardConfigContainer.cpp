@@ -31,6 +31,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <MeshCore.h>
+#include <nrf_wdt.h>
 
 // Forward declaration - rtc_clock is defined in target.cpp
 // Use base class to avoid including AutoDiscoverRTCClock header
@@ -53,6 +54,54 @@ BqDriver* BoardConfigContainer::bqDriverInstance = nullptr;
 TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
+
+// Watchdog state
+static bool wdt_enabled = false;
+
+/// @brief Initialize and start the hardware watchdog timer
+/// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
+///          Watchdog continues running during sleep and pauses during debug.
+void BoardConfigContainer::setupWatchdog() {
+  #ifndef DEBUG_MODE  // Only activate in release builds
+    NRF_WDT->CONFIG = (WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos) |     // Run during sleep
+                      (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos);     // Pause during debug
+    NRF_WDT->CRV = 32768 * 600;  // 600 seconds (10 min) @ 32.768 kHz - allows OTA updates
+    NRF_WDT->RREN = WDT_RREN_RR0_Enabled << WDT_RREN_RR0_Pos;  // Enable reload register 0
+    NRF_WDT->TASKS_START = 1;    // Start watchdog
+    wdt_enabled = true;
+    MESH_DEBUG_PRINTLN("Watchdog enabled: 600s timeout");
+    
+    // Visual feedback: blink LED 3 times to indicate WDT is active
+    #ifdef LED_BLUE
+      for (int i = 0; i < 3; i++) {
+        digitalWrite(LED_BLUE, HIGH);
+        delay(100);
+        digitalWrite(LED_BLUE, LOW);
+        delay(100);
+      }
+    #endif
+  #else
+    MESH_DEBUG_PRINTLN("Watchdog disabled (DEBUG_MODE)");
+  #endif
+}
+
+/// @brief Feed the watchdog timer to prevent system reset
+/// @details Should be called regularly from main loop. No-op in debug builds.
+void BoardConfigContainer::feedWatchdog() {
+  #ifndef DEBUG_MODE
+    if (wdt_enabled) {
+      NRF_WDT->RR[0] = WDT_RR_RR_Reload;  // Reload watchdog
+    }
+  #endif
+}
+
+/// @brief Disable the watchdog timer (for OTA updates)
+/// @details Note: nRF52 WDT cannot be stopped once started. This only sets flag to stop feeding.
+void BoardConfigContainer::disableWatchdog() {
+  #ifndef DEBUG_MODE
+    wdt_enabled = false;  // Stop feeding the watchdog
+  #endif
+}
 
 BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromCommandString(const char* cmdStr) {
   for (const auto& entry : bat_map) {

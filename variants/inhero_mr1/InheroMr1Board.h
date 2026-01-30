@@ -57,6 +57,7 @@ class InheroMr1Board : public NRF52BoardDCDC {
 public:
   InheroMr1Board() : NRF52Board("InheroMR1_OTA") {}
   void begin();
+  void tick() override;  // Feed watchdog and perform board-specific tasks
   // void configure();
 
   uint16_t getBattMilliVolts() override;

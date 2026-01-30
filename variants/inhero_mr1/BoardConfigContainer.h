@@ -143,6 +143,11 @@ public:
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %
   uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
   void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
+  
+  // Watchdog methods
+  static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
+  static void feedWatchdog();    ///< Feed the watchdog to prevent reset
+  static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
 
 private:
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods

@@ -296,9 +296,34 @@ Flash: 37.1% (302,080 bytes / 815,104 bytes)
 2. **Input Protection**: VINDPM (Input voltage dynamic power management)
 3. **Battery Protection**: Over-current, over-voltage, under-voltage protection
 4. **Bounds Checking**: All configuration values validated before applying
-5. **Watchdog**: Hardware watchdog can be configured (currently disabled)
+5. **Watchdog**: Hardware watchdog (600s timeout, enabled in release builds)
 
 ## Development
+
+### Watchdog Timer
+
+The Inhero MR-1 features a hardware watchdog timer (nRF52 WDT) with the following characteristics:
+
+- **Timeout**: 120 seconds (2 minutes)
+- **Activation**: Automatically enabled in release builds (disabled in DEBUG_MODE)
+- **Purpose**: Detects and recovers from system hangs, deadlocks, or task failures
+- **Behavior**: Continues running during sleep, pauses during debugging
+- **Feeding**: Must be called from main loop via `board.tick()`
+
+**Important**: Your application **must** call `board.tick()` regularly to feed the watchdog:
+
+```cpp
+void loop() {
+  board.tick();        // Feed watchdog - REQUIRED!
+  the_mesh.loop();
+  sensors.loop();
+  rtc_clock.tick();
+}
+```
+
+Without calling `board.tick()`, the system will reset after 600 seconds. This is intentional - it ensures the main loop is running properly.
+
+**Reset Detection**: Watchdog resets are logged via `NRF52Board::getResetReasonString()` and will show as "Watchdog" in debug output.
 
 ### Adding Custom Features
 The board class `InheroMr1Board` inherits from `mesh::MainBoard` and provides:

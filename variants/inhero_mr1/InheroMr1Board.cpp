@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2026 Inhero GmbH
  *
@@ -213,9 +212,16 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f",
              batType, frostBehaviour, mpptEnabled ? "1" : "0", imax, chargeVoltage);
     return true;
+  } else if (strcmp(cmd, "wdtstatus") == 0) {
+    #ifndef DEBUG_MODE
+      snprintf(reply, maxlen, "WDT: enabled (600s timeout)");
+    #else
+      snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
+    #endif
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus>");
   return true;
 }
 
@@ -334,12 +340,23 @@ void InheroMr1Board::begin() {
   // Enable DC/DC converter for improved power efficiency
   // Done after peripheral initialization to avoid voltage glitches
   NRF52BoardDCDC::begin();
+  
   pinMode(LED_BLUE, OUTPUT);
   digitalWrite(LED_BLUE, LOW);
 
   pinMode(SX126X_POWER_EN, OUTPUT);
   digitalWrite(SX126X_POWER_EN, HIGH);
   delay(10); // give sx1262 some time to power up
+  
+  // Start hardware watchdog (600s timeout)
+  // Must be last - after all initializations are complete
+  BoardConfigContainer::setupWatchdog();
+}
+
+void InheroMr1Board::tick() {
+  // Feed watchdog to prevent system reset
+  // This ensures the main loop is running properly
+  BoardConfigContainer::feedWatchdog();
 }
 
 uint16_t InheroMr1Board::getBattMilliVolts() {
@@ -349,6 +366,9 @@ uint16_t InheroMr1Board::getBattMilliVolts() {
 }
 
 bool InheroMr1Board::startOTAUpdate(const char* id, char reply[]) {
+  // Note: 600s watchdog timeout allows OTA to complete (typically 2-5 min)
+  // No need to disable watchdog as timeout is sufficient
+  
   // Stop all background tasks and clean up peripherals before OTA
   // This is critical - without stopping tasks, OTA will fail
   BoardConfigContainer::stopBackgroundTasks();
