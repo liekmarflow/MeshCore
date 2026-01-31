@@ -6,13 +6,18 @@ Der Inhero MR-1 ist ein solarbetriebener Mesh-Netzwerk-Knoten mit fortschrittlic
 
 ## Hardware-Übersicht
 
-### Hauptkomponenten
+### Hauptkomponenten (v0.2 - Aktuell)
 - **MCU**: Nordic nRF52840 (64MHz, 243KB RAM, 796KB Flash)
 - **Funkmodul**: SX1262 LoRa-Transceiver mit DIO2-RF-Umschaltung
 - **Batteriemanager**: BQ25798 mit integriertem MPPT und NTC-Thermistor-Unterstützung
-- **Digitales Potentiometer**: MCP4652 (Dual-Kanal) zur Spannungsanpassung
+- **Power Monitor**: INA228 (20mΩ Shunt, 1A max) für Coulomb Counting
+- **RTC**: RV-3028-C7 für Wake-up Management
 - **Stromeingang**: Solarpanel mit Power Good Interrupt-Erkennung
 - **Speicher**: LittleFS-basierte Einstellungen mit SimplePreferences-Wrapper
+
+### Hauptkomponenten (v0.1 - Legacy)
+- **Digitales Potentiometer**: MCP4652 (Dual-Kanal) für TP2120 UVLO-Steuerung
+- Keine INA228 oder RTC
 
 ### Pin-Konfiguration
 ```cpp
@@ -89,9 +94,12 @@ board.frost     # Frost-Lade-Verhalten abrufen
 board.life      # Reduzierte Spannungseinstellung abrufen (true/false)
 board.imax      # Maximalen Ladestrom abrufen (mA)
 board.mppt      # MPPT-Status abrufen
-board.mpptstat  # 7-Tage-MPPT-aktiviert-Prozentsatz abrufen (gleitender Durchschnitt)
-board.info      # Ladegerätstatus abrufen (Power Good / Ladezustand)
-board.tele      # Vollständige Telemetrie-Momentaufnahme abrufen
+board.mpps      # 7-Tage-MPPT-Statistiken abrufen (Prozentsatz + Energie)
+board.cinfo     # Ladegerätstatus abrufen (Power Good / Ladezustand)
+board.telem     # Vollständige Telemetrie-Momentaufnahme abrufen
+board.hwver     # Hardware-Version anzeigen (v0.1 oder v0.2) 🆕
+board.soc       # Batterie-Ladezustand und Kapazität (v0.2) 🆕
+board.balance   # Tägliche Energiebilanz und TTL-Prognose (v0.2) 🆕
 ```
 
 #### Set-Befehle
@@ -109,6 +117,9 @@ set board.imax <strom>         # Maximalen Ladestrom in mA festlegen
                                # Bereich: 1-3000mA
 
 set board.mppt <true|false>    # MPPT aktivieren/deaktivieren
+
+set board.batcap <mAh>         # Batteriekapazität manuell setzen (v0.2) 🆕
+                               # Bereich: 100-100000 mAh
 ```
 
 ### Konfigurationsbeispiele
@@ -174,7 +185,78 @@ Der 7-Tage-MPPT-Prozentsatz liefert eine langfristige Stabilitätsindikation, w�
 **Implementierung**:
 Die Statistikverfolgung ist vollständig in den bestehenden `solarMpptTask` integriert und nutzt das Interrupt-System des BQ25798. Wenn sich der MPPT-Status ändert, wird ein Interrupt ausgelöst und die vergangene Zeit wird berücksichtigt. Zusätzlich wird die Solar-Panel-Leistung (Spannung × Strom) kontinuierlich integriert, um die gewonnene Energie zu berechnen: E = P × Δt. Dieser Interrupt-gesteuerte Ansatz ist hocheffizient und präzise und erfordert keinen Polling-Overhead. Die Zeitverfolgung verwendet RTC, wenn verfügbar, mit automatischem Fallback auf millis() während des Systemstarts.
 
-## Technische Details
+## Technische Details v0.2
+
+### INA228 Power Monitor (v0.2)
+- **I2C-Adresse**: 0x45 (A0=GND, A1=GND)
+- **Shunt-Widerstand**: 20mΩ (R027)
+- **Messbereich**: ±40.96mV (ADC Range)
+- **Maximaler Strom**: 1A durch Shunt
+- **ADC-Auflösung**: 20-bit
+- **Funktionen**:
+  - Spannungs-/Strom-/Leistungsüberwachung
+  - Energieakkumulation (Coulomb Counter)
+  - Ladungsakkumulation (mAh-Tracking)
+  - Hardware-UVLO-Alarm
+  - Die-Temperatursensor
+  - Shutdown-Modus (~1µA)
+
+### Batterie-SOC (Ladezustand)
+- **Coulomb Counting**: Primäre SOC-Berechnungsmethode
+- **Spannungs-Fallback**: Chemie-spezifische Spannungskurven
+- **Auto-Learning**: Lernt Kapazität während vollständiger Ladezyklen
+- **Manueller Override**: Kapazität via `set board.batcap <mAh>` setzen
+- **Genauigkeit**: ±2% bei richtiger Kapazitätskonfiguration
+
+### Tägliche Energiebilanz
+Verfolgt Energiefluss über 7-Tage-Rolling-Fenster:
+- **Heutige Bilanz**: Solarladung vs. Entladung
+- **3-Tage-Durchschnitt**: Trendanalyse für Prognosen
+- **Lebensstatus**: Erkennt automatisch "leben von Batterie" vs "leben von Solar"
+- **Persistenz**: Überlebt Reboots durch statistische Glättung
+
+### Time To Live (TTL) Prognose
+Bei Leben von Batterie (Netto-Defizit) berechnet:
+```
+TTL (Stunden) = (Aktueller SOC × Kapazität) / Durchschnittliches tägliches Defizit
+```
+Beispiel:
+- SOC: 60% (1200 mAh verbleibend)
+- 3-Tage-Durchschnitt Defizit: -100 mAh/Tag
+- TTL: 1200 / 100 = 12 Tage = 288 Stunden
+
+### RV-3028 RTC-Integration
+- **Countdown-Timer**: Stündliche Aufwachzyklen während Shutdown
+- **INT-Pin**: GPIO17 löst Aufwachen aus SYSTEMOFF aus
+- **Niedrigspannungs-Wiederherstellung**: 
+  1. RAK erreicht "Danger Zone" (z.B. 2.9V für LiFePO4)
+  2. INA228 geht in Shutdown-Modus (stoppt Coulomb Counter)
+  3. Kontrollierter Shutdown mit Dateisystem-Sync
+  4. RTC wacht jede Stunde auf
+  5. Prüft Spannungserholung
+  6. INA228 wacht auf und prüft Ladezustand
+  7. Fährt fort, wenn Spannung erholt UND ausreichende Ladung gewonnen
+
+### Power Management Flow
+Beim Eintritt in Niedrigspannungs-Shutdown:
+1. **Hintergrund-Tasks stoppen**: Verhindert Dateisystem-Korruption
+2. **INA228 Shutdown**: Versetzt Power Monitor in Power-Down-Modus (~1µA)
+   - Stoppt alle ADC-Konversionen
+   - Deaktiviert Coulomb Counter (kein Zählen bei 0% SOC sowieso)
+3. **RTC Wake konfigurieren**: Setzt Countdown-Timer auf 1 Stunde
+4. **Shutdown-Grund speichern**: Speichert in GPREGRET2 für nächsten Boot
+5. **SYSTEMOFF eintreten**: nRF52 Tiefschlaf (1-5µA gesamt)
+
+### Hardware-UVLO (Under-Voltage Lockout)
+- **INA228 Alert-Pin**: Steuert direkt TPS62840 EN-Pin
+- **Chemie-spezifische Schwellenwerte**:
+  - Li-Ion: 3.2V (absolutes Minimum)
+  - LiFePO4: 2.8V (absolutes Minimum)
+  - LTO 2S: 4.0V (absolutes Minimum)
+- **Schutzschichten**:
+  1. Software "Danger Zone" (200mV vor Hardware-Cutoff)
+  2. Hardware-Alarm (INA228 → TPS EN)
+  3. Null Stromverbrauch bei Auslösung (0 µA)
 
 ### Batterieladegerät (BQ25798)
 - **Eingangsspannungsbereich**: 3,6V - 24V
@@ -314,9 +396,22 @@ Entwickelt für das MeshCore-Projekt von Inhero GmbH.
 
 ## Versionshistorie
 
-- **v1.0** (2026-01-27)
-  - Erstveröffentlichung
-  - Multi-Chemie-Batterie-Unterstützung
-  - MPPT-Solar-Management
-  - CLI-Konfigurationsschnittstelle
-  - CayenneLPP-Telemetrie-Export
+### v0.2 (Januar 2026) 🆕
+- **Hardware**: INA228 Power Monitor ersetzt MCP4652
+- **RTC**: RV-3028-C7 Integration für Wake-up-Management
+- **Coulomb Counter**: Echtzeit-Energie-Tracking und SOC-Berechnung
+- **Tägliche Bilanz**: 7-Tage-Energie-Tracking mit Solar- vs. Batterie-Analyse
+- **TTL-Prognose**: Batterielebensdauer basierend auf Nutzungsmustern vorhersagen
+- **Auto-Learning**: Automatische Batteriekapazitätserkennung
+- **Hardware-UVLO**: INA228 Alert → TPS EN für ultimativen Schutz
+- **Power Management**: INA228 Shutdown-Modus während SYSTEMOFF (~1µA)
+- **Neue CLI-Befehle**: `board.hwver`, `board.soc`, `board.balance`, `set board.batcap`
+
+### v0.1 (Dezember 2025)
+- Erstveröffentlichung
+- BQ25798 Batteriemanagement mit MPPT
+- MCP4652 Digitales Potentiometer für TP2120-Steuerung
+- Multi-Chemie-Unterstützung (Li-Ion, LiFePO4, LTO)
+- JEITA-Temperaturregelung
+- 7-Tage-MPPT-Statistiken
+- Telemetriesystem mit CayenneLPP
