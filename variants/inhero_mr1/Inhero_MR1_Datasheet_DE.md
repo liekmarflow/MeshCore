@@ -45,7 +45,7 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 - Off-Grid Kommunikationslösungen
 
 > **Firmware-Hinweis:**  
-> Die aktuelle Firmware ist ausschließlich für **MeshCore** entwickelt und getestet. Unterstützung für **Meshtastic** ist geplant und wird in zukünftigen Firmware-Versionen implementiert.
+> Die aktuelle Firmware ist ausschließlich für **MeshCore** entwickelt und getestet. Unterstützung für **Meshtastic** wird in **Q1 2026** fertiggestellt.
 
 ### Alleinstellungsmerkmale
 - **Multi-Chemie-Unterstützung**: LTO 2S, LiFePO4 1S, Li-Ion 1S
@@ -822,7 +822,7 @@ Alle GPIO-Pins sind 3,3V-Logikpegel. **Wichtig**: Keine 5V-toleranten Eingänge!
 ## 11. Software-Konfiguration
 
 > **Wichtig:**  
-> Das Inhero MR-1 Board wird derzeit ausschließlich mit **MeshCore Firmware** unterstützt. Die Integration für **Meshtastic Firmware** ist in Entwicklung und wird zu einem späteren Zeitpunkt verfügbar sein.
+> Das Inhero MR-1 Board wird derzeit ausschließlich mit **MeshCore Firmware** unterstützt. Die Integration für **Meshtastic Firmware** wird in **Q1 2026** fertiggestellt.
 
 ### 11.1 Build-Umgebung
 
