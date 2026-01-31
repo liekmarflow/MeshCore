@@ -8,6 +8,8 @@
 > Datum: 29. Januar 2026
 > Version: 1.0 (Design-Phase)
 
+> **Gedankenstütze:** Beim Start muss der RAK zuerst die board.bat-Konfiguration vom Filesystem lesen und anschließend die Batteriespannung (VBAT) über den BQ25798 messen. Erst danach entscheidet die Firmware anhand der hinterlegten Voltage-Schwellen, ob sofort wieder geschlafen wird oder der normale TX-Betrieb aufgenommen wird. Es ist möglich, dass der RAK zwischenzeitlich durch den On-Board-Komparator komplett stromlos war.
+
 ---
 
 ## Überblick
@@ -26,17 +28,19 @@ Das System kombiniert **3 Schutz-Schichten** für optimalen Filesystem-Schutz un
 | Spannung | Zustand | Intervall | Aktion |
 |----------|---------|-----------|--------|
 | > 3.6V (Li-Ion) | NORMAL | 60s | Normalbetrieb |
-| 3.4-3.6V | WARNING | 30s | Load shedding vorbereiten |
-| 3.2-3.4V | CRITICAL | 10s | Minimalbetrieb |
-| < 3.2V | SHUTDOWN | Sofort | Controlled shutdown |
+| 3.5-3.6V | WARNING | 30s | Load shedding vorbereiten |
+| 3.4-3.5V | CRITICAL | 10s | Minimalbetrieb |
+| < 3.4V | SHUTDOWN | Sofort | Controlled shutdown |
 
 ### Chemie-spezifische Schwellen
 
-| Chemie | Critical | Warning | Hysterese Wake |
-|--------|----------|---------|----------------|
-| Li-Ion 1S | 3.2V | 3.4V | 3.3V |
-| LiFePO4 1S | 3.0V | 3.2V | 3.1V |
-| LTO 2S | 4.2V | 4.4V | 4.3V |
+| Chemie | HW Cutoff | SW Sleep | Normalbetrieb |
+|--------|-----------|----------|---------------|
+| Li-Ion 1S | 3.2V | 3.4V | 3.6V |
+| LiFePO4 1S | 2.8V | 2.9V | 3.0V |
+| LTO 2S | 4.0V | 4.2V | 4.4V |
+
+> **Hinweis:** Die Hardware-Hysterese kann relativ klein gewählt werden (z.B. Li-Ion: 100mV, LiFePO4: 80mV), da der nRF52 beim Booten ohnehin die Batteriespannung prüft und bei zu niedriger Spannung sofort wieder in den Sleep-Modus geht. Die Software-Schicht sorgt für die eigentliche Sicherheit und verhindert Datenverlust.
 
 ---
 
@@ -74,9 +78,9 @@ Das System kombiniert **3 Schutz-Schichten** für optimalen Filesystem-Schutz un
 ### Konfiguration via MCP4652
 | Chemie | Voff (Hardware) | Von (Hardware) | Hysterese |
 |--------|----------------|----------------|-----------|
-| Li-Ion | 3.0V | 3.45V | 450mV |
-| LiFePO4 | 2.9V | 3.15V | 250mV |
-| LTO | 4.0V | 4.3V | 300mV |
+| Li-Ion | 3.2V | 3.6V | 400mV |
+| LiFePO4 | 2.8V | 3.0V | 200mV |
+| LTO | 4.0V | 4.4V | 400mV |
 
 ### Schutz-Verhalten
 - Bei VBAT < Voff: TPS62840 Enable → LOW
@@ -89,48 +93,48 @@ Das System kombiniert **3 Schutz-Schichten** für optimalen Filesystem-Schutz un
 
 ## Szenarien
 
-### Szenario A: Normale Entladung (Software-Shutdown)
+### Szenario A: Normale Entladung (Software-Shutdown) - Li-Ion
 ```
 t=0:    VBAT = 3.7V → Normal (60s checks)
 t=+1h:  VBAT = 3.5V → Warning (30s checks)
-t=+2h:  VBAT = 3.3V → Critical (10s checks)
-t=+2.5h: VBAT = 3.19V → Shutdown
+t=+2h:  VBAT = 3.45V → Critical (10s checks)
+t=+2.5h: VBAT = 3.39V → Software Sleep (< 3.4V)
          - Filesystem sync
          - RTC: Wake in 12h
          - SYSTEMOFF
 t=+14.5h: RTC weckt auf
-         - VBAT = 3.15V (noch zu niedrig)
+         - VBAT = 3.5V (noch unter Normalbetrieb 3.6V)
          - Zurück zu SYSTEMOFF (12h)
 t=+26.5h: RTC weckt auf
-         - VBAT = 3.35V (OK, über 3.3V)
+         - VBAT = 3.65V (OK, über 3.6V)
          - Normal weiter ✅
 ```
 
-### Szenario B: Kritische Entladung (Hardware-Cutoff)
+### Szenario B: Kritische Entladung (Hardware-Cutoff) - Li-Ion
 ```
-t=0:    VBAT = 3.2V → Shutdown
+t=0:    VBAT = 3.4V → Software Sleep
         - Filesystem sync
         - RTC: Wake in 12h
         - SYSTEMOFF
-t=+1h:  VBAT = 2.95V (weiter gesunken!)
-        → TP2120 schaltet ab (< 3.0V)
+t=+1h:  VBAT = 3.15V (weiter gesunken im Sleep!)
+        → TP2120 schaltet ab (< 3.2V)
         → RAK stromlos, RTC läuft weiter
-t=+6h:  Solar lädt → VBAT = 3.5V
-        → TP2120 schaltet ein (> 3.45V)
+t=+6h:  Solar lädt → VBAT = 3.65V
+        → TP2120 schaltet ein (> 3.6V)
         → Hardware-Boot
         → begin() checkt Shutdown-Grund
         → Normal weiter ✅
 ```
 
-### Szenario C: Schnelle Recovery
+### Szenario C: Schnelle Recovery - Li-Ion
 ```
-t=0:    VBAT = 3.15V → Shutdown
+t=0:    VBAT = 3.35V → Software Sleep (< 3.4V)
         - RTC: Wake in 12h
         - SYSTEMOFF
-t=+0.5h: Sonne kommt → VBAT = 3.4V
+t=+0.5h: Sonne kommt → VBAT = 3.8V
          (Aber: Noch kein RTC-Wake)
 t=+12h: RTC weckt auf
-        - VBAT = 4.1V (voll geladen)
+        - VBAT = 4.1V (voll geladen, über 3.6V)
         - Normal weiter ✅
 ```
 
@@ -363,16 +367,25 @@ uint16_t InheroMr1Board::getVoltageCriticalThreshold() {
     case BoardConfigContainer::BatteryType::LTO_2S:
       return 4200;  // 4.2V for LTO 2S (200mV before 4.0V hardware cutoff)
     case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-      return 3000;  // 3.0V for LiFePO4 1S (100mV before 2.9V hardware cutoff)
+      return 2900;  // 2.9V for LiFePO4 1S (100mV before 2.8V hardware cutoff)
     case BoardConfigContainer::BatteryType::LIION_1S:
     default:
-      return 3200;  // 3.2V for Li-Ion 1S (200mV before 3.0V hardware cutoff)
+      return 3400;  // 3.4V for Li-Ion 1S (200mV before 3.2V hardware cutoff)
   }
 }
 
 uint16_t InheroMr1Board::getVoltageWakeThreshold() {
-  // Add 100mV hysteresis to critical threshold
-  return getVoltageCriticalThreshold() + 100;
+  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
+  
+  switch (chemType) {
+    case BoardConfigContainer::BatteryType::LTO_2S:
+      return 4400;  // 4.4V for LTO 2S (Normalbetrieb)
+    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
+      return 3000;  // 3.0V for LiFePO4 1S (Normalbetrieb)
+    case BoardConfigContainer::BatteryType::LIION_1S:
+    default:
+      return 3600;  // 3.6V for Li-Ion 1S (Normalbetrieb)
+  }
 }
 ```
 
@@ -394,7 +407,8 @@ void voltageMonitorTask(void* parameter) {
   
   // Get chemistry-specific thresholds
   uint16_t critical_mv = InheroMr1Board::getVoltageCriticalThreshold();
-  uint16_t warning_mv = critical_mv + 200;  // +200mV above critical
+  uint16_t warning_mv = critical_mv + 100;  // +100mV above critical
+  uint16_t normal_mv = InheroMr1Board::getVoltageWakeThreshold();  // Normalbetrieb threshold
   
   while (true) {
     // Read battery voltage via BQ25798
@@ -408,10 +422,10 @@ void voltageMonitorTask(void* parameter) {
                          vbat_mv, critical_mv);
       InheroMr1Board::initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
       // Never returns
-    } else if (vbat_mv < (critical_mv + 200)) {
+    } else if (vbat_mv < warning_mv) {
       newState = VOLTAGE_STATE_CRITICAL;
       checkInterval_ms = 10000;  // Check every 10s
-    } else if (vbat_mv < warning_mv) {
+    } else if (vbat_mv < normal_mv) {
       newState = VOLTAGE_STATE_WARNING;
       checkInterval_ms = 30000;  // Check every 30s
     } else {

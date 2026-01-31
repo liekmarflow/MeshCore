@@ -219,6 +219,11 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   bqDriverInstance->readReg(0x22);
 
   uint8_t status0 = bqDriverInstance->readReg(0x1B);
+  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
+  
+  // Get VBUS voltage from telemetry data
+  const Telemetry* telem = bqDriverInstance->getTelemetryData();
+  uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
 
   // Check if MPPT is enabled in configuration
   bool mpptEnabled;
@@ -233,12 +238,46 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
     return;
   }
 
+  // Detect stuck PGOOD state: VBUS voltage present but PGOOD not set
+  // This can happen after long periods without solar input (overnight)
+  // when the BQ25798's VOC scan gives up after repeated failures
+  static uint8_t stuckPgoodCounter = 0;
+  const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
+  
+  if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING) {
+    stuckPgoodCounter++;
+    MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
+    MESH_DEBUG_PRINT(vbusVoltage);
+    MESH_DEBUG_PRINT("mV, PG=0, cnt=");
+    MESH_DEBUG_PRINTLN(stuckPgoodCounter);
+    
+    // After 3 consecutive detections (45min with 15min checks), trigger recovery
+    if (stuckPgoodCounter >= 3) {
+      MESH_DEBUG_PRINTLN("Triggering BQ25798 PGOOD recovery: Toggle EN_CHG");
+      
+      // Toggle EN_CHG bit to force new input source detection
+      // According to BQ25798 datasheet, this triggers a fresh input scan
+      // including VBUS voltage check and PGOOD status update
+      bq.setChargeEnable(false);
+      delay(100); // Brief pause to ensure state change is registered
+      bq.setChargeEnable(true);
+      delay(100); // Allow input detection to complete
+      
+      MESH_DEBUG_PRINTLN("BQ25798 EN_CHG toggle complete - input scan triggered");
+      stuckPgoodCounter = 0;
+    }
+  } else if (powerGood) {
+    // PGOOD is working correctly - reset counter
+    stuckPgoodCounter = 0;
+  }
+
   // MPPT enabled in config - apply normal solar logic
   if (status0 & 0x08) {
     uint8_t mpptVal = bqDriverInstance->readReg(0x15);
 
     if ((mpptVal & 0x01) == 0) {
       bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
+      MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
     }
   }
 }
