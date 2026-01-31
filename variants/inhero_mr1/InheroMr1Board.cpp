@@ -103,6 +103,48 @@ static BLEDfu bledfu;
 
 static BoardConfigContainer boardConfig;
 
+/// @brief Detect hardware version by probing I2C devices
+/// @return Hardware version enum (HW_V0_1 or HW_V0_2)
+HardwareVersion InheroMr1Board::detectHardwareVersion() {
+  if (hwVersion != HW_UNKNOWN) {
+    return hwVersion;  // Already detected, use cached value
+  }
+
+  MESH_DEBUG_PRINTLN("Detecting hardware version...");
+
+  // Try to detect INA228 (v0.2) - most reliable method
+  Wire.beginTransmission(INA228_I2C_ADDR);
+  if (Wire.endTransmission() == 0) {
+    // INA228 found - verify by reading manufacturer ID
+    Wire.beginTransmission(INA228_I2C_ADDR);
+    Wire.write(0x3E);  // Manufacturer ID register
+    Wire.endTransmission(false);
+    Wire.requestFrom(INA228_I2C_ADDR, (uint8_t)2);
+    
+    if (Wire.available() >= 2) {
+      uint16_t mfg_id = (Wire.read() << 8) | Wire.read();
+      if (mfg_id == 0x5449) {  // "TI" = Texas Instruments
+        MESH_DEBUG_PRINTLN("Hardware v0.2 detected (INA228 found @ 0x45)");
+        hwVersion = HW_V0_2;
+        return hwVersion;
+      }
+    }
+  }
+
+  // Try to detect MCP4652 (v0.1)
+  Wire.beginTransmission(0x2F);  // MCP4652 I2C address
+  if (Wire.endTransmission() == 0) {
+    MESH_DEBUG_PRINTLN("Hardware v0.1 detected (MCP4652 found @ 0x2F)");
+    hwVersion = HW_V0_1;
+    return hwVersion;
+  }
+
+  // Fallback: Assume v0.1 if detection fails
+  MESH_DEBUG_PRINTLN("WARNING: Hardware detection failed - defaulting to v0.1");
+  hwVersion = HW_V0_1;
+  return hwVersion;
+}
+
 static void connect_callback(uint16_t conn_handle) {
   (void)conn_handle;
   MESH_DEBUG_PRINTLN("BLE client connected");
@@ -161,6 +203,12 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
   if (strcmp(cmd, "bat") == 0) {
     snprintf(reply, maxlen, "%s", BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType()));
     return true;
+  } else if (strcmp(cmd, "hwver") == 0) {
+    // Get hardware version
+    const char* hw_ver_str = (hwVersion == HW_V0_2) ? "v0.2" : "v0.1";
+    const char* hw_desc = (hwVersion == HW_V0_2) ? "INA228+RTC" : "MCP4652";
+    snprintf(reply, maxlen, "%s (%s)", hw_ver_str, hw_desc);
+    return true;
   } else if (strcmp(cmd, "frost") == 0) {
     // LTO batteries ignore JEITA temperature control
     if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
@@ -195,6 +243,31 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
              telemetry->batterie.temperature,
              telemetry->solar.voltage / 1000.0f, telemetry->solar.current,
              telemetry->system.voltage / 1000.0f);
+    return true;
+  } else if (strcmp(cmd, "soc") == 0) {
+    // v0.2 only: Battery SOC and capacity
+    if (hwVersion == HW_V0_2) {
+      char socBuffer[80];
+      boardConfig.getBatterySOCString(socBuffer, sizeof(socBuffer));
+      snprintf(reply, maxlen, "%s", socBuffer);
+    } else {
+      snprintf(reply, maxlen, "N/A (v0.2 only)");
+    }
+    return true;
+  } else if (strcmp(cmd, "balance") == 0) {
+    // v0.2 only: Daily balance and forecast
+    if (hwVersion == HW_V0_2) {
+      char balanceBuffer[100];
+      boardConfig.getDailyBalanceString(balanceBuffer, sizeof(balanceBuffer));
+      uint16_t ttl = boardConfig.getTTL_Hours();
+      if (ttl > 0) {
+        snprintf(reply, maxlen, "%s TTL:%dh", balanceBuffer, ttl);
+      } else {
+        snprintf(reply, maxlen, "%s", balanceBuffer);
+      }
+    } else {
+      snprintf(reply, maxlen, "N/A (v0.2 only)");
+    }
     return true;
   } else if (strcmp(cmd, "conf") == 0) {
     // Display all configuration values
@@ -321,9 +394,24 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
     } else {
       return "Err: Try true|false or 1|0";
     }
+  } else if (strncmp(setCommand, "batcap ", 7) == 0) {
+    // v0.2 only: Set battery capacity
+    if (hwVersion == HW_V0_2) {
+      const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[7]));
+      float capacity_mah = atof(value);
+      
+      if (boardConfig.setBatteryCapacity(capacity_mah)) {
+        snprintf(ret, sizeof(ret), "Battery capacity set to %.0f mAh", capacity_mah);
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Invalid capacity (100-100000 mAh)");
+      }
+    } else {
+      snprintf(ret, sizeof(ret), "N/A (v0.2 only)");
+    }
+    return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap>");
   return ret;
 }
 
@@ -344,7 +432,47 @@ void InheroMr1Board::begin() {
 
   Wire.begin();
 
+  // Detect hardware version before initializing peripherals
+  detectHardwareVersion();
+  
+  // Initialize board configuration (BQ25798, MCP4652/INA228, etc.)
   boardConfig.begin();
+  
+  // === Hardware v0.2 specific initialization ===
+  if (hwVersion == HW_V0_2) {
+    MESH_DEBUG_PRINTLN("Initializing v0.2 features (RTC, INA228 alerts)");
+    
+    // Configure RTC INT pin for wake-up from SYSTEMOFF
+    pinMode(RTC_INT_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
+    
+    // Check if waking from low-voltage shutdown
+    uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
+    if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+      MESH_DEBUG_PRINTLN("Woke from low voltage shutdown - checking battery");
+      
+      // Get current voltage and wake threshold
+      uint16_t vbat_mv = getBattMilliVolts();
+      uint16_t wake_threshold = getVoltageWakeThreshold();
+      
+      MESH_DEBUG_PRINTLN("VBAT=%dmV, Wake threshold=%dmV", vbat_mv, wake_threshold);
+      
+      // TODO: Add Coulomb Counter check here
+      // If battery hasn't recovered enough charge, go back to sleep
+      
+      if (vbat_mv < wake_threshold) {
+        MESH_DEBUG_PRINTLN("Voltage still low, going back to sleep for 1h");
+        delay(100);  // Let debug output complete
+        configureRTCWake(1);  // Wake up in 1 hour
+        sd_power_system_off();
+        // Never returns
+      }
+      
+      // Voltage recovered, clear shutdown reason and continue
+      MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
+      NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+    }
+  }
   
   // Enable DC/DC converter for improved power efficiency
   // Done after peripheral initialization to avoid voltage glitches
@@ -428,4 +556,156 @@ bool InheroMr1Board::startOTAUpdate(const char* id, char reply[]) {
           mac_addr[2], mac_addr[1], mac_addr[0]);
 
   return true;
+}
+
+// ===== Power Management Methods (v0.2) =====
+
+/// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
+/// @return Threshold in millivolts (200mV before hardware cutoff for safe shutdown)
+uint16_t InheroMr1Board::getVoltageCriticalThreshold() {
+  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
+  
+  switch (chemType) {
+    case BoardConfigContainer::BatteryType::LTO_2S:
+      return 4200;  // 4.2V "Dangerzone" (200mV before 4.0V hardware cutoff)
+    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
+      return 2900;  // 2.9V "Dangerzone" (100mV before 2.8V hardware cutoff)
+    case BoardConfigContainer::BatteryType::LIION_1S:
+    default:
+      return 3400;  // 3.4V "Dangerzone" (200mV before 3.2V hardware cutoff)
+  }
+}
+
+/// @brief Get voltage threshold for hardware UVLO (chemistry-specific, v0.2 only)
+/// @return Threshold in millivolts - INA228 will trigger alert at this voltage
+uint16_t InheroMr1Board::getVoltageHardwareCutoff() {
+  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
+  
+  switch (chemType) {
+    case BoardConfigContainer::BatteryType::LTO_2S:
+      return 4000;  // 4.0V - absolute minimum for LTO 2S
+    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
+      return 2800;  // 2.8V - absolute minimum for LiFePO4 1S
+    case BoardConfigContainer::BatteryType::LIION_1S:
+    default:
+      return 3200;  // 3.2V - absolute minimum for Li-Ion 1S
+  }
+}
+
+/// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
+/// @return Threshold in millivolts (higher than critical to avoid bounce)
+uint16_t InheroMr1Board::getVoltageWakeThreshold() {
+  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
+  
+  switch (chemType) {
+    case BoardConfigContainer::BatteryType::LTO_2S:
+      return 4400;  // 4.4V - normal operation voltage
+    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
+      return 3000;  // 3.0V - normal operation voltage
+    case BoardConfigContainer::BatteryType::LIION_1S:
+    default:
+      return 3600;  // 3.6V - normal operation voltage
+  }
+}
+
+/// @brief Initiate controlled shutdown with filesystem protection (v0.2)
+/// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
+void InheroMr1Board::initiateShutdown(uint8_t reason) {
+  MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
+  
+  // 1. Stop background tasks to prevent filesystem corruption
+  BoardConfigContainer::stopBackgroundTasks();
+  
+  // 2. Put INA228 into shutdown mode (v0.2 only)
+  // No need for Coulomb counting - we assume 0% SOC in danger zone
+  if (hwVersion == HW_V0_2 && boardConfig.getIna228Driver() != nullptr) {
+    MESH_DEBUG_PRINTLN("PWRMGT: Shutting down INA228");
+    boardConfig.getIna228Driver()->shutdown();
+  }
+  
+  if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+    MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - syncing filesystem");
+    
+    // TODO: Explicit filesystem sync when LittleFS is integrated
+    // For now, stopBackgroundTasks() should flush pending writes
+    delay(100);  // Allow I/O to complete
+    
+    // 3. Configure RTC to wake us up in 1 hour
+    configureRTCWake(1);
+  }
+  
+  // 4. Store shutdown reason for next boot
+  NRF_POWER->GPREGRET2 = reason;
+  
+  // 5. Enter SYSTEMOFF mode (1-5 µA)
+  MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEMOFF");
+  delay(50);  // Let debug output complete
+  
+  sd_power_system_off();
+  // Never returns
+}
+
+/// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
+/// @param hours Wake-up interval in hours (typically 1 = hourly checks)
+void InheroMr1Board::configureRTCWake(uint32_t hours) {
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %d hours", hours);
+  
+  // RV-3028-C7 Register addresses
+  const uint8_t RV3028_CTRL1 = 0x00;
+  const uint8_t RV3028_CTRL2 = 0x01;
+  const uint8_t RV3028_COUNTDOWN_LSB = 0x09;
+  const uint8_t RV3028_COUNTDOWN_MSB = 0x0A;
+  
+  // Calculate countdown value
+  // Using 1Hz tick rate: countdown = hours * 3600 seconds
+  // Max countdown = 65535 seconds ≈ 18.2 hours
+  uint16_t countdown = (hours > 18) ? 65535 : (hours * 3600);
+  
+  // Write countdown value (LSB first, then MSB)
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_COUNTDOWN_LSB);
+  Wire.write(countdown & 0xFF);        // LSB
+  Wire.write((countdown >> 8) & 0xFF); // MSB
+  Wire.endTransmission();
+  
+  // Enable countdown timer (TE bit in CTRL1)
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_CTRL1);
+  Wire.write(0x01);  // TE (Timer Enable) bit
+  Wire.endTransmission();
+  
+  // Enable countdown interrupt (TIE bit in CTRL2)
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_CTRL2);
+  Wire.write(0x80);  // TIE (Timer Interrupt Enable) bit
+  Wire.endTransmission();
+  
+  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%d ticks)", countdown);
+}
+
+/// @brief RTC interrupt handler - called when countdown timer expires (v0.2)
+void InheroMr1Board::rtcInterruptHandler() {
+  // RTC countdown elapsed - device woke from SYSTEMOFF
+  // Clear Timer Flag (TF) bit to release INT pin
+  
+  // Read current CTRL2 register
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(0x01);  // CTRL2 register address
+  Wire.endTransmission(false);
+  Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
+  
+  if (Wire.available()) {
+    uint8_t ctrl2 = Wire.read();
+    
+    // Clear TF bit (bit 3) by writing 0 to it
+    ctrl2 &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
+    
+    // Write back to clear the flag and release INT pin
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(0x01);  // CTRL2 register
+    Wire.write(ctrl2);
+    Wire.endTransmission();
+  }
+  
+  // Note: Main logic for voltage/charge check happens in begin()
 }

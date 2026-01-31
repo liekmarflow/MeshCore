@@ -4,13 +4,26 @@
 
 The Inhero MR-1 is a solar-powered mesh network node featuring advanced battery management, configurable chemistry support, and MPPT (Maximum Power Point Tracking) control.
 
+**Hardware Versions:**
+- **v0.1**: MCP4652 digital potentiometer for TP2120 UVLO control
+- **v0.2**: INA228 power monitor with integrated Coulomb Counter + RV-3028 RTC for advanced power management
+
 ## Hardware Overview
 
-### Main Components
+### Main Components (v0.1)
 - **MCU**: Nordic nRF52840 (64MHz, 243KB RAM, 796KB Flash)
 - **Radio**: SX1262 LoRa transceiver with DIO2 RF switching
 - **Battery Manager**: BQ25798 with integrated MPPT and NTC thermistor support
-- **Digital Potentiometer**: MCP4652 (dual channel) for voltage adjustment
+- **Digital Potentiometer**: MCP4652 (dual channel) for TP2120 voltage control
+- **Power Input**: Solar panel with Power Good interrupt detection
+- **Storage**: LittleFS-based preferences with SimplePreferences wrapper
+
+### Main Components (v0.2) 🆕
+- **MCU**: Nordic nRF52840 (64MHz, 243KB RAM, 796KB Flash)
+- **Radio**: SX1262 LoRa transceiver with DIO2 RF switching
+- **Battery Manager**: BQ25798 with integrated MPPT and NTC thermistor support
+- **Power Monitor**: INA228 with 20mΩ shunt, Coulomb Counter, and UVLO Alert
+- **RTC**: RV-3028-C7 for periodic wake-up and time keeping
 - **Power Input**: Solar panel with Power Good interrupt detection
 - **Storage**: LittleFS-based preferences with SimplePreferences wrapper
 
@@ -26,11 +39,17 @@ P_LORA_MOSI     = 44
 SX126X_POWER_EN = 37
 
 // GPS (Optional)
-PIN_GPS_1PPS    = 17
+PIN_GPS_1PPS    = 17  (also RTC INT on v0.2)
 GPS_ADDRESS     = 0x42 (I2C)
 
 // Battery Monitoring
 PIN_VBAT_READ   = 5
+BQ_INT_PIN      = 21
+
+// v0.2 specific
+RTC_INT_PIN     = 17  (RV-3028 interrupt)
+INA228_I2C_ADDR = 0x45
+RTC_I2C_ADDR    = 0x52
 ```
 
 ## Features
@@ -117,6 +136,20 @@ board.telem     # Get full telemetry snapshot
 board.conf      # Get all configuration values
                 # Output: B:<bat> F:<frost> M:<mppt> I:<imax>mA Vco:<voltage>
                 # Example: B:liion1s F:0% M:0 I:200mA Vco:4.20
+
+board.hwver     # Get hardware version 🆕
+                # Output: v0.1 (MCP4652) | v0.2 (INA228+RTC)
+
+# v0.2 ONLY - Advanced Power Management
+board.soc       # Get battery State of Charge 🆕
+                # Output: SOC:<percent>% Cap:<mAh>mAh(learned|config)
+                # Example: SOC:67.5% Cap:2000mAh(learned)
+
+board.balance   # Get daily energy balance and forecast 🆕
+                # Output: Today:<+/- mAh> <SOLAR|BATTERY> 3dAvg:<mAh> [TTL:<hours>h]
+                # Example: Today:+150mAh SOLAR 3dAvg:+120mAh
+                # Example: Today:-80mAh BATTERY 3dAvg:-75mAh TTL:120h
+                # TTL = Time To Live (hours until battery empty)
 ```
 
 #### Set Commands
@@ -137,6 +170,11 @@ set board.imax <current>       # Set max charge current in mA
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
+
+set board.batcap <capacity>    # Set battery capacity in mAh 🆕 (v0.2 only)
+                               # Range: 100-100000 mAh
+                               # Example: set board.batcap 2000
+                               # Used for accurate SOC calculation
 ```
 
 #### Output Abbreviations
@@ -233,6 +271,78 @@ The 7-day MPPT percentage provides long-term stability indication, while the 3-d
 **Implementation**:
 The statistics tracking is fully integrated into the existing `solarMpptTask` and leverages the BQ25798's interrupt system. When the MPPT status changes, an interrupt is triggered and the elapsed time is accounted for. Additionally, solar panel power (voltage × current) is continuously integrated to calculate harvested energy: E = P × Δt. This interrupt-driven approach is highly efficient and accurate, requiring no polling overhead. Time tracking uses RTC when available, with automatic fallback to millis() during system startup.
 
+## v0.2 Advanced Power Management 🆕
+
+Hardware v0.2 introduces sophisticated battery management with Coulomb Counter integration and intelligent power forecasting:
+
+### INA228 Power Monitor
+- **Shunt Resistor**: 20mΩ (±40.96mV ADC range)
+- **Max Current**: 1A through shunt
+- **ADC Resolution**: 20-bit
+- **Features**:
+  - Voltage/Current/Power monitoring
+  - Energy accumulation (Coulomb Counter)
+  - Charge accumulation (mAh tracking)
+  - Hardware UVLO alert
+  - Die temperature sensor
+
+### Battery SOC (State of Charge)
+- **Coulomb Counting**: Primary SOC calculation method
+- **Voltage Fallback**: Chemistry-specific voltage curves
+- **Auto-Learning**: Learns capacity during full charge cycles
+- **Manual Override**: Set capacity via `set board.batcap <mAh>`
+- **Accuracy**: ±2% with proper capacity configuration
+
+### Daily Energy Balance
+Tracks energy flow over 7-day rolling window:
+- **Today's Balance**: Solar charge vs. discharge
+- **3-Day Average**: Trend analysis for forecasting
+- **Living Status**: Automatically detects "living on battery" vs "living on solar"
+- **Persistence**: Survives reboots via statistical smoothing
+
+### Time To Live (TTL) Forecast
+When living on battery (net deficit), calculates:
+```
+TTL (hours) = (Current SOC × Capacity) / Average Daily Deficit
+```
+Example:
+- SOC: 60% (1200 mAh remaining)
+- 3-day avg deficit: -100 mAh/day
+- TTL: 1200 / 100 = 12 days = 288 hours
+
+### RV-3028 RTC Integration
+- **Countdown Timer**: Hourly wake-ups during shutdown
+- **INT Pin**: GPIO17 triggers wake from SYSTEMOFF
+- **Low-Voltage Recovery**: 
+  1. RAK enters "Danger Zone" (e.g., 2.9V for LiFePO4)
+  2. INA228 enters shutdown mode (stops Coulomb Counter)
+  3. Controlled shutdown with filesystem sync
+  4. RTC wakes every hour
+  5. Checks voltage recovery
+  6. INA228 wakes up and checks charge status
+  7. Resumes if voltage recovered AND sufficient charge gained
+
+### Power Management Flow
+When entering low-voltage shutdown:
+1. **Stop Background Tasks**: Prevents filesystem corruption
+2. **INA228 Shutdown**: Puts power monitor into power-down mode (~1µA)
+   - Stops all ADC conversions
+   - Disables Coulomb Counter (no counting during 0% SOC anyway)
+3. **Configure RTC Wake**: Sets countdown timer for 1 hour
+4. **Store Shutdown Reason**: Saves to GPREGRET2 for next boot
+5. **Enter SYSTEMOFF**: nRF52 deep sleep (1-5µA total)
+
+### Hardware UVLO (Under-Voltage Lockout)
+- **INA228 Alert Pin**: Directly controls TPS62840 EN pin
+- **Chemistry-Specific Thresholds**:
+  - Li-Ion: 3.2V (absolute minimum)
+  - LiFePO4: 2.8V (absolute minimum)
+  - LTO 2S: 4.0V (absolute minimum)
+- **Protection Layers**:
+  1. Software "Danger Zone" (200mV before hardware cutoff)
+  2. Hardware Alert (INA228 → TPS EN)
+  3. Zero power consumption when triggered (0 µA)
+
 ## Technical Details
 
 ### Battery Charger (BQ25798)
@@ -243,11 +353,11 @@ The statistics tracking is fully integrated into the existing `solarMpptTask` an
 - **Temperature Sensing**: NTC thermistor with Beta equation calculation
 - **Interrupt System**: Solar-only interrupts (Power Good monitoring)
 
-### Digital Potentiometer (MCP4652)
+### Digital Potentiometer (MCP4652) - v0.1
 - **Channels**: 2 independent wipers
 - **Resolution**: 257 steps (0-256)
 - **Interface**: I2C (default address 0x2F)
-- **Purpose**: Battery chemistry voltage adjustment
+- **Purpose**: Battery chemistry voltage adjustment for TP2120
 
 ### Preferences Storage
 Persistent configuration stored in LittleFS:
@@ -257,6 +367,7 @@ Persistent configuration stored in LittleFS:
   - `frost_behavior` - Low temperature charging behavior
   - `max_charge_current_ma` - Charge current limit
   - `reduced_voltage` - Reduced voltage flag
+  - `battery_capacity_mah` - Battery capacity (v0.2)
 
 ### Temperature Calculation
 The board uses a Steinhart-Hart / Beta equation for accurate battery temperature:
@@ -359,6 +470,28 @@ The `solarMpptTask` runs continuously:
 1. Check LittleFS is mounted correctly
 2. Verify sufficient flash space available
 3. Check logs for filesystem errors
+
+## Version History
+
+### v0.2 (January 2026) 🆕
+- **Hardware**: INA228 power monitor replaces MCP4652
+- **RTC**: RV-3028-C7 integration for wake-up management
+- **Coulomb Counter**: Real-time energy tracking and SOC calculation
+- **Daily Balance**: 7-day energy tracking with solar vs. battery analysis
+- **TTL Forecast**: Predict battery life based on usage patterns
+- **Auto-Learning**: Automatic battery capacity detection
+- **Hardware UVLO**: INA228 Alert → TPS EN for ultimate protection
+- **Power Management**: INA228 shutdown mode during SYSTEMOFF (~1µA)
+- **New CLI Commands**: `board.hwver`, `board.soc`, `board.balance`, `set board.batcap`
+
+### v0.1 (December 2025)
+- Initial release
+- BQ25798 battery management with MPPT
+- MCP4652 digital potentiometer for TP2120 control
+- Multi-chemistry support (Li-Ion, LiFePO4, LTO)
+- JEITA temperature control
+- 7-day MPPT statistics
+- Telemetry system with CayenneLPP
 
 ## License
 

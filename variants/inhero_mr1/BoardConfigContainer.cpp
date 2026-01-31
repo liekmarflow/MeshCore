@@ -22,9 +22,11 @@
  * SOFTWARE.
  */
 #include "BoardConfigContainer.h"
+#include "InheroMr1Board.h"
 
 #include "lib/BqDriver.h"
 #include "lib/McpDriver.h"
+#include "lib/Ina228Driver.h"
 #include "lib/SimplePreferences.h"
 
 #include <ArduinoJson.h>
@@ -45,15 +47,26 @@ namespace {
   }
 }
 
+// Hardware drivers (v0.1)
 static BqDriver bq;
 static McpDriver mcp;
+
+// Hardware drivers (v0.2)
+static Ina228Driver ina228;
+
 static SimplePreferences prefs;
+
+// Forward declare board instance to access hardware version
+extern InheroMr1Board board;
 
 // Initialize singleton pointer
 BqDriver* BoardConfigContainer::bqDriverInstance = nullptr;
+Ina228Driver* BoardConfigContainer::ina228DriverInstance = nullptr;
 TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
+TaskHandle_t BoardConfigContainer::voltageMonitorTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
+BatterySOCStats BoardConfigContainer::socStats = {};
 
 // Watchdog state
 static bool wdt_enabled = false;
@@ -565,6 +578,7 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
 /// @return true if both BQ25798 and MCP4652 initialized successfully
 bool BoardConfigContainer::begin() {
+  // Initialize BQ25798 (common for both v0.1 and v0.2)
   if (bq.begin()) {
     BQ_INITIALIZED = true;
     bqDriverInstance = &bq;
@@ -573,13 +587,55 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("BQ25798 not found.");
     BQ_INITIALIZED = false;
   }
-  if (mcp.begin()) {
-    MCP_INITIALIZED = true;
-    MESH_DEBUG_PRINTLN("MCP4652 found. ");
+  
+  // === Hardware-specific initialization ===
+  if (board.getHardwareVersion() == HW_V0_2) {
+    // v0.2: INA228 Power Monitor with UVLO
+    if (ina228.begin(20.0f)) {  // 20mΩ shunt resistor
+      INA228_INITIALIZED = true;
+      ina228DriverInstance = &ina228;
+      MESH_DEBUG_PRINTLN("INA228 found @ 0x45");
+      
+      // Load battery type to set chemistry-specific UVLO threshold
+      BatteryType bat;
+      if (!loadBatType(bat)) {
+        bat = DEFAULT_BATTERY_TYPE;
+      }
+      
+      // Set hardware UVLO threshold based on chemistry
+      uint16_t uvlo_mv = 0;
+      switch (bat) {
+        case BatteryType::LTO_2S:
+          uvlo_mv = 4000;  // 4.0V
+          break;
+        case BatteryType::LIFEPO4_1S:
+          uvlo_mv = 2800;  // 2.8V
+          break;
+        case BatteryType::LIION_1S:
+        default:
+          uvlo_mv = 3200;  // 3.2V
+          break;
+      }
+      
+      ina228.setUnderVoltageAlert(uvlo_mv);
+      ina228.enableAlert(true, false, true);  // UVLO only, active-high
+      MESH_DEBUG_PRINTLN("INA228 UVLO threshold: %dmV", uvlo_mv);
+    } else {
+      MESH_DEBUG_PRINTLN("INA228 not found @ 0x45");
+      INA228_INITIALIZED = false;
+    }
   } else {
-    MESH_DEBUG_PRINTLN("MCP4652 not found.");
-    MCP_INITIALIZED = false;
+    // v0.1: MCP4652 for TP2120 voltage control
+    if (mcp.begin()) {
+      MCP_INITIALIZED = true;
+      MESH_DEBUG_PRINTLN("MCP4652 found @ 0x2F");
+    } else {
+      MESH_DEBUG_PRINTLN("MCP4652 not found.");
+      MCP_INITIALIZED = false;
+    }
   }
+  
+  // === Common initialization (both versions) ===
   prefs.begin(PREFS_NAMESPACE);
   BatteryType bat;
   FrostChargeBehaviour frost;
@@ -601,7 +657,12 @@ bool BoardConfigContainer::begin() {
 
   this->configureBaseBQ();
   this->configureChemistry(bat, reducedBattVoltage);
-  this->configureMCP(bat);
+  
+  // Only configure MCP for v0.1
+  if (board.getHardwareVersion() == HW_V0_1) {
+    this->configureMCP(bat);
+  }
+  
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
 
@@ -631,10 +692,26 @@ bool BoardConfigContainer::begin() {
       return false;
     }
   }
+  
+  // Start Voltage Monitor Task for v0.2 hardware
+  if (board.getHardwareVersion() == HW_V0_2 && voltageMonitorTaskHandle == NULL) {
+    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::voltageMonitorTask, "VoltMon", 2048, NULL, 2, &voltageMonitorTaskHandle);
+    if (taskCreated != pdPASS) {
+      MESH_DEBUG_PRINTLN("Failed to create Voltage Monitor task!");
+      // Non-critical, continue
+    } else {
+      MESH_DEBUG_PRINTLN("Voltage Monitor task started (v0.2)");
+    }
+  }
 
   attachInterrupt(digitalPinToInterrupt(BQ_INT_PIN), onBqInterrupt, FALLING);
 
-  return BQ_INITIALIZED && MCP_INITIALIZED;
+  // Return success based on hardware version
+  if (board.getHardwareVersion() == HW_V0_2) {
+    return BQ_INITIALIZED && INA228_INITIALIZED;
+  } else {
+    return BQ_INITIALIZED && MCP_INITIALIZED;
+  }
 }
 
 /// @brief Loads battery type from preferences
@@ -1149,4 +1226,357 @@ void BoardConfigContainer::getMpptStatsString(char* buffer, uint32_t bufferSize)
   
   snprintf(buffer, bufferSize, "7d:%.1f%% 3d:%dmWh (%.1fd)", 
            percentage, avgDailyEnergy, days);
+}
+
+// ===== Battery SOC & Coulomb Counter Methods (v0.2) =====
+
+/// @brief Get current State of Charge in percent
+/// @return SOC in % (0-100)
+float BoardConfigContainer::getStateOfCharge() const {
+  return socStats.current_soc_percent;
+}
+
+/// @brief Get battery capacity in mAh
+/// @return Battery capacity (learned or configured)
+float BoardConfigContainer::getBatteryCapacity() const {
+  return socStats.battery_capacity_mah;
+}
+
+/// @brief Set battery capacity manually via CLI
+/// @param capacity_mah Capacity in mAh
+/// @return true if successful
+bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
+  if (capacity_mah < 100.0f || capacity_mah > 100000.0f) {
+    return false;  // Sanity check
+  }
+  
+  socStats.battery_capacity_mah = capacity_mah;
+  socStats.capacity_learned = false;  // Manual override
+  
+  // Save to preferences (as integer mAh)
+  prefs.putInt(BATTERY_CAPACITY_KEY, (uint16_t)capacity_mah);
+  
+  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh", capacity_mah);
+  return true;
+}
+
+/// @brief Get formatted SOC string
+/// @param buffer Output buffer
+/// @param bufferSize Buffer size
+void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize) const {
+  const char* capacity_source = socStats.capacity_learned ? "learned" : "config";
+  snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh(%s)", 
+           socStats.current_soc_percent, 
+           socStats.battery_capacity_mah,
+           capacity_source);
+}
+
+/// @brief Get formatted daily balance string
+/// @param buffer Output buffer
+/// @param bufferSize Buffer size
+void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSize) const {
+  // Get today's stats
+  int32_t today_net = socStats.today_solar_mah - socStats.today_discharge_mah;
+  const char* status = socStats.living_on_battery ? "BATTERY" : "SOLAR";
+  
+  snprintf(buffer, bufferSize, "Today:%+dmAh %s 3dAvg:%+.0fmAh", 
+           today_net,
+           status,
+           socStats.avg_daily_deficit_mah);
+}
+
+/// @brief Get Time To Live in hours
+/// @return Hours until battery empty (0 = not calculated or charging)
+uint16_t BoardConfigContainer::getTTL_Hours() const {
+  return socStats.ttl_hours;
+}
+
+/// @brief Check if living on battery (net deficit)
+/// @return true if using more than charging
+bool BoardConfigContainer::isLivingOnBattery() const {
+  return socStats.living_on_battery;
+}
+
+/// @brief Load battery capacity from preferences
+/// @param capacity_mah Output parameter
+/// @return true if loaded successfully
+bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
+  // Check if key exists by building file path manually
+  String path = String("/") + PREFS_NAMESPACE + "/" + BATTERY_CAPACITY_KEY + ".txt";
+  if (InternalFS.exists(path.c_str())) {
+    char buffer[20];
+    prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "0");
+    capacity_mah = atof(buffer);
+    return (capacity_mah > 0.0f);
+  }
+  
+  // Default capacity based on battery type (estimate)
+  BatteryType type;
+  if (loadBatType(type)) {
+    switch (type) {
+      case BatteryType::LTO_2S:
+        capacity_mah = 2000.0f;  // Typical LTO capacity
+        break;
+      case BatteryType::LIFEPO4_1S:
+        capacity_mah = 1500.0f;  // Typical LiFePO4 capacity
+        break;
+      case BatteryType::LIION_1S:
+      default:
+        capacity_mah = 2000.0f;  // Typical Li-Ion capacity
+        break;
+    }
+  } else {
+    capacity_mah = 2000.0f;  // Default fallback
+  }
+  
+  return false;  // Not loaded from prefs
+}
+
+/// @brief Get INA228 driver instance (v0.2)
+/// @return Pointer to INA228 driver or nullptr if not initialized
+Ina228Driver* BoardConfigContainer::getIna228Driver() {
+  return ina228DriverInstance;
+}
+
+/// @brief Update battery SOC from INA228 Coulomb Counter
+void BoardConfigContainer::updateBatterySOC() {
+  if (board.getHardwareVersion() != HW_V0_2 || !ina228DriverInstance) {
+    return;
+  }
+  
+  Ina228BatteryData data;
+  if (!ina228DriverInstance->readAll(&data)) {
+    return;
+  }
+  
+  // Update today's accumulators
+  float charge_delta_mah = data.charge_mah - socStats.learning_accumulated_mah;
+  socStats.learning_accumulated_mah = data.charge_mah;
+  
+  if (charge_delta_mah > 0) {
+    // Charging
+    socStats.today_charge_mah += (int32_t)charge_delta_mah;
+    socStats.today_solar_mah += (int32_t)charge_delta_mah;
+  } else {
+    // Discharging
+    socStats.today_discharge_mah += (int32_t)(-charge_delta_mah);
+  }
+  
+  // Update SOC
+  if (socStats.battery_capacity_mah > 0) {
+    // Coulomb-counting based SOC
+    float soc_delta = (charge_delta_mah / socStats.battery_capacity_mah) * 100.0f;
+    socStats.current_soc_percent += soc_delta;
+    
+    // Clamp to 0-100%
+    if (socStats.current_soc_percent > 100.0f) socStats.current_soc_percent = 100.0f;
+    if (socStats.current_soc_percent < 0.0f) socStats.current_soc_percent = 0.0f;
+  } else {
+    // Fallback: Voltage-based SOC estimation
+    BatteryType type;
+    if (bqDriverInstance) {
+      // Get battery type from config
+      BoardConfigContainer temp;
+      temp.loadBatType(type);
+      socStats.current_soc_percent = estimateSOCFromVoltage(data.voltage_mv, type);
+    }
+  }
+  
+  // TODO: Auto-learning capacity from full charge cycle
+  // Detect "Charge Done" from BQ25798 → Start learning
+  // Accumulate discharge until "Danger Zone" → Calculate capacity
+}
+
+/// @brief Update daily balance statistics
+void BoardConfigContainer::updateDailyBalance() {
+  uint32_t currentTime = getRTCTime();
+  
+  // Check if day has changed (86400 seconds = 1 day)
+  if (currentTime - socStats.lastUpdateTime >= 86400) {
+    // Move to next day
+    uint8_t nextIndex = (socStats.currentIndex + 1) % DAILY_STATS_DAYS;
+    
+    // Save today's stats
+    DailyBatteryStats& today = socStats.days[socStats.currentIndex];
+    today.timestamp = socStats.lastUpdateTime;
+    today.charge_mah = socStats.today_charge_mah;
+    today.discharge_mah = socStats.today_discharge_mah;
+    today.solar_charge_mah = socStats.today_solar_mah;
+    today.net_balance_mah = socStats.today_solar_mah - socStats.today_discharge_mah;
+    
+    // Reset accumulators for new day
+    socStats.currentIndex = nextIndex;
+    socStats.today_charge_mah = 0;
+    socStats.today_discharge_mah = 0;
+    socStats.today_solar_mah = 0;
+    socStats.lastUpdateTime = currentTime;
+    
+    // Calculate 3-day average deficit
+    int32_t total_deficit = 0;
+    int32_t valid_days = 0;
+    for (int i = 0; i < 3 && i < DAILY_STATS_DAYS; i++) {
+      int idx = (socStats.currentIndex - 1 - i + DAILY_STATS_DAYS) % DAILY_STATS_DAYS;
+      if (socStats.days[idx].timestamp != 0) {
+        total_deficit += socStats.days[idx].net_balance_mah;
+        valid_days++;
+      }
+    }
+    
+    if (valid_days > 0) {
+      socStats.avg_daily_deficit_mah = (float)total_deficit / valid_days;
+      socStats.living_on_battery = (socStats.avg_daily_deficit_mah < 0);
+    }
+    
+    // Calculate TTL
+    calculateTTL();
+  }
+}
+
+/// @brief Calculate Time To Live (hours until battery empty)
+void BoardConfigContainer::calculateTTL() {
+  if (!socStats.living_on_battery || socStats.avg_daily_deficit_mah >= 0) {
+    socStats.ttl_hours = 0;  // Not draining or charging
+    return;
+  }
+  
+  if (socStats.battery_capacity_mah <= 0) {
+    socStats.ttl_hours = 0;  // Capacity unknown
+    return;
+  }
+  
+  // Current remaining capacity in mAh
+  float remaining_mah = (socStats.current_soc_percent / 100.0f) * socStats.battery_capacity_mah;
+  
+  // Daily deficit (negative value)
+  float deficit_per_day = -socStats.avg_daily_deficit_mah;
+  
+  if (deficit_per_day <= 0) {
+    socStats.ttl_hours = 0;
+    return;
+  }
+  
+  // Days until empty
+  float days_remaining = remaining_mah / deficit_per_day;
+  
+  // Convert to hours
+  socStats.ttl_hours = (uint16_t)(days_remaining * 24.0f);
+  
+  MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mAh remaining, -%.0f mAh/day)",
+                     days_remaining, remaining_mah, deficit_per_day);
+}
+
+/// @brief Estimate SOC from voltage (fallback method)
+/// @param voltage_mv Battery voltage in mV
+/// @param type Battery chemistry type
+/// @return Estimated SOC in %
+float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type) {
+  float voltage_v = voltage_mv / 1000.0f;
+  float soc = 0.0f;
+  
+  switch (type) {
+    case BatteryType::LTO_2S:
+      // LTO discharge curve (2S): 5.6V (100%) → 4.0V (0%)
+      soc = ((voltage_v - 4.0f) / (5.6f - 4.0f)) * 100.0f;
+      break;
+      
+    case BatteryType::LIFEPO4_1S:
+      // LiFePO4 discharge curve (1S): 3.6V (100%) → 2.8V (0%)
+      soc = ((voltage_v - 2.8f) / (3.6f - 2.8f)) * 100.0f;
+      break;
+      
+    case BatteryType::LIION_1S:
+    default:
+      // Li-Ion discharge curve (1S): 4.2V (100%) → 3.2V (0%)
+      // More accurate: use piecewise linear approximation
+      if (voltage_v >= 4.1f) {
+        soc = 90.0f + ((voltage_v - 4.1f) / 0.1f) * 10.0f;  // 4.1-4.2V = 90-100%
+      } else if (voltage_v >= 3.9f) {
+        soc = 70.0f + ((voltage_v - 3.9f) / 0.2f) * 20.0f;  // 3.9-4.1V = 70-90%
+      } else if (voltage_v >= 3.7f) {
+        soc = 40.0f + ((voltage_v - 3.7f) / 0.2f) * 30.0f;  // 3.7-3.9V = 40-70%
+      } else if (voltage_v >= 3.5f) {
+        soc = 20.0f + ((voltage_v - 3.5f) / 0.2f) * 20.0f;  // 3.5-3.7V = 20-40%
+      } else {
+        soc = ((voltage_v - 3.2f) / 0.3f) * 20.0f;          // 3.2-3.5V = 0-20%
+      }
+      break;
+  }
+  
+  // Clamp to 0-100%
+  if (soc > 100.0f) soc = 100.0f;
+  if (soc < 0.0f) soc = 0.0f;
+  
+  return soc;
+}
+
+/// @brief Voltage Monitor Task with SOC tracking (v0.2)
+/// @param pvParameters Task parameters (unused)
+void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
+  (void)pvParameters;
+  
+  MESH_DEBUG_PRINTLN("Voltage Monitor Task started (v0.2)");
+  
+  // Load or estimate battery capacity
+  float capacity_mah;
+  bool capacity_loaded = false;
+  if (bqDriverInstance) {
+    BoardConfigContainer temp;
+    capacity_loaded = temp.loadBatteryCapacity(capacity_mah);
+  } else {
+    capacity_mah = 2000.0f;  // Default
+  }
+  
+  socStats.battery_capacity_mah = capacity_mah;
+  socStats.capacity_learned = capacity_loaded;
+  socStats.current_soc_percent = 50.0f;  // Initial estimate
+  socStats.lastUpdateTime = getRTCTime();
+  
+  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh (%s)", 
+                     capacity_mah, 
+                     capacity_loaded ? "loaded" : "default");
+  
+  // Adaptive monitoring intervals
+  uint32_t checkInterval_ms = 60000;  // Start with 60s
+  
+  // Get thresholds
+  uint16_t critical_mv = 3400;  // Default, will be updated
+  uint16_t warning_mv = critical_mv + 100;
+  uint16_t normal_mv = 3600;
+  
+  while (true) {
+    // Update SOC from Coulomb Counter
+    updateBatterySOC();
+    
+    // Update daily balance (checks if day changed)
+    updateDailyBalance();
+    
+    // Read current voltage
+    uint16_t vbat_mv = 0;
+    if (ina228DriverInstance) {
+      vbat_mv = ina228DriverInstance->readVoltage_mV();
+    }
+    
+    // Check voltage thresholds
+    if (vbat_mv > 0) {
+      if (vbat_mv < critical_mv) {
+        // Critical - initiate shutdown
+        MESH_DEBUG_PRINTLN("PWRMGT: Critical voltage %dmV - shutting down", vbat_mv);
+        
+        // TODO: Call initiateShutdown from InheroMr1Board
+        // For now, just log
+        checkInterval_ms = 10000;  // 10s
+      } else if (vbat_mv < warning_mv) {
+        // Warning - check more frequently
+        checkInterval_ms = 10000;  // 10s
+      } else if (vbat_mv < normal_mv) {
+        // Near warning - moderate frequency
+        checkInterval_ms = 30000;  // 30s
+      } else {
+        // Normal - slow monitoring
+        checkInterval_ms = 60000;  // 60s
+      }
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(checkInterval_ms));
+  }
 }

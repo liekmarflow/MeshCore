@@ -53,6 +53,25 @@
 #define PIN_VBAT_READ            5
 #define ADC_MULTIPLIER           (3 * 1.73 * 1.187 * 1000)
 
+// Hardware version detection
+enum HardwareVersion : uint8_t {
+  HW_UNKNOWN = 0,
+  HW_V0_1 = 1,  // MCP4652 + TP2120 UVLO
+  HW_V0_2 = 2   // INA228 + RV-3028 RTC (active)
+};
+
+// Power Management Configuration (v0.2)
+#define RTC_INT_PIN              17  // GPIO17 (WB_IO1) - RTC Interrupt
+#define RTC_I2C_ADDR             0x52  // RV-3028-C7 I2C address
+#define INA228_I2C_ADDR          0x45  // INA228 I2C address (A0=GND, A1=GND)
+// Note: INA228 ALERT pin controls TPS62840 EN directly (hardware UVLO), not connected to RAK
+
+// Shutdown reason codes (stored in GPREGRET2)
+#define SHUTDOWN_REASON_NONE          0x00
+#define SHUTDOWN_REASON_LOW_VOLTAGE   0x01
+#define SHUTDOWN_REASON_USER_REQUEST  0x02
+#define SHUTDOWN_REASON_THERMAL       0x03
+
 class InheroMr1Board : public NRF52BoardDCDC {
 public:
   InheroMr1Board() : NRF52Board("InheroMR1_OTA") {}
@@ -61,6 +80,38 @@ public:
   // void configure();
 
   uint16_t getBattMilliVolts() override;
+  
+  /// @brief Detect hardware version by probing I2C devices
+  /// @return Hardware version enum (HW_V0_1 or HW_V0_2)
+  HardwareVersion detectHardwareVersion();
+  
+  /// @brief Get current hardware version (cached after first detection)
+  /// @return Hardware version enum
+  HardwareVersion getHardwareVersion() const { return hwVersion; }
+  
+  // Power Management Methods (v0.2 only)
+  /// @brief Initiate controlled shutdown with filesystem protection
+  /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
+  void initiateShutdown(uint8_t reason);
+  
+  /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up
+  /// @param hours Wake-up interval in hours (typically 1 = hourly checks)
+  void configureRTCWake(uint32_t hours);
+  
+  /// @brief Get voltage threshold for critical shutdown (chemistry-specific)
+  /// @return Threshold in millivolts
+  uint16_t getVoltageCriticalThreshold();
+  
+  /// @brief Get voltage threshold for hardware UVLO (chemistry-specific, v0.2 only)
+  /// @return Threshold in millivolts (e.g., 3.2V for Li-Ion, 2.8V for LiFePO4)
+  uint16_t getVoltageHardwareCutoff();
+  
+  /// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
+  /// @return Threshold in millivolts (typically critical + 100-200mV)
+  uint16_t getVoltageWakeThreshold();
+  
+  /// @brief RTC interrupt handler (called by hardware interrupt)
+  static void rtcInterruptHandler();
 
   const char* getManufacturerName() const override { return "Inhero MR-1"; }
 
@@ -74,4 +125,5 @@ public:
 
 private:
   uint8_t findNextFreeChannel(CayenneLPP& lpp);
+  HardwareVersion hwVersion = HW_UNKNOWN;  // Cached hardware version
 };

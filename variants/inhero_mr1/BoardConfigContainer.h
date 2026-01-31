@@ -25,6 +25,7 @@
 // #include "lib/SimplePreferences.h"
 #include "lib/BqDriver.h"
 #include "lib/McpDriver.h"
+#include "lib/Ina228Driver.h"  // v0.2 power monitor
 
 #include <Arduino.h>
 
@@ -48,6 +49,43 @@ typedef struct {
   uint32_t currentHourEnergy_mWh;          ///< Accumulated energy for current hour (mWh)
   int32_t lastPower_mW;                    ///< Last measured power for energy calculation
 } MpptStatistics;
+
+// Battery Coulomb Counter & SOC Tracking (v0.2)
+#define DAILY_STATS_DAYS 7  // 7 days of daily statistics
+
+typedef struct {
+  uint32_t timestamp;           ///< Unix timestamp (start of day, seconds)
+  int32_t charge_mah;          ///< Net charge for this day (+ = gained, - = lost)
+  int32_t discharge_mah;       ///< Total discharge for this day (always positive)
+  int32_t solar_charge_mah;    ///< Solar contribution for this day
+  int32_t net_balance_mah;     ///< Net balance (solar - discharge)
+} DailyBatteryStats;
+
+typedef struct {
+  DailyBatteryStats days[DAILY_STATS_DAYS]; ///< Rolling buffer of daily stats
+  uint8_t currentIndex;                     ///< Current position in circular buffer
+  uint32_t lastUpdateTime;                  ///< Last update timestamp
+  
+  // Current day accumulators
+  int32_t today_charge_mah;
+  int32_t today_discharge_mah;
+  int32_t today_solar_mah;
+  
+  // Battery capacity tracking
+  float battery_capacity_mah;  ///< Total battery capacity (learned or configured)
+  float current_soc_percent;   ///< Current State of Charge in %
+  bool capacity_learned;       ///< True if capacity was learned from full cycle
+  
+  // Auto-learning state
+  bool learning_active;        ///< Currently in learning cycle
+  float learning_start_soc;    ///< SOC at start of learning
+  float learning_accumulated_mah; ///< Accumulated charge during learning
+  
+  // Forecast
+  float avg_daily_deficit_mah; ///< 3-day average deficit (negative = using battery)
+  uint16_t ttl_hours;          ///< Time To Live - hours until battery empty (0 = not calculated)
+  bool living_on_battery;      ///< True if net deficit over last 24h
+} BatterySOCStats;
 
 class BoardConfigContainer {
 
@@ -145,19 +183,35 @@ public:
   uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
   void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
   
+  // Battery SOC & Coulomb Counter methods (v0.2)
+  float getStateOfCharge() const;              ///< Get current SOC in % (0-100)
+  float getBatteryCapacity() const;            ///< Get battery capacity in mAh
+  bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI
+  void getBatterySOCString(char* buffer, uint32_t bufferSize) const; ///< Get formatted SOC string
+  void getDailyBalanceString(char* buffer, uint32_t bufferSize) const; ///< Get daily balance stats
+  uint16_t getTTL_Hours() const;               ///< Get Time To Live in hours (0 = not calculated)
+  bool isLivingOnBattery() const;              ///< True if net deficit over last 24h
+  static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
+  static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
+  Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
+  
   // Watchdog methods
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
 
 private:
-  static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
+  static BqDriver* bqDriverInstance; ///< Singleton reference for static methods (v0.1)
+  static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228 (v0.2)
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
+  static TaskHandle_t voltageMonitorTaskHandle; ///< Handle for voltage monitor task (v0.2)
   static MpptStatistics mpptStats; ///< MPPT statistics data
+  static BatterySOCStats socStats; ///< Battery SOC statistics (v0.2)
   
   bool BQ_INITIALIZED = false;
-  bool MCP_INITIALIZED = false;
+  bool MCP_INITIALIZED = false;  // v0.1 only
+  bool INA228_INITIALIZED = false;  // v0.2 only
 
   bool setBatteryType(BatteryType type, bool reducedChargeVoltage);
 
@@ -171,12 +225,19 @@ private:
   char* MAXCHARGECURRENTKEY = "maxChrg";
   char* REDUCEDBATTVOLTAGE = "reduce";
   char* MPPTENABLEKEY = "mpptEn";
+  char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadReduceChrgU(bool& reduce) const;
+  bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   
   // MPPT Statistics helper
   static void updateMpptStats();
+  
+  // Battery SOC helpers (v0.2)
+  static void updateDailyBalance();
+  static void calculateTTL();
+  static float estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type);
 };
