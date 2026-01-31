@@ -593,6 +593,31 @@ uint16_t BqDriver::getVBAT() {
   return val; // in mV
 }
 
+/// @brief Read VBAT directly via I2C without requiring driver initialization
+/// @param wire Pointer to TwoWire instance
+/// @return Battery voltage in millivolts, or 0 if read fails
+/// @note Static method for early boot use before BqDriver::begin() is called
+uint16_t BqDriver::readVBATDirect(TwoWire* wire) {
+  const uint8_t BQ_I2C_ADDR = 0x6B;
+  // Use BQ25798_REG_VBAT_ADC from Adafruit library (via #include)
+  
+  wire->beginTransmission(BQ_I2C_ADDR);
+  wire->write(BQ25798_REG_VBAT_ADC);  // 0x3B
+  if (wire->endTransmission(false) != 0) {
+    return 0;  // I2C communication failed
+  }
+  
+  wire->requestFrom(BQ_I2C_ADDR, (uint8_t)2);
+  if (wire->available() < 2) {
+    return 0;  // Not enough data available
+  }
+  
+  uint8_t msb = wire->read();
+  uint8_t lsb = wire->read();
+  
+  return (msb << 8) | lsb;  // BQ25798 returns voltage directly in mV
+}
+
 uint16_t BqDriver::getVSYS() {
   Adafruit_BusIO_Register vsys_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VSYS_ADC, 2, MSBFIRST);
   uint16_t val;

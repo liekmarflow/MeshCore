@@ -1,10 +1,15 @@
 # Inhero MR-1 Datenblatt
 ## Solarbetriebener Mesh-Netzwerk-Knoten mit intelligentem Batteriemanagement
 
-**Revision:** 1.0  
-**Datum:** 29. Januar 2026  
+**Revision:** 2.0 (v0.2 Hardware)  
+**Datum:** 31. Januar 2026  
 **Hersteller:** Inhero GmbH  
 **Website:** https://inhero.de
+
+> **Hardware-Versionen:**  
+> - **v0.1**: MCP4652 Digitalpotentiometer + TP2120 Komparator für UVLO (Legacy)  
+> - **v0.2**: INA228 Power Monitor + RV-3028-C7 RTC für erweiterte Funktionen (Aktuell)  
+> - **Auto-Detection**: Firmware erkennt Hardware-Version automatisch via I²C
 
 ---
 
@@ -47,7 +52,11 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 - **Intelligentes MPPT**: Maximale Energieausbeute aus Solarpanels
 - **Power Path Management**: Solarenergie wird auch bei Frostschutz direkt zum Betrieb genutzt (Akku wird geschont)
 - **Temperaturgesteuertes Laden**: JEITA-konform mit NTC-Sensor
-- **Motorboating-Prävention**: Zellchemieabhängiger Brownout-Schutz verhindert zyklisches Ein-/Ausschalten
+- **Coulomb Counter (v0.2)**: Echtzeit-SOC-Tracking mit INA228 Power Monitor
+- **Daily Energy Balance (v0.2)**: 7-Tage-Analyse von Solar vs. Batterie
+- **TTL Forecast (v0.2)**: Vorhersage der Batterie-Laufzeit
+- **Hardware UVLO (v0.2)**: INA228 Alert → TPS62840 EN für ultimativen Schutz
+- **RTC Wake-up (v0.2)**: RV-3028-C7 für periodische Wiederherstellung
 - **Erweiterbar**: Multiple GPIO-Slots für Sensoren und Module
 - **Open Source**: Vollständig dokumentierte Firmware
 
@@ -87,11 +96,26 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
   - 15-Bit ADC für präzise Strom-/Spannungsmessung
   - Hardware-Interrupts für Zustandsänderungen
   
-- **Batterie-Überwachung**:
-  - Echtzeit-Spannungsmessung (ADC)
+- **Batterie-Überwachung (v0.2)**:
+  - **INA228 Power Monitor** @ I²C 0x45
+    - Echtzeit-Spannungsmessung (20-bit ADC)
+    - Echtzeit-Strommessung (20mΩ Shunt, 1A max)
+    - Coulomb Counter (Ladungsmessung in mAh)
+    - Energiemessung (mWh)
+    - Hardware-UVLO via Alert-Pin → TPS62840 EN
+    - Shutdown-Modus (~1µA während SYSTEMOFF)
   - Temperaturüberwachung (NTC-Thermistor NCP15XH103F03RC)
 
-### Spannungsanpassung & Brownout-Schutz
+### Power Management (v0.2)
+- **INA228 Hardware UVLO**:
+  - Alert-Pin steuert direkt TPS62840 Enable
+  - Chemie-spezifische Schwellenwerte:
+    - Li-Ion: 3.2V (Hardware), 3.4V (Software Dangerzone), 3.6V (Wake-up)
+    - LiFePO4: 2.8V (Hardware), 2.9V (Software Dangerzone), 3.0V (Wake-up)
+    - LTO 2S: 4.0V (Hardware), 4.2V (Software Dangerzone), 4.4V (Wake-up)
+  - 3-Schichten Schutz: Software → Hardware Alert → Zero Power (0µA)
+
+### Spannungsanpassung & Brownout-Schutz (v0.1 Legacy)
 - **Digitales Potentiometer**: Microchip MCP4652
   - Dual-Kanal, 257 Stufen (8-bit)
   - I²C-Schnittstelle (0x2F)
@@ -111,12 +135,17 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
   - I²C-Schnittstelle (0x52)
   - Batterie-Backup (optional)
   - Stromverbrauch: < 45 nA (Backup-Modus)
+  - **INT-Pin**: GPIO17 (WB_IO1) für Wake-up
 
 **Verwendungszweck**:
 - ✅ **Zeit-Synchronisation**: Verhindert "Weglaufen" der Software-RTC im RAK4630
 - ✅ **Nach Brownout**: RAK hat nach Wiedereinschaltung sofort die korrekte Zeit
 - ✅ **Nach manuellem Ausschalten**: Zeit bleibt nach SW1-Betrieb erhalten
-- ⏳ **Hardware-Wake-ups**: Verdrahtet, aber noch nicht in Software implementiert (keine Anwendung definiert)
+- ✅ **Hardware-Wake-ups (v0.2)**: 
+  - Countdown-Timer für periodische Aufwachzyklen
+  - Wake from SYSTEMOFF (1-5µA Tiefschlaf)
+  - Konfigurierbar: 1-18 Stunden Intervall
+  - Anwendung: Low-Voltage Recovery, periodisches Monitoring
 
 ### Physische Schnittstellen
 > **Hinweis:** Das Board hat **keine bestückten Erweiterungsheader**. Nur Debug- und Kommunikationspads auf der Unterseite.
@@ -184,9 +213,10 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 | Batteriespannung (Li-Ion 1S) | 3.0 (Voff) / 3.45 (Von) | 3.7 | 4.2 | V | Brownout-Schutz |
 | Batteriespannung (LiFePO4 1S) | 2.9 (Voff) / 3.15 (Von) | 3.2 | 3.6 | V | Brownout-Schutz |
 | Batteriespannung (LTO 2S) | 4.0 (Voff) / 4.3 (Von) | 5.0 | 5.6 | V | Brownout-Schutz |
-| Ladestrom (IBAT) | 10 | 500 | 1000 | mA | Software-Limit |
-| Eingangsstrom (IBUS) | - | 500 | 1000 | mA | Software-Limit |
-| Ruhestrom (Sleep) | - | 10 | 50 | µA | BLE aus, LoRa Sleep |
+| Ladestrom (IBAT) | 10 | 500 | 1000 | mA | Software-Limit (INA228 20mΩ max. 1A) |
+| Eingangsstrom (IBUS) | - | 500 | 1000 | mA | Software-Limit (INA228 20mΩ max. 1A) |
+| Ruhestrom (Sleep v0.2) | - | 5 | 10 | µA | INA228 Shutdown, LoRa Sleep |
+| Ruhestrom (Sleep v0.1) | - | 10 | 50 | µA | BLE aus, LoRa Sleep |
 | Betriebsstrom (RX) | - | 15 | 25 | mA | LoRa RX-Modus |
 | Betriebsstrom (TX @22dBm) | - | 120 | 150 | mA | LoRa TX-Modus |
 | **LoRa-Modul (RAK4630 mit SX1262)** |
@@ -345,13 +375,14 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 
 ### Interne Sensoren
 
-| Komponente | Schnittstelle | Adresse | Beschreibung |
-|------------|---------------|---------|--------------|
-| BQ25798 PMIC | I²C | 0x6B | Batteriemanagement |
-| MCP4652 DigiPot | I²C | 0x2F | Spannungsanpassung & Brownout |
-| TP2120 | Analog | - | Unterspannungsüberwachung |
-| RV-3028-C7 RTC | I²C | 0x52 | Echtzeituhr |
-| NTC-Thermistor | Analog (BQ25798) | - | Batterietemperatur |
+| Komponente | Schnittstelle | Adresse | Beschreibung | Hardware-Version |
+|------------|---------------|---------|--------------|------------------|
+| BQ25798 PMIC | I²C | 0x6B | Batteriemanagement | Alle |
+| RV-3028-C7 RTC | I²C | 0x52 | Echtzeituhr | Alle |
+| MCP4652 DigiPot | I²C | 0x2F | Spannungsanpassung (LEGACY) | **v0.1 nur** |
+| TP2120 | Analog | - | Unterspannungsüberwachung (LEGACY) | **v0.1 nur** |
+| INA228 | I²C | 0x45 | Power Monitor, Coulomb Counter | **v0.2 nur** |
+| NTC-Thermistor | Analog (BQ25798) | - | Batterietemperatur | Alle |
 
 ---
 
@@ -390,13 +421,14 @@ Temperaturoffset  = -2,5°C (Kalibrierung)
 
 | Betriebsmodus | Typisch | Maximum | Bedingung |
 |---------------|---------|---------|-----------|
-| Deep Sleep | 10 µA | 50 µA | CPU Sleep, BLE aus, LoRa Sleep |
+| Deep Sleep (v0.2) | 5 µA | 10 µA | CPU Sleep, INA228 Shutdown, LoRa Sleep |
+| Deep Sleep (v0.1) | 10 µA | 50 µA | CPU Sleep, BLE aus, LoRa Sleep |
 | CPU Aktiv (Idle) | 2 mA | 5 mA | CPU wach, kein LoRa |
 | LoRa RX | 15 mA | 25 mA | Continuous RX-Modus |
 | LoRa TX (+14dBm) | 45 mA | 60 mA | Mittlere Sendeleistung |
 | LoRa TX (+22dBm) | 120 mA | 150 mA | Maximale Sendeleistung |
 | BLE Advertising | 8 mA | 15 mA | BLE aktiv |
-| Laden (Solar) | +500 mA | +1000 mA | Software-Limit IBAT/IBUS |
+| Laden (Solar) | +500 mA | +1000 mA | Software-Limit IBAT (INA228 20mΩ max. 1A) |
 
 **Hinweis**: Stromaufnahme kann durch Software-Konfiguration optimiert werden.
 
@@ -510,10 +542,12 @@ Der Texas Instruments BQ25798 ist ein hochintegrierter Single-Chip-Batterielader
 
 ### 8.2 Multi-Chemie-Unterstützung
 
-#### MCP4652 Digitales Potentiometer & TP2120 Brownout-Schutz
+#### Hardware v0.1 (Legacy): MCP4652 Digitales Potentiometer & TP2120 Brownout-Schutz
+> **⚠️ Nur Hardware v0.1**: Diese Komponenten werden in v0.2 durch INA228 Power Monitor ersetzt.
+
 Das Dual-Channel Digital Potentiometer ermöglicht dynamische Spannungsanpassungen für verschiedene Batteriechemien ohne Hardware-Modifikation.
 
-**Funktionsweise**:
+**Funktionsweise (v0.1)**:
 1. Firmware erkennt Batterietyp aus Konfiguration
 2. MCP4652 stellt die entsprechenden Wiper-Werte ein:
    - **Kanal 1**: BQ25798 Ladespannungsanpassung
@@ -522,15 +556,22 @@ Das Dual-Channel Digital Potentiometer ermöglicht dynamische Spannungsanpassung
 
 **Wiper-Auflösung**: 257 Stufen (0-256), 8-Bit-Präzision
 
-#### Zellchemieabhängiger Brownout-Schutz (TP2120)
-Der TP2120 Komparator arbeitet mit dem MCP4652 zusammen, um einen intelligenten Brownout-Schutz zu realisieren:
+#### Zellchemieabhängiger Brownout-Schutz
+**Hardware v0.1 (Legacy)**: TP2120 Komparator arbeitet mit dem MCP4652 zusammen, um einen intelligenten Brownout-Schutz zu realisieren.
 
-**Funktionsprinzip**:
+**Funktionsprinzip (v0.1)**:
 1. **Unterspannung erkannt**: TP2120 deaktiviert den TPS62840DLCR Buck-Converter
 2. **RAK4630 stromlos**: LoRa-Modul wird komplett abgeschaltet
 3. **Board arbeitet weiter**: BQ25798 lädt Batterie über Solarpanel
 4. **Hysterese**: Wiedereinschaltung erst bei ausreichender Ladung über Schwelle
 5. **Automatische Reaktivierung**: RAK4630 startet neu, wenn Spannung stabil ist
+
+**Hardware v0.2 (Aktuell)**: INA228 Power Monitor bietet verbesserten Schutz:
+- **Echtzeit-Strommessung**: 20mΩ Shunt, max. **1000mA** (1A)
+- **Hardware-UVLO**: Alert-Pin steuert direkt TPS62840 Enable
+- **Chemie-spezifische Schwellen**: Li-Ion 3.2V, LiFePO4 2.8V, LTO 4.0V
+- **3-Schichten-Schutz**: Software → Hardware Alert → Zero Power (0µA)
+- **Coulomb Counter**: Präzise SOC-Tracking, Daily Energy Balance, TTL Forecast
 
 **Vorteile**:
 - ✅ **Verhindert Motorboating**: Kein zyklisches Ein-/Ausschalten bei niedrigem Ladezustand
@@ -685,7 +726,7 @@ Das Board bietet eine umfangreiche CLI über serielle Schnittstelle (USB/UART).
 | `set board.bat <typ>` | lto2s / lifepo1s / liion1s | Batterietyp festlegen |
 | `set board.frost <verhalten>` | 0% / 20% / 40% / 100% | Frost-Charge-Modus |
 | `set board.life <flag>` | true / false | Reduzierte Spannung aktivieren |
-| `set board.imax <strom>` | 1-1000 (mA) | Maximalen Ladestrom setzen (Software-Limit) |
+| `set board.imax <strom>` | 1-1000 (mA) | Maximalen Ladestrom setzen (Software-Limit, max. 1000mA) |
 | `set board.mppt <flag>` | true / false | MPPT aktivieren/deaktivieren |
 
 **Beispiel-Ausgabe**:
@@ -716,10 +757,12 @@ MPPT 7d avg: 87.3%, E_daily 3d: 1250mWh (3.0d data)
 - **Geräte**: Erweiterungsmodule
 
 #### Interne I²C-Geräte (Shared Bus)
-| Gerät | Adresse | Bus | Beschreibung |
-|-------|---------|-----|--------------|
-| BQ25798 | 0x6B | Internal | Battery Charger |
-| MCP4652 | 0x2F | Internal | Digital Potentiometer |
+| Gerät | Adresse | Bus | Beschreibung | Hardware-Version |
+|-------|---------|-----|--------------|------------------|
+| BQ25798 | 0x6B | Internal | Battery Charger | Alle |
+| RV-3028-C7 | 0x52 | Internal | Real-Time Clock | Alle |
+| MCP4652 | 0x2F | Internal | Digital Potentiometer | **v0.1 nur** |
+| INA228 | 0x45 | Internal | Power Monitor (20mΩ, 1A max) | **v0.2 nur** |
 
 ### 10.3 SPI-Schnittstelle
 
@@ -980,7 +1023,8 @@ set board.life false     # Volle Spannung
 - **Batterie**: Richtige Polung beachten. Verpolungsschutz vorhanden, aber Vorsicht geboten.
 
 #### ⚠️ Strombegrenzung
-- **Ladestrom**: Software-limitiert auf 1000mA (1A). Hardware unterstützt bis 3000mA.
+- **Ladestrom (v0.2)**: Software-limitiert auf **1000mA (1A)** durch INA228 20mΩ Shunt. Hardware (BQ25798) unterstützt bis 5000mA.
+- **Ladestrom (v0.1)**: Software-limitiert auf 3000mA (3A). Hardware (BQ25798) unterstützt bis 5000mA.
 - **GPIO-Strom**: Maximaler Strom pro Pin: 15 mA. Gesamtstrom: 200 mA.
 - **Solar-Panel**: Kurzschlussstrom sollte < 5A sein.
 

@@ -132,7 +132,7 @@ HardwareVersion InheroMr1Board::detectHardwareVersion() {
   }
 
   // Try to detect MCP4652 (v0.1)
-  Wire.beginTransmission(0x2F);  // MCP4652 I2C address
+  Wire.beginTransmission(MCP4652_I2C_ADDR);
   if (Wire.endTransmission() == 0) {
     MESH_DEBUG_PRINTLN("Hardware v0.1 detected (MCP4652 found @ 0x2F)");
     hwVersion = HW_V0_1;
@@ -446,31 +446,66 @@ void InheroMr1Board::begin() {
     pinMode(RTC_INT_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
     
-    // Check if waking from low-voltage shutdown
+    // === CRITICAL: Early Boot Voltage Check ===
+    // Prevents motorboating after Hardware-UVLO or Software-SHUTDOWN
+    // When INA228 Alert cuts power via TPS62840 EN, RAK loses all RAM (GPREGRET2=0x00)
+    // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN
+    
     uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
-    if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-      MESH_DEBUG_PRINTLN("Woke from low voltage shutdown - checking battery");
-      
-      // Get current voltage and wake threshold
-      uint16_t vbat_mv = getBattMilliVolts();
+    
+    // Direct BQ25798 ADC read (boardConfig not ready yet at early boot)
+    // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
+    // Use static BqDriver method that doesn't require initialization
+    uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
+    
+    if (vbat_mv == 0) {
+      MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
+      // Continue boot if we can't read voltage (better than blocking)
+    } else {
       uint16_t wake_threshold = getVoltageWakeThreshold();
+      uint16_t danger_threshold = getVoltageCriticalThreshold();
       
-      MESH_DEBUG_PRINTLN("VBAT=%dmV, Wake threshold=%dmV", vbat_mv, wake_threshold);
+      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Danger=%dmV, Wake=%dmV, Reason=0x%02X", 
+                         vbat_mv, danger_threshold, wake_threshold, shutdown_reason);
       
-      // TODO: Add Coulomb Counter check here
-      // If battery hasn't recovered enough charge, go back to sleep
-      
-      if (vbat_mv < wake_threshold) {
-        MESH_DEBUG_PRINTLN("Voltage still low, going back to sleep for 1h");
+      // Case 1: Waking from Software-SHUTDOWN (GPREGRET2 set, RTC wake-up)
+      if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+        MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
+        
+        if (vbat_mv < wake_threshold) {
+          MESH_DEBUG_PRINTLN("Voltage still below wake threshold (%dmV), going back to sleep for 1h", wake_threshold);
+          delay(100);  // Let debug output complete
+          configureRTCWake(1);  // Wake up in 1 hour
+          sd_power_system_off();
+          // Never returns
+        }
+        
+        // Voltage recovered above wake threshold
+        MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+      }
+      // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
+      // This is the critical case to prevent motorboating!
+      else if (vbat_mv < wake_threshold) {
+        MESH_DEBUG_PRINTLN("ColdBoot with low voltage detected (%dmV < %dmV)", vbat_mv, wake_threshold);
+        MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery - voltage not stable yet");
+        MESH_DEBUG_PRINTLN("Going to sleep for 1h to avoid motorboating");
+        
         delay(100);  // Let debug output complete
+        
+        // Configure RTC wake-up before shutdown
         configureRTCWake(1);  // Wake up in 1 hour
+        
+        // Store reason for next boot (this time GPREGRET2 will be valid after RTC wake)
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
+        
         sd_power_system_off();
         // Never returns
       }
-      
-      // Voltage recovered, clear shutdown reason and continue
-      MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
-      NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+      // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
+      else {
+        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, wake_threshold);
+      }
     }
   }
   
@@ -576,22 +611,6 @@ uint16_t InheroMr1Board::getVoltageCriticalThreshold() {
   }
 }
 
-/// @brief Get voltage threshold for hardware UVLO (chemistry-specific, v0.2 only)
-/// @return Threshold in millivolts - INA228 will trigger alert at this voltage
-uint16_t InheroMr1Board::getVoltageHardwareCutoff() {
-  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  
-  switch (chemType) {
-    case BoardConfigContainer::BatteryType::LTO_2S:
-      return 4000;  // 4.0V - absolute minimum for LTO 2S
-    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-      return 2800;  // 2.8V - absolute minimum for LiFePO4 1S
-    case BoardConfigContainer::BatteryType::LIION_1S:
-    default:
-      return 3200;  // 3.2V - absolute minimum for Li-Ion 1S
-  }
-}
-
 /// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
 /// @return Threshold in millivolts (higher than critical to avoid bounce)
 uint16_t InheroMr1Board::getVoltageWakeThreshold() {
@@ -650,12 +669,6 @@ void InheroMr1Board::initiateShutdown(uint8_t reason) {
 void InheroMr1Board::configureRTCWake(uint32_t hours) {
   MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %d hours", hours);
   
-  // RV-3028-C7 Register addresses
-  const uint8_t RV3028_CTRL1 = 0x00;
-  const uint8_t RV3028_CTRL2 = 0x01;
-  const uint8_t RV3028_COUNTDOWN_LSB = 0x09;
-  const uint8_t RV3028_COUNTDOWN_MSB = 0x0A;
-  
   // Calculate countdown value
   // Using 1Hz tick rate: countdown = hours * 3600 seconds
   // Max countdown = 65535 seconds ≈ 18.2 hours
@@ -663,20 +676,20 @@ void InheroMr1Board::configureRTCWake(uint32_t hours) {
   
   // Write countdown value (LSB first, then MSB)
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_COUNTDOWN_LSB);
+  Wire.write(RV3028_REG_COUNTDOWN_LSB);
   Wire.write(countdown & 0xFF);        // LSB
   Wire.write((countdown >> 8) & 0xFF); // MSB
   Wire.endTransmission();
   
   // Enable countdown timer (TE bit in CTRL1)
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_CTRL1);
+  Wire.write(RV3028_REG_CTRL1);
   Wire.write(0x01);  // TE (Timer Enable) bit
   Wire.endTransmission();
   
   // Enable countdown interrupt (TIE bit in CTRL2)
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_CTRL2);
+  Wire.write(RV3028_REG_CTRL2);
   Wire.write(0x80);  // TIE (Timer Interrupt Enable) bit
   Wire.endTransmission();
   
@@ -690,7 +703,7 @@ void InheroMr1Board::rtcInterruptHandler() {
   
   // Read current CTRL2 register
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(0x01);  // CTRL2 register address
+  Wire.write(RV3028_REG_CTRL2);
   Wire.endTransmission(false);
   Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
   
@@ -702,7 +715,7 @@ void InheroMr1Board::rtcInterruptHandler() {
     
     // Write back to clear the flag and release INT pin
     Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(0x01);  // CTRL2 register
+    Wire.write(RV3028_REG_CTRL2);
     Wire.write(ctrl2);
     Wire.endTransmission();
   }

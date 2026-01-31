@@ -243,27 +243,80 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
    // Never returns
    ```
 
-### Wake-up Check
-**Methode**: `InheroMr1Board::begin()` Zeile 454-481
+### Wake-up Check (Anti-Motorboating)
+**Methode**: `InheroMr1Board::begin()` Zeile 447-498
 
-**Logik**:
+**Problem**: Nach Hardware-UVLO ist `GPREGRET2 = 0x00` (kompletter RAM-Verlust)
+→ Ohne universelle Voltage Check: Motorboating bei knapper Spannung
+
+**3 Fälle**:
+
+**Case 1: RTC Wake from Software-SHUTDOWN** (`GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE`)
 ```cpp
-uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
-
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-  uint16_t vbat_mv = getBattMilliVolts();
-  uint16_t wake_threshold = getVoltageWakeThreshold();
-  
   if (vbat_mv < wake_threshold) {
-    // Noch zu niedrig → zurück schlafen
     configureRTCWake(1);  // 1 Stunde
     sd_power_system_off();
   }
-  
-  // Spannung OK → normal weiter
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
 }
 ```
+
+**Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2 = 0x00`, voltage still low)
+```cpp
+else if (vbat_mv < wake_threshold) {
+  MESH_DEBUG_PRINTLN("ColdBoot with low voltage - likely Hardware-UVLO");
+  configureRTCWake(1);
+  NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
+  sd_power_system_off();
+}
+```
+**CRITICAL**: Verhindert Motorboating! Auch nach Hardware-Cutoff wird geprüft.
+
+**Case 3: Normal ColdBoot** (Power-On, Reset button, voltage OK)
+```cpp
+else {
+  // Continue normal boot
+}
+```
+
+**Direct ADC Read** (boardConfig noch nicht ready):
+```cpp
+// RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
+// Must read directly from BQ25798 ADC registers
+uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
+
+// BqDriver::readVBATDirect() - Static method in lib/BqDriver.cpp Line ~600
+// Uses BQ25798 register 0x3B (BQ25798_REG_VBAT_ADC from Adafruit library)
+uint16_t BqDriver::readVBATDirect(TwoWire* wire) {
+  const uint8_t BQ25798_I2C_ADDR = 0x6B;
+  
+  wire->beginTransmission(BQ25798_I2C_ADDR);
+  wire->write(BQ25798_REG_VBAT_ADC);  // From Adafruit_BQ25798.h
+  wire->endTransmission(false);
+  
+  wire->requestFrom(BQ25798_I2C_ADDR, (uint8_t)2);
+  uint8_t msb = wire->read();
+  uint8_t lsb = wire->read();
+  
+  return (msb << 8) | lsb;  // BQ25798 returns voltage directly in mV
+}
+```
+
+**Voltage Thresholds** (Chemistry-Specific):
+| Chemistry | Hardware Cutoff | Software Danger | Wake Threshold | Hysteresis |
+|-----------|----------------|-----------------|----------------|------------|
+| Li-Ion 1S | 3200mV (INA228 Alert) | 3400mV | 3600mV | 400mV |
+| LiFePO4 1S | 2800mV (INA228 Alert) | 2900mV | 3000mV | 200mV |
+| LTO 2S | 4000mV (INA228 Alert) | 4200mV | 4400mV | 400mV |
+
+**Motorboating-Prevention-Flow**:
+1. Hardware UVLO @ 3.2V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
+2. Solar lädt auf 3.25V → TPS62840 EN=HIGH (50mV Hysterese)
+3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
+4. **Early Boot Check** → `vbat=3250mV < wake_threshold=3600mV` ✅ DETECTED
+5. **Action** → `configureRTCWake(1)` + `GPREGRET2 = LOW_VOLTAGE` + SYSTEMOFF
+6. **Result** → Kein Motorboating! System schläft bis 3.6V erreicht
 
 **Stromverbrauch während SYSTEMOFF**:
 - nRF52840: 1-5µA

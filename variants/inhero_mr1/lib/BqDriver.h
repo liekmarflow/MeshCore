@@ -196,6 +196,12 @@ public:
   bool setTsIgnore(bool ignore);
 
   const Telemetry* const getTelemetryData();
+  
+  /// @brief Read VBAT directly via I2C (no initialization required)
+  /// @param wire Pointer to TwoWire instance (default: &Wire)
+  /// @return Battery voltage in mV, or 0 if read fails
+  /// @note Static method for early boot use before driver initialization
+  static uint16_t readVBATDirect(TwoWire* wire = &Wire);
 
   bool stopIbatADC();
   bool startIbatADC();
@@ -244,9 +250,6 @@ private:
 
   bool getVBUSADCDisable();
   bool setVBUSADCDisable(bool disable);
-
-  bool getVBATADCDisable();
-  bool setVBATADCDisable(bool disable);
 
   bool getVSYSADCDisable();
   bool setVSYSADCDisable(bool disable);

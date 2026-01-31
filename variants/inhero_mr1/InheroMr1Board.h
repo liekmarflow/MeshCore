@@ -64,7 +64,14 @@ enum HardwareVersion : uint8_t {
 #define RTC_INT_PIN              17  // GPIO17 (WB_IO1) - RTC Interrupt
 #define RTC_I2C_ADDR             0x52  // RV-3028-C7 I2C address
 #define INA228_I2C_ADDR          0x45  // INA228 I2C address (A0=GND, A1=GND)
+#define MCP4652_I2C_ADDR         0x2F  // MCP4652 I2C address (v0.1 hardware)
 // Note: INA228 ALERT pin controls TPS62840 EN directly (hardware UVLO), not connected to RAK
+
+// RV-3028-C7 RTC Register Addresses
+#define RV3028_REG_CTRL1         0x00  // Control 1 (TE bit)
+#define RV3028_REG_CTRL2         0x01  // Control 2 (TIE, TF bits)
+#define RV3028_REG_COUNTDOWN_LSB 0x09  // Countdown Timer LSB
+#define RV3028_REG_COUNTDOWN_MSB 0x0A  // Countdown Timer MSB
 
 // Shutdown reason codes (stored in GPREGRET2)
 #define SHUTDOWN_REASON_NONE          0x00
@@ -101,10 +108,6 @@ public:
   /// @brief Get voltage threshold for critical shutdown (chemistry-specific)
   /// @return Threshold in millivolts
   uint16_t getVoltageCriticalThreshold();
-  
-  /// @brief Get voltage threshold for hardware UVLO (chemistry-specific, v0.2 only)
-  /// @return Threshold in millivolts (e.g., 3.2V for Li-Ion, 2.8V for LiFePO4)
-  uint16_t getVoltageHardwareCutoff();
   
   /// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
   /// @return Threshold in millivolts (typically critical + 100-200mV)
