@@ -148,6 +148,15 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 - ✅ **Nach manuellem Ausschalten**: Zeit bleibt nach SW1-Betrieb erhalten
 - ✅ **Hardware-Wake-ups (v0.2)**: 
   - Countdown-Timer für periodische Aufwachzyklen
+
+### Umgebungssensor
+- **BME280**: Bosch Sensortec BME280
+  - Temperaturmessung: -40°C bis +85°C (±1°C Genauigkeit)
+  - Luftfeuchtigkeitsmessung: 0-100% RH (±3% Genauigkeit)
+  - Luftdruckmessung: 300-1100 hPa (±1 hPa Genauigkeit)
+  - I²C-Schnittstelle (0x76)
+  - Stromverbrauch: ~3.6 µA @ 1 Hz
+  - **Verwendung**: Umgebungstemperatur, Wetterüberwachung, Höhenmessung
   - Wake from SYSTEMOFF (1-5µA Tiefschlaf)
   - Konfigurierbar: 1-18 Stunden Intervall
   - Anwendung: Low-Voltage Recovery, periodisches Monitoring
