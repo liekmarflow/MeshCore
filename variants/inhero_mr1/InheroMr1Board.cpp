@@ -219,9 +219,18 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
     #endif
     return true;
+  } else if (strcmp(cmd, "bqreset") == 0) {
+    // Perform BQ25798 software reset (resets all registers to default)
+    bool success = boardConfig.resetBQ();
+    if (success) {
+      snprintf(reply, maxlen, "BQ25798 reset done - reconfiguring...");
+    } else {
+      snprintf(reply, maxlen, "Err: BQ reset failed");
+    }
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus|bqreset>");
   return true;
 }
 

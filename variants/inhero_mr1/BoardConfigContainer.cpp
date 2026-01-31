@@ -239,40 +239,33 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   }
 
   // Detect stuck PGOOD state: VBUS voltage present but PGOOD not set
-  // This can happen after long periods without solar input (overnight)
-  // when the BQ25798's VOC scan gives up after repeated failures
-  static uint8_t stuckPgoodCounter = 0;
+  // This can happen after slow solar voltage rise (sunrise over 10-20 minutes)
+  // BQ expects fast VBUS edge (adapter plug), not gradual sunrise
+  // Without edge detection, input qualification never runs → PGOOD stays low
   const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
   
   if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING) {
-    stuckPgoodCounter++;
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
     MESH_DEBUG_PRINT(vbusVoltage);
-    MESH_DEBUG_PRINT("mV, PG=0, cnt=");
-    MESH_DEBUG_PRINTLN(stuckPgoodCounter);
+    MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
     
-    // After 3 consecutive detections (45min with 15min checks), trigger recovery
-    if (stuckPgoodCounter >= 3) {
-      MESH_DEBUG_PRINTLN("Triggering BQ25798 PGOOD recovery: Toggle HIZ mode");
-      
-      // Toggle HIZ (High Impedance) mode to force new input source detection
-      // HIZ disconnects the input, and exiting HIZ triggers a fresh input scan
-      // including VBUS voltage check and PGOOD status update
-      bq.setHIZMode(true);
-      delay(100); // Brief pause to ensure HIZ state is entered
+    // Force input source detection by toggling HIZ
+    // Per datasheet: Exiting HIZ triggers input source qualification
+    bool wasHIZ = bq.getHIZMode();
+    if (wasHIZ) {
+      // EN_HIZ already set (poor source) - just clear it
+      MESH_DEBUG_PRINTLN("EN_HIZ was set - clearing");
       bq.setHIZMode(false);
-      delay(100); // Allow input detection to complete
-      
-      // EN_HIZ only affects register 0x0F bit 2, but explicitly re-enable MPPT
-      // to ensure solar charging resumes correctly
-      bq.setMPPTenable(true);
-      
-      MESH_DEBUG_PRINTLN("BQ25798 HIZ toggle complete - input scan triggered");
-      stuckPgoodCounter = 0;
+    } else {
+      // EN_HIZ not set - toggle to force input re-detection
+      MESH_DEBUG_PRINTLN("Toggling HIZ to force input scan");
+      bq.setHIZMode(true);
+      delay(50);
+      bq.setHIZMode(false);
     }
-  } else if (powerGood) {
-    // PGOOD is working correctly - reset counter
-    stuckPgoodCounter = 0;
+    delay(100); // Allow input qualification to complete
+    bq.setMPPTenable(true); // Ensure MPPT remains enabled
+    MESH_DEBUG_PRINTLN("Input detection triggered");
   }
 
   // MPPT enabled in config - apply normal solar logic
@@ -757,6 +750,48 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
 /// @return Pointer to Telemetry struct from BqDriver
 const Telemetry* BoardConfigContainer::getTelemetryData() {
   return bq.getTelemetryData();
+}
+
+/// @brief Resets BQ25798 to default register values and reconfigures
+/// @return true if reset and reconfiguration successful
+bool BoardConfigContainer::resetBQ() {
+  if (!BQ_INITIALIZED) {
+    return false;
+  }
+  
+  MESH_DEBUG_PRINTLN("Resetting BQ25798 to defaults...");
+  
+  // Software reset via REG_RST bit - resets all registers to default
+  bool success = bq.reset();
+  if (!success) {
+    MESH_DEBUG_PRINTLN("BQ reset failed");
+    return false;
+  }
+  
+  delay(100); // Allow reset to complete
+  
+  MESH_DEBUG_PRINTLN("Reconfiguring BQ25798...");
+  
+  // Reconfigure BQ with current settings from preferences
+  BatteryType bat = getBatteryType();
+  bool reducedVoltage = getReduceChargeVoltage();
+  FrostChargeBehaviour frost = getFrostChargeBehaviour();
+  uint16_t maxChargeCurrent = getMaxChargeCurrent_mA();
+  
+  // Apply configuration
+  configureBaseBQ();
+  configureChemistry(bat, reducedVoltage);
+  configureMCP(bat);
+  if (bat != BatteryType::LTO_2S) {
+    setFrostChargeBehaviour(frost);
+  }
+  setMaxChargeCurrent_mA(maxChargeCurrent);
+  
+  // Re-enable interrupts
+  bq.configureSolarOnlyInterrupts();
+  
+  MESH_DEBUG_PRINTLN("BQ25798 reset and reconfiguration complete");
+  return true;
 }
 
 /// @brief Configures base BQ25798 settings (timers, watchdog, input limits, MPPT)

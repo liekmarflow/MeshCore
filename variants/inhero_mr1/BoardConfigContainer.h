@@ -135,6 +135,7 @@ public:
   bool begin();
 
   const Telemetry* getTelemetryData();
+  bool resetBQ(); ///< Reset BQ25798 to defaults and reconfigure
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
