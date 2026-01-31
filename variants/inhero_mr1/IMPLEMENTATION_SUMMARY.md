@@ -99,13 +99,41 @@ SOC_new = SOC_old + SOC_delta
 - Berechnet: capacity = accumulated_discharge_mah
 
 ### Kapazitäts-Management
-- **Default-Kapazitäten** (nach Chemie):
-  - Li-Ion: 2000mAh
-  - LiFePO4: 1500mAh
-  - LTO 2S: 2000mAh
-- **Manuell setzen**: `set board.batcap <mAh>` (100-100000 Range)
-- **Storage**: LittleFS preferences als Integer (Zeile 1256-1260)
-- **Load**: `loadBatteryCapacity()` Zeile 1304-1329
+
+#### Konfiguration erforderlich
+Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark variiert:
+- **Typischer Bereich**: 4000-24000mAh (4-24Ah)
+- **CLI-Befehl**: `set board.batcap <mAh>`
+- **Erlaubter Bereich**: 100-100000mAh
+
+**Wichtig**: Ohne korrekte Kapazität sind SOC% und TTL-Berechnungen ungenau!
+
+#### Persistenz-Mechanik
+**Storage Path**: `/prefs/battery_capacity` (LittleFS)
+**Save-Methode**: `saveBatteryCapacity()` in `BoardConfigContainer.cpp` Zeile 1256-1260
+**Load-Methode**: `loadBatteryCapacity()` Zeile 1304-1329
+
+**Speichern bei**:
+1. **Manuelles Setzen**: CLI-Befehl `set board.batcap <mAh>`
+   - Schreibt sofort in LittleFS
+   - Aktualisiert `batteryStats.capacity_mah`
+   
+2. **Auto-Learning** (vorbereitet, nicht aktiv):
+   - Trigger: BQ25798 "Charge Done" → Entladung bis Dangerzone
+   - Berechnet neue Kapazität aus Coulomb Counter
+   - Speichert automatisch via `saveBatteryCapacity()`
+
+**Laden bei**:
+- **Boot-Zeit**: `BoardConfigContainer::begin()` ruft `loadBatteryCapacity()` auf
+- **Fallback**: Wenn keine gespeicherte Kapazität vorhanden
+- **Validierung**: Range-Check 100-100000mAh
+
+**Persistenz-Eigenschaften**:
+- ✅ **Überlebt** Software-Shutdowns (SYSTEMOFF)
+- ✅ **Überlebt** Hardware-UVLO (RAM-Verlust)
+- ✅ **Überlebt** Power-Cycle
+- ✅ **Überlebt** Firmware-Update (LittleFS bleibt erhalten)
+- ⚠️ **Verloren** bei: Flash-Erase, `rm -rf /prefs/`, Filesystem-Korruption
 
 ---
 

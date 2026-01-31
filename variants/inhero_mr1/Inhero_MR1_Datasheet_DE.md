@@ -93,7 +93,8 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
   - Ladestrom (IBAT): Hardware bis 3000 mA, **Software-Limit: 1000 mA (1A)**
   - Eingangsstrom (IBUS): **Software-Limit: 1000 mA (1A)**
   - Multi-Chemie: LTO, LiFePO4, Li-Ion
-  - 15-Bit ADC für präzise Strom-/Spannungsmessung
+  - 15-Bit ADC für Strom-/Spannungsmessung (bei niedrigen Strömen ungenau)
+  - **Ab v0.2**: Ungenaue Strommessung wird durch hochpräzisen INA228 kompensiert
   - Hardware-Interrupts für Zustandsänderungen
   
 - **Batterie-Überwachung (v0.2)**:
@@ -105,6 +106,10 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
     - Hardware-UVLO via Alert-Pin → TPS62840 EN
     - Shutdown-Modus (~1µA während SYSTEMOFF)
   - Temperaturüberwachung (NTC-Thermistor NCP15XH103F03RC)
+    - **Primäre Funktion**: Frostschutz (Ladeverbot unter 0°C)
+    - Misst Batterietemperatur für JEITA-konformes Laden
+    - Genauigkeit außerhalb des Gefrierpunkts ist für Frostschutz unkritisch
+    - **Umgebungstemperatur**: Wird durch on-board BME280-Sensor erfasst
 
 ### Power Management (v0.2)
 - **INA228 Hardware UVLO**:
@@ -379,6 +384,7 @@ Der **Inhero MR-1** ist ein hocheffizienter, solarbetriebener Mesh-Netzwerk-Knot
 |------------|---------------|---------|--------------|------------------|
 | BQ25798 PMIC | I²C | 0x6B | Batteriemanagement | Alle |
 | RV-3028-C7 RTC | I²C | 0x52 | Echtzeituhr | Alle |
+| BME280 | I²C | 0x76 | Umgebungstemperatur, Luftfeuchtigkeit, Luftdruck | Alle |
 | MCP4652 DigiPot | I²C | 0x2F | Spannungsanpassung (LEGACY) | **v0.1 nur** |
 | TP2120 | Analog | - | Unterspannungsüberwachung (LEGACY) | **v0.1 nur** |
 | INA228 | I²C | 0x45 | Power Monitor, Coulomb Counter | **v0.2 nur** |
@@ -417,6 +423,12 @@ Beta-Wert         = 3.380
 Temperaturoffset  = -2,5°C (Kalibrierung)
 ```
 
+**Funktionszweck**: 
+- **Primär**: Frostschutz (Erkennung von Temperaturen < 0°C für Ladeabschaltung)
+- Misst Batterietemperatur für JEITA-konformes Laden
+- Genauigkeit außerhalb des Gefrierpunkts ist für Frostschutzfunktion unkritisch
+- **Umgebungstemperatur**: Wird präzise durch on-board BME280-Sensor gemessen
+
 ### 6.2 Stromaufnahme
 
 | Betriebsmodus | Typisch | Maximum | Bedingung |
@@ -428,7 +440,7 @@ Temperaturoffset  = -2,5°C (Kalibrierung)
 | LoRa TX (+14dBm) | 45 mA | 60 mA | Mittlere Sendeleistung |
 | LoRa TX (+22dBm) | 120 mA | 150 mA | Maximale Sendeleistung |
 | BLE Advertising | 8 mA | 15 mA | BLE aktiv |
-| Laden (Solar) | +500 mA | +1000 mA | Software-Limit IBAT (INA228 20mΩ max. 1A) |
+| Laden (Solar) | +500 mA | +1000 mA | Software-Limit IBAT (INA228 20mΩ max. 1A, ±0.5% Genauigkeit) |
 
 **Hinweis**: Stromaufnahme kann durch Software-Konfiguration optimiert werden.
 
@@ -627,14 +639,14 @@ Das Board exportiert Telemetriedaten im **CayenneLPP**-Format über zwei Kanäle
 
 **Übertragung**: Integriert in MeshCore-Telemetrie-Pakete
 
-> **⚠️ Known Issue - Strommessung-Genauigkeit:**  
+> **⚠️ Known Issue - Strommessung-Genauigkeit (v0.1 Hardware):**  
 > Die ADC-Strommessungen des BQ25798 können bei niedrigen Strömen ungenau sein (Abweichung bis 100%).  
 > **Ursache**: Der BQ25798 ist für höhere Ströme (bis 3A+) optimiert, arbeitet aber typischerweise bei:
 > - ISYS: 13-200 mA (Peak)
 > - IBUS/IBAT: ~200 mA (typisch)
 > 
 > **Auswirkung**: Strom-Telemetriewerte (Solar-Strom, Lade-/Entladestrom) können signifikant von tatsächlichen Werten abweichen.  
-> **Workaround**: Spannungs- und Leistungswerte sind zuverlässiger. Für präzise Strommessung externe Messgeräte verwenden.
+> **Lösung ab v0.2**: INA228 Power Monitor mit 20mΩ Shunt liefert hochpräzise Strommessung (±0.5% Genauigkeit) und ersetzt BQ25798-ADC für Batteriestrom. Coulomb Counter ermöglicht akkurate SOC-Berechnung.
 
 ### 8.4 FreeRTOS-Architektur
 
