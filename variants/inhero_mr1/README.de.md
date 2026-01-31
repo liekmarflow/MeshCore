@@ -58,7 +58,7 @@ PIN_VBAT_READ   = 5
   - `100%` - Keine Reduzierung (nicht empfohlen für kalte Umgebungen)
 
 - **Konfigurierbare Parameter**:
-  - Maximaler Ladestrom (0-3000mA)
+  - Maximaler Ladestrom (10-1000mA)
   - Reduzierte Ladespannung (für verlängerte Batterielebensdauer)
   - MPPT aktivieren/deaktivieren
 
@@ -114,7 +114,7 @@ set board.life <true|false>    # Reduzierte Ladespannung aktivieren/deaktivieren
                                # Verlängert Batterielebensdauer durch Reduzierung der max. Spannung
 
 set board.imax <strom>         # Maximalen Ladestrom in mA festlegen
-                               # Bereich: 1-3000mA
+                               # Bereich: 10-1000mA
 
 set board.mppt <true|false>    # MPPT aktivieren/deaktivieren
 
@@ -266,11 +266,12 @@ Beim Eintritt in Niedrigspannungs-Shutdown:
 - **Temperatursensor**: NTC-Thermistor mit Beta-Gleichungsberechnung
 - **Interrupt-System**: Nur Solar-Interrupts (Power Good Überwachung)
 
-### Digitales Potentiometer (MCP4652)
+### Digitales Potentiometer (MCP4652) - nur v0.1
 - **Kanäle**: 2 unabhängige Schleifer
 - **Auflösung**: 257 Stufen (0-256)
 - **Schnittstelle**: I2C (Standardadresse 0x2F)
-- **Zweck**: Batterie-Chemie-Spannungsanpassung
+- **Zweck**: TP2120 UVLO-Komparator-Steuerung
+- **Hinweis**: In v0.2 durch INA228 ersetzt
 
 ### Einstellungsspeicher
 Persistente Konfiguration gespeichert in LittleFS:

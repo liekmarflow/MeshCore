@@ -72,7 +72,7 @@ RTC_I2C_ADDR    = 0x52
   - `100%` - No reduction (not recommended for cold environments)
 
 - **Configurable Parameters**:
-  - Maximum charge current (0-3000mA)
+  - Maximum charge current (10-1000mA)
   - Reduced charge voltage (for extended battery life)
   - MPPT enable/disable
 
