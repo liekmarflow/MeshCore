@@ -253,17 +253,21 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
     
     // After 3 consecutive detections (45min with 15min checks), trigger recovery
     if (stuckPgoodCounter >= 3) {
-      MESH_DEBUG_PRINTLN("Triggering BQ25798 PGOOD recovery: Toggle EN_CHG");
+      MESH_DEBUG_PRINTLN("Triggering BQ25798 PGOOD recovery: Toggle HIZ mode");
       
-      // Toggle EN_CHG bit to force new input source detection
-      // According to BQ25798 datasheet, this triggers a fresh input scan
+      // Toggle HIZ (High Impedance) mode to force new input source detection
+      // HIZ disconnects the input, and exiting HIZ triggers a fresh input scan
       // including VBUS voltage check and PGOOD status update
-      bq.setChargeEnable(false);
-      delay(100); // Brief pause to ensure state change is registered
-      bq.setChargeEnable(true);
+      bq.setHIZMode(true);
+      delay(100); // Brief pause to ensure HIZ state is entered
+      bq.setHIZMode(false);
       delay(100); // Allow input detection to complete
       
-      MESH_DEBUG_PRINTLN("BQ25798 EN_CHG toggle complete - input scan triggered");
+      // EN_HIZ only affects register 0x0F bit 2, but explicitly re-enable MPPT
+      // to ensure solar charging resumes correctly
+      bq.setMPPTenable(true);
+      
+      MESH_DEBUG_PRINTLN("BQ25798 HIZ toggle complete - input scan triggered");
       stuckPgoodCounter = 0;
     }
   } else if (powerGood) {
