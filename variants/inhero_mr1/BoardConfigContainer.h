@@ -139,6 +139,7 @@ public:
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
+  void toggleHizAndCheck(char* buffer, uint32_t bufferSize); ///< Manual HIZ toggle with status report
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %
@@ -155,6 +156,9 @@ private:
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
   static MpptStatistics mpptStats; ///< MPPT statistics data
+  static uint32_t lastHizToggleTimestamp; ///< Unix timestamp of last HIZ toggle event (RTC)
+  static uint16_t lastHizToggleVbus; ///< VBUS voltage in mV when HIZ toggle occurred
+  static bool lastHizToggleSuccess; ///< Whether HIZ toggle successfully restored PGOOD
   
   bool BQ_INITIALIZED = false;
   bool MCP_INITIALIZED = false;  // v0.1 only

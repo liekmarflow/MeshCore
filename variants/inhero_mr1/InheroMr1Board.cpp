@@ -193,7 +193,13 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
   } else if (strcmp(cmd, "mpps") == 0) {
     boardConfig.getMpptStatsString(reply, maxlen);
     return true;
-  } else if (strcmp(cmd, "cinfo") == 0) {
+  } else if (strcmp(cmd, "cinfo") == 0 || strcmp(cmd, "ci") == 0) {
+    char infoBuffer[100];
+    boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
+    snprintf(reply, maxlen, "%s", infoBuffer);
+    return true;
+  } else if (strcmp(cmd, "cstat") == 0 || strcmp(cmd, "cs") == 0) {
+    // Alias for cinfo - charger status
     char infoBuffer[100];
     boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
     snprintf(reply, maxlen, "%s", infoBuffer);
@@ -239,7 +245,7 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|ci|cstat|cs|mppt|mpps|conf|wdtstatus|togglehiz>");
   return true;
 }
 
@@ -330,13 +336,12 @@ const char* InheroMr1Board::setCustomSetter(const char* setCommand) {
     } else {
       return "Err: Try true|false or 1|0";
     }
-  } else if (strncmp(setCommand, "batcap ", 7) == 0) {
-    // Not available in v0.1 hardware (use MR2 for capacity tracking)
-    snprintf(ret, sizeof(ret), "N/A (MR2 only)");
+  } else if (strcmp(setCommand, "togglehiz") == 0) {
+    boardConfig.toggleHizAndCheck(ret, sizeof(ret));
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|togglehiz>");
   return ret;
 }
 

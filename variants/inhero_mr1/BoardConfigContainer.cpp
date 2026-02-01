@@ -23,6 +23,7 @@
  */
 #include "BoardConfigContainer.h"
 #include "InheroMr1Board.h"
+#include "target.h"
 
 #include "lib/BqDriver.h"
 #include "lib/McpDriver.h"
@@ -33,6 +34,7 @@
 #include <task.h>
 #include <MeshCore.h>
 #include <nrf_wdt.h>
+#include <RTClib.h>
 
 // Hardware drivers (v0.1 only)
 static BqDriver bq;
@@ -48,9 +50,15 @@ BqDriver* BoardConfigContainer::bqDriverInstance = nullptr;
 TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
+uint32_t BoardConfigContainer::lastHizToggleTimestamp = 0;
+uint16_t BoardConfigContainer::lastHizToggleVbus = 0;
+bool BoardConfigContainer::lastHizToggleSuccess = false;
 
 // Watchdog state
 static bool wdt_enabled = false;
+
+// Solar charging thresholds
+static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
@@ -236,12 +244,14 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   // This can happen after slow solar voltage rise (sunrise over 10-20 minutes)
   // BQ expects fast VBUS edge (adapter plug), not gradual sunrise
   // Without edge detection, input qualification never runs → PGOOD stays low
-  const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
   
   if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING) {
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
     MESH_DEBUG_PRINT(vbusVoltage);
     MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
+    
+    // Record VBUS voltage before toggle
+    lastHizToggleVbus = vbusVoltage;
     
     // Force input source detection by toggling HIZ
     // Per datasheet: Exiting HIZ triggers input source qualification
@@ -250,16 +260,25 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
       // EN_HIZ already set (poor source) - just clear it
       MESH_DEBUG_PRINTLN("EN_HIZ was set - clearing");
       bq.setHIZMode(false);
+      delay(200); // Allow HIZ exit to settle
+      lastHizToggleTimestamp = rtc_clock.getCurrentTime(); // Record HIZ toggle event
     } else {
       // EN_HIZ not set - toggle to force input re-detection
       MESH_DEBUG_PRINTLN("Toggling HIZ to force input scan");
       bq.setHIZMode(true);
-      delay(50);
+      delay(250); // Give BQ time to process HIZ state
       bq.setHIZMode(false);
+      lastHizToggleTimestamp = rtc_clock.getCurrentTime(); // Record HIZ toggle event
     }
-    delay(100); // Allow input qualification to complete
+    delay(250); // Allow input qualification to complete
     bq.setMPPTenable(true); // Ensure MPPT remains enabled
-    MESH_DEBUG_PRINTLN("Input detection triggered");
+    
+    // Check if toggle was successful (PGOOD now set)
+    bqDriverInstance->readReg(0x22); // Refresh status
+    lastHizToggleSuccess = bqDriverInstance->getChargerStatusPowerGood();
+    
+    MESH_DEBUG_PRINT("Input detection triggered - PGOOD=");
+    MESH_DEBUG_PRINTLN(lastHizToggleSuccess ? "OK" : "FAIL");
   }
 
   // MPPT enabled in config - apply normal solar logic
@@ -477,6 +496,68 @@ const char* BoardConfigContainer::getChargeCurrentAsStr() {
   return buffer;
 }
 
+/// @brief Manually triggers HIZ toggle and reports result
+/// @param buffer Destination buffer for status string
+/// @param bufferSize Size of destination buffer
+/// @details Performs manual HIZ toggle sequence and reports VBUS voltage and success status.
+///          Format: "HIZ toggled: VBUS=4.2V PG=OK" or "HIZ toggled: VBUS=3.8V PG=FAIL"
+///          Skips toggle if PGOOD already set: "Power already good"
+void BoardConfigContainer::toggleHizAndCheck(char* buffer, uint32_t bufferSize) {
+  if (!buffer || bufferSize == 0) {
+    return;
+  }
+  
+  memset(buffer, 0, bufferSize);
+  
+  if (!BQ_INITIALIZED || !bqDriverInstance) {
+    snprintf(buffer, bufferSize, "BQ25798 not initialized");
+    return;
+  }
+  
+  // Refresh status before reading
+  bqDriverInstance->readReg(0x22);
+  
+  // Check if PGOOD is already set - no need to toggle
+  bool powerGoodBefore = bqDriverInstance->getChargerStatusPowerGood();
+  if (powerGoodBefore) {
+    snprintf(buffer, bufferSize, "Power already good");
+    return;
+  }
+  
+  // Get VBUS voltage
+  const Telemetry* telem = bqDriverInstance->getTelemetryData();
+  uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
+  
+  // Perform HIZ toggle
+  bool wasHIZ = bq.getHIZMode();
+  if (wasHIZ) {
+    // HIZ already set - just clear it
+    bq.setHIZMode(false);
+    delay(200);
+  } else {
+    // Toggle HIZ to force input re-detection
+    bq.setHIZMode(true);
+    delay(250);
+    bq.setHIZMode(false);
+  }
+  delay(250); // Allow input qualification
+  bq.setMPPTenable(true); // Ensure MPPT remains enabled
+  
+  // Record event
+  lastHizToggleVbus = vbusVoltage;
+  lastHizToggleTimestamp = rtc_clock.getCurrentTime();
+  
+  // Check success
+  bqDriverInstance->readReg(0x22); // Refresh status
+  bool pgoodNow = bqDriverInstance->getChargerStatusPowerGood();
+  lastHizToggleSuccess = pgoodNow;
+  
+  // Format response
+  const char* success = pgoodNow ? "OK" : "FAIL";
+  snprintf(buffer, bufferSize, "HIZ toggled: VBUS=%.1fV PG=%s", 
+           vbusVoltage / 1000.0f, success);
+}
+
 /// @brief Writes charger status information into provided buffer
 /// @param buffer Destination buffer for status string
 /// @param bufferSize Size of destination buffer
@@ -533,7 +614,16 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  snprintf(buffer, bufferSize, "%s / %s", powerGood, statusString);
+  // Include last HIZ toggle timestamp if available
+  if (lastHizToggleTimestamp > 0) {
+    DateTime dt = DateTime(lastHizToggleTimestamp);
+    const char* success = lastHizToggleSuccess ? "OK" : "FAIL";
+    snprintf(buffer, bufferSize, "%s / %s [HIZ:%02d:%02d %d/%d %.1fV %s]", 
+             powerGood, statusString, dt.hour(), dt.minute(), dt.day(), dt.month(),
+             lastHizToggleVbus / 1000.0f, success);
+  } else {
+    snprintf(buffer, bufferSize, "%s / %s", powerGood, statusString);
+  }
 }
 
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task

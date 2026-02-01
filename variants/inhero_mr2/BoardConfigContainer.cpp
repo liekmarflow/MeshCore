@@ -64,6 +64,9 @@ TaskHandle_t BoardConfigContainer::voltageMonitorTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 
+// Solar charging thresholds
+static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
+
 // Watchdog state
 static bool wdt_enabled = false;
 
@@ -251,7 +254,6 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   // This can happen after slow solar voltage rise (sunrise over 10-20 minutes)
   // BQ expects fast VBUS edge (adapter plug), not gradual sunrise
   // Without edge detection, input qualification never runs → PGOOD stays low
-  const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
   
   if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING) {
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
