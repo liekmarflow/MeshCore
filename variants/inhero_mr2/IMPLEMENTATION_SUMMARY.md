@@ -1,47 +1,53 @@
-# Inhero MR-1 Power Management - Implementation Summary
+# Inhero MR-2 Power Management - Implementierungs-Dokumentation
 
-> ⚠️ **LEGACY HARDWARE v0.1** ⚠️
+> ✅ **STATUS: v0.2 VOLLSTÄNDIG IMPLEMENTIERT** ✅
 > 
-> Diese Dokumentation beschreibt die MR-1 Hardware (v0.1) mit MCP4652 + TP2120 UVLO.
-> Für die aktuelle v0.2 Hardware siehe: **[../inhero_mr2/IMPLEMENTATION_SUMMARY.md](../inhero_mr2/IMPLEMENTATION_SUMMARY.md)**
+> Diese Dokumentation beschreibt die vollständige Power-Management-Implementierung für das Inhero MR-2 Board v0.2.
+> Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
 > 
 > Datum: 1. Februar 2026
-> Version: 2.0 (Legacy v0.1 only)
-> Hardware: MR1 - v0.1 (MCP4652 + TP2120)
+> Version: 2.0 (Implementiert)
+> Hardware: v0.2 (INA228 + RTC)
 
 ---
 
 ## Überblick
 
-Das MR-1 System ist die Legacy-Hardware (v0.1) mit einfacherem Power-Management:
+Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Energy Balance** für optimalen Filesystem-Schutz, Energie-Effizienz und Batterie-Monitoring:
 
-1. **BQ25798 Battery Charger** - MPPT, JEITA, Multi-Chemistry Support
-2. **MCP4652 Digital Potentiometer** - TP2120 UVLO Voltage Control
-3. **Software MPPT Monitoring** - FreeRTOS Task mit 15-Min-Intervall
-4. **Preference Storage** - LittleFS-based Configuration Persistence
-
-**Keine erweiterten Features:**
-- ❌ INA228 Power Monitor (v0.2 only)
-- ❌ RV-3028 RTC (v0.2 only)
-- ❌ Coulomb Counter / SOC Tracking (v0.2 only)
-- ❌ Daily Energy Balance (v0.2 only)
-- ❌ Hardware UVLO via INA228 Alert (v0.2 only)
+1. **Software Voltage Monitoring** (Adaptive Task) - Dangerzone Detection
+2. **RTC Wake-up Management** (RV-3028-C7) - Periodic Recovery Checks
+3. **Hardware UVLO** (INA228 Alert → TPS62840 EN) - Ultimate Protection
+4. **Coulomb Counter** (INA228) - Real-time SOC Tracking
+5. **Daily Energy Balance** (7-day rolling) - Solar vs. Battery Analysis
+6. **INA228 Shutdown Mode** - Power saving during SYSTEMOFF (~1µA)
 
 ---
 
-## Hardware-Architektur (v0.1)
+## Hardware-Architektur
 
+### v0.2 Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
 |------------|----------|-----|-----|---------|
+| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ shunt, 1A max, Coulomb Counter |
+| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown timer, wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC |
-| **MCP4652** | Digital Potentiometer | 0x2F | - | Dual 8-bit, 257 steps, UVLO control |
-| **TP2120** | UVLO Comparator | - | - | Voltage controlled by MCP4652 |
+| **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
+
+### v0.1 Legacy (MCP4652 + TP2120)
+Wurde durch INA228 ersetzt. Hardware-Detection erfolgt automatisch bei Boot via I2C-Probe.
 
 ---
 
-## Hardware Version Detection
+## 1. Software-Monitoring (Adaptiv)
 
-**REMOVED IN MR1**: MR1 is always v0.1 hardware. No hardware detection is performed.
+### Implementierung
+- **Task**: `voltageMonitorTask()` in `BoardConfigContainer.cpp` (Zeile 1068-1165)
+- **Messung**: BQ25798 15-bit ADC via I²C (batterie.voltage)
+- **Frequenz**: Dynamisch 10s/30s/60s
+- **Trigger**: `board.getHardwareVersion() == HW_V0_2`
+
+### Monitoring-Intervalle
 
 | Spannung (Li-Ion) | Zustand | Intervall | Aktion |
 |-------------------|---------|-----------|--------|

@@ -1,12 +1,14 @@
 [English](README.md) | [Deutsch](README.de.md)
 
-# Inhero MR-1 Hardware Variant
+# Inhero MR-1 Hardware Variant (Legacy v0.1)
 
-The Inhero MR-1 is a solar-powered mesh network node featuring advanced battery management, configurable chemistry support, and MPPT (Maximum Power Point Tracking) control.
+> ⚠️ **LEGACY HARDWARE** ⚠️  
+> This is the legacy v0.1 hardware with MCP4652 + TP2120 UVLO.  
+> For the current v0.2 hardware, see: **[../inhero_mr2/README.md](../inhero_mr2/README.md)**
 
-**Hardware Versions:**
-- **v0.1**: MCP4652 digital potentiometer for TP2120 UVLO control
-- **v0.2**: INA228 power monitor with integrated Coulomb Counter + RV-3028 RTC for advanced power management
+The Inhero MR-1 is a solar-powered mesh network node featuring battery management with MCP4652 digital potentiometer for UVLO control.
+
+**Hardware Version:** v0.1 only
 
 ## Hardware Overview
 
@@ -15,15 +17,6 @@ The Inhero MR-1 is a solar-powered mesh network node featuring advanced battery 
 - **Radio**: SX1262 LoRa transceiver with DIO2 RF switching
 - **Battery Manager**: BQ25798 with integrated MPPT and NTC thermistor support
 - **Digital Potentiometer**: MCP4652 (dual channel) for TP2120 voltage control
-- **Power Input**: Solar panel with Power Good interrupt detection
-- **Storage**: LittleFS-based preferences with SimplePreferences wrapper
-
-### Main Components (v0.2) 🆕
-- **MCU**: Nordic nRF52840 (64MHz, 243KB RAM, 796KB Flash)
-- **Radio**: SX1262 LoRa transceiver with DIO2 RF switching
-- **Battery Manager**: BQ25798 with integrated MPPT and NTC thermistor support
-- **Power Monitor**: INA228 with 20mΩ shunt, Coulomb Counter, and UVLO Alert
-- **RTC**: RV-3028-C7 for periodic wake-up and time keeping
 - **Power Input**: Solar panel with Power Good interrupt detection
 - **Storage**: LittleFS-based preferences with SimplePreferences wrapper
 
@@ -39,15 +32,8 @@ P_LORA_MOSI     = 44
 SX126X_POWER_EN = 37
 
 // GPS (Optional)
-PIN_GPS_1PPS    = 17  (also RTC INT on v0.2)
+PIN_GPS_1PPS    = 17
 GPS_ADDRESS     = 0x42 (I2C)
-
-// Battery Monitoring
-PIN_VBAT_READ   = 5
-BQ_INT_PIN      = 21
-
-// v0.2 specific
-RTC_INT_PIN     = 17  (RV-3028 interrupt)
 INA228_I2C_ADDR = 0x45
 RTC_I2C_ADDR    = 0x52
 ```
@@ -137,19 +123,12 @@ board.conf      # Get all configuration values
                 # Output: B:<bat> F:<frost> M:<mppt> I:<imax>mA Vco:<voltage>
                 # Example: B:liion1s F:0% M:0 I:200mA Vco:4.20
 
-board.hwver     # Get hardware version 🆕
-                # Output: v0.1 (MCP4652) | v0.2 (INA228+RTC)
+board.hwver     # Get hardware version
+                # Output: v0.1 (MCP4652)
+                # Note: MR1 is always v0.1 hardware
 
-# v0.2 ONLY - Advanced Power Management
-board.soc       # Get battery State of Charge 🆕
-                # Output: SOC:<percent>% Cap:<mAh>mAh(learned|config)
-                # Example: SOC:67.5% Cap:2000mAh(learned)
-
-board.balance   # Get daily energy balance and forecast 🆕
-                # Output: Today:<+/- mAh> <SOLAR|BATTERY> 3dAvg:<mAh> [TTL:<hours>h]
-                # Example: Today:+150mAh SOLAR 3dAvg:+120mAh
-                # Example: Today:-80mAh BATTERY 3dAvg:-75mAh TTL:120h
-                # TTL = Time To Live (hours until battery empty)
+# Note: Advanced power management features (SOC, balance) are only available in MR2 (v0.2)
+# See ../inhero_mr2/README.md for v0.2 features
 ```
 
 #### Set Commands
@@ -171,10 +150,10 @@ set board.imax <current>       # Set max charge current in mA
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
 
-set board.batcap <capacity>    # Set battery capacity in mAh 🆕 (v0.2 only)
-                               # Range: 100-100000 mAh
-                               # Example: set board.batcap 2000
-                               # Used for accurate SOC calculation
+set board.bqreset              # Reset BQ25798 and reload config from FS
+                               # Performs software reset and reconfigures
+                               # battery type, charge limits, MPPT settings
+                               # from stored preferences
 ```
 
 #### Output Abbreviations

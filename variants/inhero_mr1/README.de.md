@@ -97,9 +97,11 @@ board.mppt      # MPPT-Status abrufen
 board.mpps      # 7-Tage-MPPT-Statistiken abrufen (Prozentsatz + Energie)
 board.cinfo     # Ladegerätstatus abrufen (Power Good / Ladezustand)
 board.telem     # Vollständige Telemetrie-Momentaufnahme abrufen
-board.hwver     # Hardware-Version anzeigen (v0.1 oder v0.2) 🆕
-board.soc       # Batterie-Ladezustand und Kapazität (v0.2) 🆕
-board.balance   # Tägliche Energiebilanz und TTL-Prognose (v0.2) 🆕
+board.hwver     # Hardware-Version anzeigen
+                # Ausgabe: v0.1 (MCP4652)
+                # Hinweis: MR1 ist immer v0.1 Hardware
+# Hinweis: Erweiterte Power-Management-Features (SOC, balance) sind nur in MR2 (v0.2) verfügbar
+# Siehe ../inhero_mr2/README.md für v0.2 Features
 ```
 
 #### Set-Befehle
@@ -117,6 +119,11 @@ set board.imax <strom>         # Maximalen Ladestrom in mA festlegen
                                # Bereich: 10-1000mA
 
 set board.mppt <true|false>    # MPPT aktivieren/deaktivieren
+
+set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS laden
+                               # Führt Software-Reset durch und konfiguriert
+                               # Batterietyp, Ladelimits, MPPT-Einstellungen
+                               # aus gespeicherten Präferenzen neu
 
 set board.batcap <mAh>         # Batteriekapazität manuell setzen (v0.2) 🆕
                                # Bereich: 100-100000 mAh
