@@ -444,26 +444,6 @@ void BoardConfigContainer::updateMpptStats() {
     }
   }
   
-  // Calculate energy harvested since last update if MPPT was enabled
-  if (lastMpptStatus && elapsedSeconds > 0) {
-    // Use last measured power and integrate over time: E = P × t
-    // Energy in mWh = Power in mW × Time in hours
-    float hours = elapsedSeconds / 3600.0f;
-    uint32_t energy_mWh = (uint32_t)(mpptStats.lastPower_mW * hours);
-    mpptStats.currentHourEnergy_mWh += energy_mWh;
-  }
-  
-  // Sample current solar power for next integration period
-  if (currentMpptStatus) {
-    const Telemetry* telem = bqDriverInstance->getTelemetryData();
-    if (telem) {
-      // Calculate power: P = U * I (both in mV and mA, result in mW)
-      mpptStats.lastPower_mW = (int32_t)telem->solar.voltage * telem->solar.current / 1000;
-    }
-  } else {
-    mpptStats.lastPower_mW = 0; // No power when MPPT disabled
-  }
-  
   mpptStats.lastUpdateTime = currentTime;
   lastMpptStatus = currentMpptStatus;
   
@@ -476,14 +456,12 @@ void BoardConfigContainer::updateMpptStats() {
     // Store the completed hour's data
     mpptStats.hours[mpptStats.currentIndex].mpptEnabledMinutes = mpptStats.currentHourMinutes;
     mpptStats.hours[mpptStats.currentIndex].timestamp = currentTime;
-    mpptStats.hours[mpptStats.currentIndex].harvestedEnergy_mWh = mpptStats.currentHourEnergy_mWh;
     
     // Move to next index (circular buffer)
     mpptStats.currentIndex = (mpptStats.currentIndex + 1) % MPPT_STATS_HOURS;
     
     // Reset for new hour
     mpptStats.currentHourMinutes = 0;
-    mpptStats.currentHourEnergy_mWh = 0;
     lastHourCheck = currentTime;
   }
 }
@@ -1145,67 +1123,23 @@ float BoardConfigContainer::getMpptEnabledPercentage7Day() const {
     return 0.0f;
   }
   
-  uint32_t totalMinutes = 0;
   uint32_t enabledMinutes = 0;
-  uint32_t validHours = 0;
   
-  // Count backwards through the circular buffer
+  // Count backwards through the circular buffer (all 168 hours = 7 days)
   for (int i = 0; i < MPPT_STATS_HOURS; i++) {
     int index = (mpptStats.currentIndex - 1 - i + MPPT_STATS_HOURS) % MPPT_STATS_HOURS;
     
-    // Skip entries that haven't been filled yet (timestamp == 0)
-    if (mpptStats.hours[index].timestamp == 0) {
-      continue;
+    // Count all hours, treating unfilled entries (timestamp == 0) as 0 minutes
+    if (mpptStats.hours[index].timestamp != 0) {
+      enabledMinutes += mpptStats.hours[index].mpptEnabledMinutes;
     }
-    
-    validHours++;
-    enabledMinutes += mpptStats.hours[index].mpptEnabledMinutes;
+    // Else: hour counts as 0 minutes enabled (missing data treated as 0%)
   }
   
-  if (validHours == 0) {
-    return 0.0f; // No data yet
-  }
-  
-  totalMinutes = validHours * 60; // Each hour has 60 minutes
+  // Total minutes in 7 days
+  uint32_t totalMinutes = MPPT_STATS_HOURS * 60; // 168 hours * 60 minutes
   
   return (enabledMinutes * 100.0f) / totalMinutes;
-}
-
-/// @brief Calculates average daily energy over last 3 days (72 hours)
-/// @return Average daily harvested energy in mWh
-uint32_t BoardConfigContainer::getAvgDailyEnergy3Day() const {
-  // Return 0 if MPPT is disabled in config
-  bool mpptEnabled;
-  loadMpptEnabled(mpptEnabled);
-  if (!mpptEnabled) {
-    return 0;
-  }
-  
-  uint32_t totalEnergy = 0;
-  uint32_t validHours = 0;
-  
-  // Look back 72 hours (3 days)
-  const int HOURS_72 = 72;
-  
-  for (int i = 0; i < HOURS_72 && i < MPPT_STATS_HOURS; i++) {
-    int index = (mpptStats.currentIndex - 1 - i + MPPT_STATS_HOURS) % MPPT_STATS_HOURS;
-    
-    // Skip entries that haven't been filled yet
-    if (mpptStats.hours[index].timestamp == 0) {
-      continue;
-    }
-    
-    totalEnergy += mpptStats.hours[index].harvestedEnergy_mWh;
-    validHours++;
-  }
-  
-  if (validHours == 0) {
-    return 0; // No data
-  }
-  
-  // Calculate average daily energy
-  // Total energy over X hours, normalized to 24h
-  return (totalEnergy * 24) / validHours;
 }
 
 /// @brief Formats MPPT statistics into a string buffer
@@ -1225,7 +1159,6 @@ void BoardConfigContainer::getMpptStatsString(char* buffer, uint32_t bufferSize)
   }
   
   float percentage = getMpptEnabledPercentage7Day();
-  uint32_t avgDailyEnergy = getAvgDailyEnergy3Day();
   
   // Count how many hours of data we actually have
   uint32_t validHours = 0;
@@ -1237,8 +1170,9 @@ void BoardConfigContainer::getMpptStatsString(char* buffer, uint32_t bufferSize)
   
   float days = validHours / 24.0f;
   
-  snprintf(buffer, bufferSize, "7d:%.1f%% 3d:%dmWh (%.1fd)", 
-           percentage, avgDailyEnergy, days);
+  // v0.1: Only show percentage (no mAh due to inaccurate current sensing)
+  snprintf(buffer, bufferSize, "7d:%.1f%% (%.1fd)", 
+           percentage, days);
 }
 
 // ===== End of BoardConfigContainer Implementation =====

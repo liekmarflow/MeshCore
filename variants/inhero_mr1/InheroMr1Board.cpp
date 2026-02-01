@@ -146,7 +146,6 @@ bool InheroMr1Board::queryBoardTelemetry(CayenneLPP& telemetry) {
   channel++;
   // MPPT statistics (separate channel)
   telemetry.addPercentage(channel, boardConfig.getMpptEnabledPercentage7Day());
-  telemetry.addAnalogInput(channel, boardConfig.getAvgDailyEnergy3Day()); // 3-day avg daily solar energy in mWh
 
   return true;
 }

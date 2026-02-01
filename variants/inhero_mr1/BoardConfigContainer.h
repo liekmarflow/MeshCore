@@ -36,7 +36,6 @@ static SemaphoreHandle_t solarEventSem = NULL;
 typedef struct {
   uint8_t mpptEnabledMinutes;  ///< Minutes MPPT was enabled in this hour (0-60)
   uint32_t timestamp;          ///< Unix timestamp (seconds) for this hour
-  uint32_t harvestedEnergy_mWh; ///< Harvested solar energy (mWh) during this hour
 } MpptHourlyStats;
 
 typedef struct {
@@ -44,8 +43,6 @@ typedef struct {
   uint8_t currentIndex;                    ///< Current position in circular buffer
   uint32_t lastUpdateTime;                 ///< Last update time (millis)
   uint16_t currentHourMinutes;             ///< Accumulated minutes for current hour
-  uint32_t currentHourEnergy_mWh;          ///< Accumulated energy for current hour (mWh)
-  int32_t lastPower_mW;                    ///< Last measured power for energy calculation
 } MpptStatistics;
 
 
@@ -143,7 +140,6 @@ public:
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %
-  uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
   void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
   
   // Watchdog methods
