@@ -404,10 +404,11 @@ void InheroMr2Board::begin() {
     
     uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
     
-    // Direct BQ25798 ADC read (boardConfig not ready yet at early boot)
+    // === High-Precision INA228 voltage measurement (24-bit ADC, ±0.1% accuracy) ===
     // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
-    // Use static BqDriver method that doesn't require initialization
-    uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
+    // Use static INA228 method with One-Shot ADC for fresh, accurate measurement
+    // This is critical for wake/sleep decisions in danger zone
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire);
     
     if (vbat_mv == 0) {
       MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");

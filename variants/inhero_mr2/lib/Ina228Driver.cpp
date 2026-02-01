@@ -94,6 +94,49 @@ void Ina228Driver::wakeup() {
   writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
 }
 
+uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
+  // === One-Shot ADC Trigger ===
+  // Configure ADC for single-shot bus voltage measurement
+  // MODE = 0x1 (Single-shot bus voltage only)
+  uint16_t adc_config = (0x1 << 12);  // MODE = 0x1, no averaging for speed
+  
+  wire->beginTransmission(i2c_addr);
+  wire->write(INA228_REG_ADC_CONFIG);
+  wire->write((adc_config >> 8) & 0xFF);
+  wire->write(adc_config & 0xFF);
+  if (wire->endTransmission() != 0) {
+    return 0;  // I2C communication failed
+  }
+  
+  // Wait for conversion to complete (~200µs typical)
+  delay(1);
+  
+  // Read VBUS register (24-bit)
+  wire->beginTransmission(i2c_addr);
+  wire->write(INA228_REG_VBUS);
+  if (wire->endTransmission(false) != 0) {
+    return 0;
+  }
+  
+  wire->requestFrom(i2c_addr, (uint8_t)3);
+  if (wire->available() < 3) {
+    return 0;
+  }
+  
+  int32_t vbus_raw = wire->read() << 16;  // MSB
+  vbus_raw |= wire->read() << 8;          // Mid
+  vbus_raw |= wire->read();               // LSB
+  
+  // Sign-extend 24-bit to 32-bit
+  if (vbus_raw & 0x800000) {
+    vbus_raw |= 0xFF000000;
+  }
+  
+  // VBUS LSB = 195.3125 µV (24-bit ADC)
+  float vbus_v = vbus_raw * 195.3125e-6;
+  return (uint16_t)(vbus_v * 1000.0f);  // Convert to mV
+}
+
 int32_t Ina228Driver::readPower_mW() {
   int32_t power_raw = readRegister24(INA228_REG_POWER);
   // Power LSB = 3.2 × CURRENT_LSB

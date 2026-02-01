@@ -165,6 +165,15 @@ public:
   /// @note Re-enables continuous measurement mode
   void wakeup();
 
+  /// @brief Read battery voltage directly via I2C without requiring driver initialization
+  /// @param wire Pointer to TwoWire instance
+  /// @param i2c_addr I2C address (default 0x45)
+  /// @return Battery voltage in millivolts, or 0 if read fails
+  /// @note Static method for early boot use before INA228 is initialized.
+  ///       Triggers One-Shot ADC conversion for accurate voltage reading.
+  ///       Uses high-precision 24-bit ADC (±0.1% accuracy).
+  static uint16_t readVBATDirect(TwoWire* wire = &Wire, uint8_t i2c_addr = 0x45);
+
 private:
   uint8_t _i2c_addr;
   float _shunt_mohm;
