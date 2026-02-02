@@ -107,7 +107,8 @@ public:
   static FrostChargeBehaviour getFrostChargeBehaviourFromCommandString(const char* cmdStr);
   static const char* getAvailableFrostChargeBehaviourOptions();
   static const char* getAvailableBatOptions();
-  static void checkAndFixSolarLogic();
+  static void checkAndFixPgoodStuck();  ///< Check for stuck PGOOD and toggle HIZ if needed
+  static void checkAndFixSolarLogic();  ///< Re-enable MPPT if BQ disabled it
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
   static void onBqInterrupt();

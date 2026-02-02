@@ -225,37 +225,37 @@ const char* BoardConfigContainer::getAvailableBatOptions() {
   return buffer;
 }
 
-void BoardConfigContainer::checkAndFixSolarLogic() {
+/// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
+/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source.
+///          This function forces input qualification by toggling HIZ mode.
+///          Only triggers if: PG=0, VBUS sufficient, and PG_STAT flag NOT set.
+void BoardConfigContainer::checkAndFixPgoodStuck() {
   if (!bqDriverInstance) return;
 
-  bqDriverInstance->readReg(0x22);
+  bqDriverInstance->readReg(0x22);  // Refresh status register
 
-  uint8_t status0 = bqDriverInstance->readReg(0x1B);
+  uint8_t flag0 = bqDriverInstance->readReg(0x1B);  // CHARGER_FLAG_0 register
+  bool pgFlagSet = (flag0 & 0x08) != 0;  // Bit 3: PG_STAT flag (set when PGOOD changes)
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
   
   // Get VBUS voltage from telemetry data
   const Telemetry* telem = bqDriverInstance->getTelemetryData();
   uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
 
-  // Check if MPPT is enabled in configuration
-  bool mpptEnabled;
-  BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-
-  if (!mpptEnabled) {
-    // MPPT disabled in config - ensure register is cleared
-    uint8_t mpptVal = bqDriverInstance->readReg(0x15);
-    if ((mpptVal & 0x01) != 0) {
-      bqDriverInstance->writeReg(0x15, mpptVal & ~0x01);
-    }
-    return;
-  }
-
   // Detect stuck PGOOD state: VBUS voltage present but PGOOD not set
   // This can happen after slow solar voltage rise (sunrise over 10-20 minutes)
   // BQ expects fast VBUS edge (adapter plug), not gradual sunrise
   // Without edge detection, input qualification never runs → PGOOD stays low
+  //
+  // CRITICAL: Only toggle HIZ if:
+  // 1. PGOOD is currently LOW (not yet set)
+  // 2. VBUS voltage is sufficient for charging
+  // 3. PG_STAT flag is NOT set (interrupt was NOT caused by PG change)
+  //
+  // If PG_STAT flag is set, it means BQ25798 just changed PGOOD itself
+  // and we should NOT interfere by toggling HIZ!
   
-  if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING) {
+  if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING && !pgFlagSet) {
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
     MESH_DEBUG_PRINT(vbusVoltage);
     MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
@@ -278,9 +278,35 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
     bq.setMPPTenable(true); // Ensure MPPT remains enabled
     MESH_DEBUG_PRINTLN("Input detection triggered");
   }
+}
 
-  // MPPT enabled in config - apply normal solar logic
-  if (status0 & 0x08) {
+/// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
+/// @details BQ25798 does not persist MPPT=1 and sets MPPT=0 when PG=0.
+///          This function restores MPPT=1 when PG returns to 1.
+void BoardConfigContainer::checkAndFixSolarLogic() {
+  if (!bqDriverInstance) return;
+
+  // Check if MPPT is enabled in configuration
+  bool mpptEnabled;
+  BoardConfigContainer::loadMpptEnabled(mpptEnabled);
+
+  if (!mpptEnabled) {
+    // MPPT disabled in config - ensure register is cleared
+    uint8_t mpptVal = bqDriverInstance->readReg(0x15);
+    if ((mpptVal & 0x01) != 0) {
+      bqDriverInstance->writeReg(0x15, mpptVal & ~0x01);
+    }
+    return;
+  }
+
+  // Read flag register to check if PG changed
+  uint8_t flag0 = bqDriverInstance->readReg(0x1B);
+  bool pgFlagSet = (flag0 & 0x08) != 0;  // Bit 3: PG_STAT flag
+  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
+
+  // Only re-enable MPPT if PG changed AND PGOOD is now set (PG=1)
+  // When PGOOD goes 1→0, BQ automatically disables MPPT (which is correct)
+  if (pgFlagSet && powerGood) {
     uint8_t mpptVal = bqDriverInstance->readReg(0x15);
 
     if ((mpptVal & 0x01) == 0) {
@@ -305,9 +331,10 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
   while (true) {
     if (xSemaphoreTake(solarEventSem, xBlockTime) == pdTRUE) {
-      // Interrupt triggered - MPPT status changed
+      // Interrupt triggered - solar event occurred
       delay(100);
-      checkAndFixSolarLogic();
+      checkAndFixPgoodStuck();  // Check for stuck PGOOD
+      checkAndFixSolarLogic();   // Re-enable MPPT if needed
       
       // Update statistics on interrupt (status change) - only if MPPT enabled in config
       if (bqDriverInstance) {
@@ -319,7 +346,8 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
       }
     } else {
       // Timeout - periodic check every 15 minutes
-      checkAndFixSolarLogic();
+      checkAndFixPgoodStuck();  // Check for stuck PGOOD
+      checkAndFixSolarLogic();   // Re-enable MPPT if needed
       
       // Update statistics for time accounting - only if MPPT enabled in config
       if (bqDriverInstance) {
