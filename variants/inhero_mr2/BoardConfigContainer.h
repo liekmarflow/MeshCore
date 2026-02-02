@@ -175,7 +175,7 @@ public:
 
   bool begin();
 
-  const Telemetry* getTelemetryData();
+  const Telemetry* getTelemetryData(); ///< Get combined telemetry (INA228 for VBAT/IBAT, BQ25798 for Solar)
   bool resetBQ(); ///< Reset BQ25798 to defaults and reconfigure
 
   const char* getChargeCurrentAsStr();

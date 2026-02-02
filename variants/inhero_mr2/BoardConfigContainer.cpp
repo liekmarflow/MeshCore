@@ -840,10 +840,38 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   return false;
 }
 
-/// @brief Returns pointer to current telemetry data from battery manager
-/// @return Pointer to Telemetry struct from BqDriver
+/// @brief Returns pointer to current telemetry data (MR2: INA228 for VBAT/IBAT, BQ25798 for Solar)
+/// @return Pointer to Telemetry struct with combined data from INA228 and BQ25798
+/// @note MR2 v0.2: Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
+///                  Solar data and battery temperature from BQ25798 ADC
 const Telemetry* BoardConfigContainer::getTelemetryData() {
-  return bq.getTelemetryData();
+  static Telemetry telemetry;
+  
+  // Get base telemetry from BQ25798 (solar data + temperature)
+  const Telemetry* bqData = bq.getTelemetryData();
+  if (!bqData) {
+    memset(&telemetry, 0, sizeof(Telemetry));
+    return &telemetry;
+  }
+  
+  // Copy BQ25798 data (solar, system, temperature)
+  telemetry.solar = bqData->solar;
+  telemetry.system = bqData->system;
+  telemetry.batterie.temperature = bqData->batterie.temperature;
+  
+  // Override battery voltage/current with INA228 data (v0.2 hardware)
+  if (INA228_INITIALIZED && ina228DriverInstance != nullptr) {
+    telemetry.batterie.voltage = ina228DriverInstance->readVoltage_mV();
+    telemetry.batterie.current = ina228DriverInstance->readCurrent_mA();
+    telemetry.batterie.power = ((int32_t)telemetry.batterie.voltage * telemetry.batterie.current) / 1000;
+  } else {
+    // Fallback to BQ25798 values if INA228 not available
+    telemetry.batterie.voltage = bqData->batterie.voltage;
+    telemetry.batterie.current = bqData->batterie.current;
+    telemetry.batterie.power = bqData->batterie.power;
+  }
+  
+  return &telemetry;
 }
 
 /// @brief Resets BQ25798 to default register values and reconfigures
