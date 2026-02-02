@@ -8,7 +8,8 @@
 
 #include "Ina228Driver.h"
 
-Ina228Driver::Ina228Driver(uint8_t i2c_addr) : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f) {}
+Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
+  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
 
 bool Ina228Driver::begin(float shunt_resistor_mohm) {
   _shunt_mohm = shunt_resistor_mohm;
@@ -35,8 +36,11 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   // SHUNT_CAL = 13107.2 × 10^6 × CURRENT_LSB × R_SHUNT
   // R_SHUNT in Ohms, CURRENT_LSB in A
   float shunt_ohm = _shunt_mohm / 1000.0f;
-  uint16_t shunt_cal = (uint16_t)(13107.2e6 * _current_lsb * shunt_ohm);
-  writeRegister16(INA228_REG_SHUNT_CAL, shunt_cal);
+  _base_shunt_cal = (uint16_t)(13107.2e6 * _current_lsb * shunt_ohm);
+  
+  // Apply calibration factor to SHUNT_CAL (if set)
+  uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * _calibration_factor);
+  writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
 
   // Configure INA228: ADC range ±40.96mV for better resolution with 20mΩ shunt
   // At 1A: V_shunt = 1A × 0.02Ω = 20mV (fits in ±40.96mV range)
@@ -76,6 +80,7 @@ uint16_t Ina228Driver::readVoltage_mV() {
 int16_t Ina228Driver::readCurrent_mA() {
   int32_t current_raw = readRegister24(INA228_REG_CURRENT);
   // Current = raw × CURRENT_LSB
+  // Calibration is applied via SHUNT_CAL register (hardware calibration)
   float current_a = current_raw * _current_lsb;
   return (int16_t)(current_a * 1000.0f);  // Convert to mA
 }
@@ -308,4 +313,49 @@ int64_t Ina228Driver::readRegister40(uint8_t reg) {
   }
 
   return value;
+}
+
+// ===== Calibration Methods =====
+
+float Ina228Driver::calibrateCurrent(float actual_current_ma) {
+  // Step 1: Reset calibration to 1.0 for accurate measurement
+  setCalibrationFactor(1.0f);
+  
+  // Wait for ADC to settle
+  delay(10);
+  
+  // Step 2: Read current measured value (uncalibrated)
+  int16_t measured_current_ma = readCurrent_mA();
+  
+  // Avoid division by zero
+  if (measured_current_ma == 0) {
+    return 1.0f;  // No correction possible
+  }
+  
+  // Step 3: Calculate correction factor: actual / measured
+  float new_factor = actual_current_ma / (float)measured_current_ma;
+  
+  // Step 4: Apply new calibration factor to INA228 hardware
+  setCalibrationFactor(new_factor);
+  
+  return new_factor;
+}
+
+void Ina228Driver::setCalibrationFactor(float factor) {
+  // Clamp to reasonable range (0.5x to 2.0x)
+  if (factor < 0.5f) factor = 0.5f;
+  if (factor > 2.0f) factor = 2.0f;
+  
+  _calibration_factor = factor;
+  
+  // Apply calibration factor to SHUNT_CAL register (hardware calibration)
+  // This affects all current-based measurements: current, power, energy, charge
+  if (_base_shunt_cal > 0) {
+    uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * factor);
+    writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
+  }
+}
+
+float Ina228Driver::getCalibrationFactor() const {
+  return _calibration_factor;
 }

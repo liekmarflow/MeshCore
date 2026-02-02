@@ -194,6 +194,11 @@ public:
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
   
+  // INA228 Calibration methods (v0.2)
+  bool setIna228CalibrationFactor(float factor); ///< Store INA228 current calibration factor
+  float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
+  float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
+  
   // Watchdog methods
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
@@ -224,12 +229,14 @@ private:
   char* REDUCEDBATTVOLTAGE = "reduce";
   char* MPPTENABLEKEY = "mpptEn";
   char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
+  char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadReduceChrgU(bool& reduce) const;
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
+  bool loadIna228CalibrationFactor(float& factor) const; // v0.2
   
   // MPPT Statistics helper
   static void updateMpptStats();

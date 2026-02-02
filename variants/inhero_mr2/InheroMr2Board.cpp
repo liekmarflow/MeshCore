@@ -248,9 +248,14 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
     #endif
     return true;
+  } else if (strcmp(cmd, "ibcal") == 0) {
+    // Get current INA228 calibration factor
+    float factor = boardConfig.getIna228CalibrationFactor();
+    snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus|ibcal>");
   return true;
 }
 
@@ -352,6 +357,26 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid capacity (100-100000 mAh)");
     }
     return ret;
+  } else if (strncmp(setCommand, "ibcal ", 6) == 0) {
+    // INA228 current calibration: set board.ibcal <actual_current_mA>
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+    float actual_current_ma = atof(value);
+    
+    // Validate reasonable current range (-2000 to +2000 mA)
+    if (actual_current_ma < -2000.0f || actual_current_ma > 2000.0f) {
+      snprintf(ret, sizeof(ret), "Err: Current out of range (-2000 to +2000 mA)");
+      return ret;
+    }
+    
+    // Perform calibration and store factor
+    float new_factor = boardConfig.performIna228Calibration(actual_current_ma);
+    
+    if (new_factor > 0.0f) {
+      snprintf(ret, sizeof(ret), "INA228 calibrated: factor=%.4f", new_factor);
+    } else {
+      snprintf(ret, sizeof(ret), "Err: Calibration failed (zero current?)");
+    }
+    return ret;
   } else if (strcmp(setCommand, "bqreset") == 0) {
     // Perform BQ25798 software reset and reload config from FS
     bool success = boardConfig.resetBQ();
@@ -363,7 +388,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap|bqreset>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap|ibcal|bqreset>");
   return ret;
 }
 

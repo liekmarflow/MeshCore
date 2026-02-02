@@ -20,6 +20,9 @@
 #include <Wire.h>
 #include <Arduino.h>
 
+// INA228 I2C Address
+#define INA228_I2C_ADDR_DEFAULT 0x45  // A0=GND, A1=GND
+
 // INA228 Register Map
 #define INA228_REG_CONFIG       0x00  // Configuration
 #define INA228_REG_ADC_CONFIG   0x01  // ADC Configuration
@@ -83,8 +86,8 @@ typedef struct {
 class Ina228Driver {
 public:
   /// @brief Constructor
-  /// @param i2c_addr I2C address of INA228 (default 0x45 for A0=A1=GND)
-  Ina228Driver(uint8_t i2c_addr = 0x45);
+  /// @param i2c_addr I2C address of INA228 (default INA228_I2C_ADDR_DEFAULT for A0=A1=GND)
+  Ina228Driver(uint8_t i2c_addr = INA228_I2C_ADDR_DEFAULT);
 
   /// @brief Initialize INA228 with default configuration
   /// @param shunt_resistor_mohm Shunt resistor value in milliohms (e.g., 10 for 0.01Ω)
@@ -165,19 +168,39 @@ public:
   /// @note Re-enables continuous measurement mode
   void wakeup();
 
+  /// @brief Calibrate current measurement based on actual measured current
+  /// @param actual_current_ma Actual measured battery current in milliamps
+  /// @return Calculated calibration factor (multiplier for future readings)
+  /// @note This calculates the ratio between actual and measured current.
+  ///       The calibration factor should be stored persistently and applied via setCalibrationFactor().
+  float calibrateCurrent(float actual_current_ma);
+
+  /// @brief Set persistent current calibration factor
+  /// @param factor Calibration factor (1.0 = no correction, >1.0 = increase readings, <1.0 = decrease)
+  /// @note This factor is written directly to the INA228 SHUNT_CAL register (hardware calibration).
+  ///       All measurements (current, power, energy, charge) are automatically corrected.
+  ///       Call this at startup with value loaded from persistent storage.
+  void setCalibrationFactor(float factor);
+
+  /// @brief Get current calibration factor
+  /// @return Current calibration factor (1.0 = no calibration)
+  float getCalibrationFactor() const;
+
   /// @brief Read battery voltage directly via I2C without requiring driver initialization
   /// @param wire Pointer to TwoWire instance
-  /// @param i2c_addr I2C address (default 0x45)
+  /// @param i2c_addr I2C address (default INA228_I2C_ADDR_DEFAULT)
   /// @return Battery voltage in millivolts, or 0 if read fails
   /// @note Static method for early boot use before INA228 is initialized.
   ///       Triggers One-Shot ADC conversion for accurate voltage reading.
   ///       Uses high-precision 24-bit ADC (±0.1% accuracy).
-  static uint16_t readVBATDirect(TwoWire* wire = &Wire, uint8_t i2c_addr = 0x45);
+  static uint16_t readVBATDirect(TwoWire* wire = &Wire, uint8_t i2c_addr = INA228_I2C_ADDR_DEFAULT);
 
 private:
   uint8_t _i2c_addr;
   float _shunt_mohm;
   float _current_lsb;  // Current LSB in A
+  uint16_t _base_shunt_cal;  // Original SHUNT_CAL value (before calibration)
+  float _calibration_factor;  // Current calibration factor (1.0 = no correction)
 
   /// @brief Write 16-bit register
   bool writeRegister16(uint8_t reg, uint16_t value);

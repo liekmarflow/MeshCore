@@ -592,6 +592,15 @@ bool BoardConfigContainer::begin() {
     ina228DriverInstance = &ina228;
     MESH_DEBUG_PRINTLN("INA228 found @ 0x45");
       
+      // Load and apply current calibration factor
+      float calib_factor = 1.0f;
+      if (loadIna228CalibrationFactor(calib_factor)) {
+        ina228.setCalibrationFactor(calib_factor);
+        MESH_DEBUG_PRINTLN("INA228 calibration factor loaded: %.4f", calib_factor);
+      } else {
+        MESH_DEBUG_PRINTLN("INA228 using default calibration (1.0)");
+      }
+      
       // Load battery type to set chemistry-specific UVLO threshold
       BatteryType bat;
       if (!loadBatType(bat)) {
@@ -1288,6 +1297,84 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   }
   
   return false;  // Not loaded from prefs
+}
+
+/// @brief Load INA228 calibration factor from preferences (v0.2)
+/// @param factor Output parameter
+/// @return true if loaded successfully, false if using default
+bool BoardConfigContainer::loadIna228CalibrationFactor(float& factor) const {
+  String path = String("/") + PREFS_NAMESPACE + "/" + INA228_CALIB_KEY + ".txt";
+  if (InternalFS.exists(path.c_str())) {
+    char buffer[20];
+    prefs.getString(INA228_CALIB_KEY, buffer, sizeof(buffer), "1.0");
+    factor = atof(buffer);
+    
+    // Validate factor is in reasonable range
+    if (factor >= 0.5f && factor <= 2.0f) {
+      return true;
+    }
+  }
+  
+  // Default: no calibration
+  factor = 1.0f;
+  return false;
+}
+
+/// @brief Set INA228 calibration factor and save to preferences (v0.2)
+/// @param factor Calibration factor (0.5 to 2.0)
+/// @return true if saved successfully
+bool BoardConfigContainer::setIna228CalibrationFactor(float factor) {
+  // Clamp to reasonable range
+  if (factor < 0.5f) factor = 0.5f;
+  if (factor > 2.0f) factor = 2.0f;
+  
+  // Apply to INA228 driver
+  if (ina228DriverInstance) {
+    ina228DriverInstance->setCalibrationFactor(factor);
+  }
+  
+  // Save to preferences
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "%.4f", factor);
+  
+  if (prefs.putString(INA228_CALIB_KEY, buffer)) {
+    MESH_DEBUG_PRINTLN("INA228 calibration factor saved: %.4f", factor);
+    return true;
+  }
+  
+  return false;
+}
+
+/// @brief Get current INA228 calibration factor (v0.2)
+/// @return Current calibration factor
+float BoardConfigContainer::getIna228CalibrationFactor() const {
+  if (ina228DriverInstance) {
+    return ina228DriverInstance->getCalibrationFactor();
+  }
+  return 1.0f;  // Default if INA228 not available
+}
+
+/// @brief Perform INA228 current calibration and store result (v0.2)
+/// @param actual_current_ma Actual measured battery current in mA (from reference meter)
+/// @return Calculated and applied calibration factor, or 0.0 on error
+float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
+  if (!ina228DriverInstance) {
+    return 0.0f;
+  }
+  
+  // Perform calibration
+  float new_factor = ina228DriverInstance->calibrateCurrent(actual_current_ma);
+  
+  if (new_factor <= 0.0f) {
+    return 0.0f;  // Failed
+  }
+  
+  // Store persistently
+  if (!setIna228CalibrationFactor(new_factor)) {
+    return 0.0f;
+  }
+  
+  return new_factor;
 }
 
 /// @brief Get INA228 driver instance (v0.2)
