@@ -301,7 +301,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
   mpptStats.lastUpdateTime = millis() / 1000; // Convert to seconds
   mpptStats.usingRTC = false;
 
-  const TickType_t xBlockTime = pdMS_TO_TICKS(15 * 60 * 1000); // 15 minutes
+  const TickType_t xBlockTime = pdMS_TO_TICKS(SOLAR_MPPT_TASK_INTERVAL_MS);
 
   while (true) {
     if (xSemaphoreTake(solarEventSem, xBlockTime) == pdTRUE) {

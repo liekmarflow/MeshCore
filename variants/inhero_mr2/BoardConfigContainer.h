@@ -30,6 +30,9 @@
 
 static SemaphoreHandle_t solarEventSem = NULL;
 
+// Solar MPPT task interval
+#define SOLAR_MPPT_TASK_INTERVAL_MS (15 * 60 * 1000)  // 15 minutes
+
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
 
