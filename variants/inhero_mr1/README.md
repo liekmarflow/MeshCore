@@ -114,6 +114,32 @@ board.cinfo     # Get charger status
                 # Power: PG (Power Good) | !PG (Power not Good)
                 # Charge: !CHG | PRE | CC | CV | TRICKLE | TOP | DONE | Unknown
 
+board.diag      # Get detailed BQ25798 diagnostics 🆕
+                # Output: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | voltages | temps | registers | VOC config
+                # Example: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
+                #          Vbus:6.22V Vbat:3.35V Ibat:0mA Temp:31C | 
+                #          TS: OK | R0F:0x23 R15:0xAB | VOC:87.5%/300ms/2min
+                # Key diagnostics for debugging charging issues:
+                # - PG: Power Good status (1=good, 0=no power)
+                # - CE: Charge Enable (1=enabled, 0=disabled)
+                # - HIZ: High Impedance mode (0=normal, 1=input disabled)
+                # - MPPT: Maximum Power Point Tracking (1=active, 0=inactive)
+                # - CHG: Charge state (!CHG|TRKL|PRE|CC|CV|TOP|DONE)
+                # - VBUS: Input source type (NoIn|SDP|CDP|DCP|UnkAdp|NStd|NotQual|DirPwr)
+                # - VINDPM: Voltage input DPM active (1=limiting, 0=ok)
+                # - IINDPM: Current input DPM active (1=limiting, 0=ok)
+                # - VOC: MPPT VOC configuration (percentage/delay/rate)
+
+board.togglehiz # Toggle HIZ mode for debugging stuck PGOOD 🆕
+                # Output: HIZ toggled: VBUS=<V>V PG=<status>
+                # Manually toggles EN_HIZ bit to clear stuck states
+                # Useful when PG=1 but HIZ=1 (stuck condition)
+
+board.clearhiz  # Force clear HIZ mode 🆕
+                # Output: HIZ cleared: VBUS=<V>V PG=<status>
+                # Bypasses PGOOD check and forces HIZ=0
+                # Use when MPPT won't activate despite solar present
+
 board.telem     # Get full telemetry snapshot
                 # Output: B:<V>V/<mA>mA/<T>C S:<V>V/<mA>mA Y:<V>V
                 # B = Battery, S = Solar, Y = System voltage
@@ -168,6 +194,29 @@ set board.bqreset              # Reset BQ25798 and reload config from FS
 - `TRICKLE` - Trickle charging (low current maintenance)
 - `TOP` - Top of Timer Active
 - `DONE` - Charging complete
+
+**board.diag (Detailed Diagnostics)** 🆕:
+- `PG` - Power Good status (Register 0x1B bit 3)
+- `CE` - Charge Enable (Register 0x0F bit 5)
+- `HIZ` - High Impedance mode (Register 0x0F bit 2) - When 1, input disabled
+- `MPPT` - MPPT status (Register 0x15 bit 0)
+- `CHG` - Charge state from Register 0x1C bits 7-5
+- `VBUS` - Input source type from Register 0x1C bits 4-1:
+  - `NoIn` - No input
+  - `SDP` - USB Standard Downstream Port (500mA)
+  - `CDP` - USB Charging Downstream Port (1.5A)
+  - `DCP` - USB Dedicated Charging Port (3.25A)
+  - `UnkAdp` - Unknown adapter (typical for solar)
+  - `NStd` - Non-standard adapter
+  - `NotQual` - Not qualified (low voltage/current)
+  - `DirPwr` - Direct power
+- `VINDPM` - Voltage Input DPM (1=active, limiting input voltage)
+- `IINDPM` - Current Input DPM (1=active, limiting input current)
+- `VOC` - MPPT VOC configuration (percentage/delay/rate):
+  - Percentage: VINDPM as % of VOC (56.25-100%, default 87.5%)
+  - Delay: Time before VOC measurement (50ms-5s, default 300ms)
+  - Rate: Interval between measurements (30s-30min, default 2min)
+- `R0F/R15` - Raw register values for verification against datasheet
 
 **board.telem (Telemetry)**:
 - `B` - Battery voltage/current/temperature

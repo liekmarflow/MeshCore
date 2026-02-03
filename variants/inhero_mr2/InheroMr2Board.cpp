@@ -200,6 +200,24 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
     snprintf(reply, maxlen, "%s", infoBuffer);
     return true;
+  } else if (strcmp(cmd, "diag") == 0) {
+    // Detailed diagnostics for debugging charging issues
+    char diagBuffer[256];
+    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
+    snprintf(reply, maxlen, "%s", diagBuffer);
+    return true;
+  } else if (strcmp(cmd, "togglehiz") == 0) {
+    // Manual HIZ toggle for debugging stuck PGOOD
+    char hizBuffer[100];
+    boardConfig.toggleHizAndCheck(hizBuffer, sizeof(hizBuffer));
+    snprintf(reply, maxlen, "%s", hizBuffer);
+    return true;
+  } else if (strcmp(cmd, "clearhiz") == 0) {
+    // Force clear HIZ mode
+    char hizBuffer[100];
+    boardConfig.clearHiz(hizBuffer, sizeof(hizBuffer));
+    snprintf(reply, maxlen, "%s", hizBuffer);
+    return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
     snprintf(reply, maxlen, "B:%.2fV/%imA/%.0fC S:%.2fV/%imA Y:%.2fV",
@@ -255,7 +273,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|mppt|mpps|conf|wdtstatus|ibcal>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal>");
   return true;
 }
 
