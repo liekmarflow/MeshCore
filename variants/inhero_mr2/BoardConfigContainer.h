@@ -78,10 +78,14 @@ typedef struct {
   float current_soc_percent;   ///< Current State of Charge in %
   bool capacity_learned;       ///< True if capacity was learned from full cycle
   
-  // Auto-learning state
+  // Auto-learning state (full cycle: 100% → 10%)
   bool learning_active;        ///< Currently in learning cycle
   float learning_start_soc;    ///< SOC at start of learning
   float learning_accumulated_mah; ///< Accumulated charge during learning
+  
+  // Reverse learning state (0% → 100% via USB-C charging)
+  bool reverse_learning_active; ///< Method 2: Learning from danger zone exit to full charge
+  float reverse_learning_accumulated_mah; ///< Accumulated charge from 0% to 100%
   
   // Forecast
   float avg_daily_deficit_mah; ///< 3-day average deficit (negative = using battery)
@@ -193,10 +197,17 @@ public:
   float getStateOfCharge() const;              ///< Get current SOC in % (0-100)
   float getBatteryCapacity() const;            ///< Get battery capacity in mAh
   bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI
+  bool setCapacityLearned(bool learned);       ///< Set and persist capacity_learned flag
   void getBatterySOCString(char* buffer, uint32_t bufferSize) const; ///< Get formatted SOC string
   void getDailyBalanceString(char* buffer, uint32_t bufferSize) const; ///< Get daily balance stats
   uint16_t getTTL_Hours() const;               ///< Get Time To Live in hours (0 = not calculated)
   bool isLivingOnBattery() const;              ///< True if net deficit over last 24h
+  bool isCapacityLearned() const;              ///< True if capacity was auto-learned
+  bool isLearningActive() const;               ///< True if currently learning capacity
+  float getLearningAccumulatedMah() const;     ///< Get accumulated mAh during learning
+  void startReverseLearning();                 ///< Start Method 2: 0% → 100% learning after danger zone exit
+  void resetLearning();                        ///< Reset capacity_learned flag to enable auto-learning
+  const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
@@ -205,6 +216,11 @@ public:
   bool setIna228CalibrationFactor(float factor); ///< Store INA228 current calibration factor
   float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
+  
+  // Voltage threshold helpers (chemistry-specific)
+  static uint16_t getVoltageCriticalThreshold(BatteryType type);  ///< Get danger zone threshold
+  static uint16_t getVoltageWakeThreshold(BatteryType type);      ///< Get wake-up threshold
+  static uint16_t getVoltageHardwareCutoff(BatteryType type);     ///< Get hardware UVLO threshold
   
   // Watchdog methods
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
@@ -229,7 +245,7 @@ private:
   bool configureChemistry(BatteryType type, bool reduceMaxChrgU);
   // configureMCP() removed - v0.1 only, MR2 doesn't have MCP4652
   bool configureSolarOnlyInterrupts();
-  const char* PREFS_NAMESPACE = "inheromr1";
+  const char* PREFS_NAMESPACE = "inheromr2";
   char* BATTKEY = "batType";
   char* FROSTKEY = "frost";
   char* MAXCHARGECURRENTKEY = "maxChrg";

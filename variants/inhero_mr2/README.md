@@ -34,11 +34,16 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 - **Software Dangerzone:** 3.4V (initiateShutdown)
 - **Wake Threshold:** 3.6V (Resume operation)
 
-### Coulomb Counter
-- **Real-time SOC tracking** via INA228
+### Coulomb Counter & Auto-Learning 🆕
+- **Real-time SOC tracking** via INA228 (±0.1% accuracy)
 - **20mΩ shunt resistor** (1A max current)
-- **Auto-learning** capacity calibration
-- **7-day energy balance** analysis
+- **Dual-method auto-learning** capacity calibration:
+  * **Method 1:** Full discharge cycle (100% → 10% danger zone, ~29 days @ 13mA)
+  * **Method 2:** USB-C charging from danger zone (0% → 100%, ~hours)
+- **Learning gate:** Auto-learning only starts if capacity not yet learned
+- **Filesystem persistence:** Learned capacity retained across reboots
+- **Manual override:** `set board.batcap` or `board.relearn` to re-enable learning
+- **7-day energy balance** analysis for TTL forecasting
 
 ## Firmware Build
 
@@ -125,6 +130,19 @@ board.wdtstatus # Get watchdog status
 board.ibcal     # Get INA228 calibration factor (v0.2 feature) 🆕
                 # Output: INA228 calibration: <factor> (1.0=default)
                 # Used to correct current measurement errors
+
+board.learning  # Get auto-learning status (v0.2 feature) 🆕
+                # Output: Learning IDLE | M1 ACTIVE | M2 ACTIVE
+                # Shows current state of capacity auto-learning
+                # Method 1: Full discharge cycle (100% → 10%)
+                # Method 2: USB-C charging from danger zone (0% → 100%)
+                # Example: M1 ACTIVE (100%→10%, 850 mAh) Cap:2000mAh(manual)
+                # Example: Learning IDLE Cap:2150mAh(learned)
+
+board.relearn   # Reset learned capacity flag (v0.2 feature) 🆕
+                # Output: Learning reset - auto-learning enabled
+                # Enables auto-learning to run again
+                # Useful when battery capacity has changed
 ```
 
 ### Set Commands
@@ -148,6 +166,7 @@ set board.mppt <1|0>           # Enable/disable MPPT
 set board.batcap <capacity>    # Set battery capacity in mAh (v0.2 feature)
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
+                               # ⚠️ Resets learned flag - auto-learning will restart
 
 set board.ibcal <factor>       # Set INA228 calibration factor (v0.2 feature) 🆕
                                # Range: 0.5-2.0 (default 1.0)
@@ -185,6 +204,135 @@ Bei Messdifferenzen zwischen INA228 und Referenzmessgerät:
 # Kalibrationsfaktor: 100/105 = 0.952
 set board.ibcal 0.952
 ```
+
+## Battery Capacity Auto-Learning 🆕
+
+### Übersicht
+Das MR-2 v0.2 kann die Batteriekapazität **automatisch erlernen** ohne manuelle Konfiguration. Dies ist besonders wichtig für LiFePO4-Batterien, bei denen Spannungsmessung unzuverlässig ist (flache Entladekurve @ 3.2-3.3V).
+
+### Lernmethoden
+
+#### Method 1: Full-Cycle Learning (100% → 10%)
+**Automatischer Start:** Nach CHARGE_DONE (BQ25798 meldet "Fully Charged")  
+**Endpunkt:** Danger Zone erreicht (z.B. 3.4V bei Li-Ion)  
+**Dauer:** Abhängig von Batterie & Stromverbrauch (z.B. 29 Tage bei 10Ah/13mA)  
+**Vorteil:** Sehr genau, funktioniert für alle Chemien  
+**Nachteil:** Sehr langsam bei großen Batterien
+
+**Wie es funktioniert:**
+1. Batterie wird voll geladen (100% SOC)
+2. System setzt Coulomb Counter auf 0 mAh
+3. INA228 akkumuliert entladene Kapazität
+4. Bei Danger Zone Eintritt: Gelernte Kapazität = Akkumulierte mAh
+
+**Beispiel:**
+```bash
+board.learning
+# Output: M1 ACTIVE (100%→10%, 850 mAh) Cap:2000mAh(manual)
+```
+
+#### Method 2: Reverse Learning (0% → 100%)
+**Automatischer Start:** Nach Wake-up aus Danger Zone (Spannung erholt)  
+**Endpunkt:** CHARGE_DONE (USB-C lädt Batterie voll)  
+**Dauer:** Stunden (abhängig von Ladekapazität)  
+**Vorteil:** Schnell, nutzerfreundlich  
+**Nachteil:** Benötigt USB-C Ladung
+
+**Wie es funktioniert:**
+1. Batterie erreicht Danger Zone → Software Shutdown
+2. RTC weckt Gerät nach 1 Stunde → Spannung geprüft
+3. Spannung über Wake Threshold → Reverse Learning startet (0% SOC)
+4. Benutzer steckt USB-C ein → BQ25798 lädt Batterie
+5. Bei CHARGE_DONE: Gelernte Kapazität = Akkumulierte mAh
+
+**Beispiel:**
+```bash
+board.learning
+# Output: M2 ACTIVE (0%→100%, 1850 mAh) Cap:2000mAh(manual)
+```
+
+### Learning Gate (Anti-Restart)
+**Problem:** Ohne Gate würde Learning nach jedem Reboot neu starten  
+**Lösung:** `capacity_learned` Flag im Filesystem
+
+**Verhalten:**
+- ✅ **Erste Inbetriebnahme:** `capacity_learned=false` → Auto-Learning startet
+- ✅ **Nach erfolgreichem Learning:** `capacity_learned=true` → Kein Auto-Learning mehr
+- ✅ **Nach Reboot:** Flag bleibt erhalten → Learning-Status persistent
+- ✅ **Nach manuellem `set board.batcap`:** Flag wird auf `false` gesetzt → Learning startet neu
+- ✅ **Nach `board.relearn` Befehl:** Flag wird auf `false` gesetzt → Learning erlaubt
+
+### CLI Workflow
+
+**1. Status prüfen:**
+```bash
+board.learning
+# Output: Learning IDLE Cap:2150mAh(learned)
+```
+
+**2. Manuelle Kapazität setzen (optional):**
+```bash
+set board.batcap 10000
+# Output: Battery capacity set to 10000 mAh
+# ⚠️ Setzt capacity_learned=false → Auto-Learning aktiviert!
+```
+
+**3. Learning Status überwachen:**
+```bash
+board.learning
+# Output: M2 ACTIVE (0%→100%, 3450 mAh) Cap:10000mAh(manual)
+```
+
+**4. Nach Abschluss:**
+```bash
+board.learning
+# Output: Learning IDLE Cap:3520mAh(learned)
+board.soc
+# Output: SOC:45.2% Cap:3520mAh(learned)
+```
+
+**5. Re-Learning erzwingen:**
+```bash
+board.relearn
+# Output: Learning reset - auto-learning enabled
+board.learning
+# Output: Learning IDLE Cap:3520mAh(manual/default)
+# Beim nächsten CHARGE_DONE oder Danger Zone → Learning startet
+```
+
+### Best Practices
+
+**Für neue Installationen:**
+1. Batterie voll laden (USB-C oder Solar)
+2. Gerät warten lassen → Method 1 startet automatisch
+3. Nach ~29 Tagen (10Ah @ 13mA): Kapazität gelernt
+
+**Für schnelles Learning:**
+1. Batterie komplett entladen (Danger Zone erreichen)
+2. USB-C einstecken → Method 2 startet automatisch
+3. Nach Vollladung (CHARGE_DONE): Kapazität gelernt
+
+**Für Batterie-Austausch:**
+```bash
+board.relearn  # Alte Kapazität vergessen
+# Dann entweder Method 1 oder Method 2 warten
+```
+
+### Technische Details
+
+**Persistenz:**
+- Kapazität: `/inheromr2/batCap.txt` (uint16_t mAh)
+- Learned Flag: `/inheromr2/cap_learned.txt` ("0" oder "1")
+
+**Genauigkeit:**
+- INA228: ±0.1% (24-bit ADC)
+- Shunt: 20mΩ ±1% (0.5W)
+- Temperaturkompensation: ±50ppm/°C
+
+**Sicherheit:**
+- Learning stoppt bei Danger Zone (Method 1)
+- Learning stoppt bei CHARGE_DONE (Method 2)
+- Keine Learning-Starts wenn `capacity_learned=true`
 
 ## Siehe auch
 

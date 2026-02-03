@@ -271,9 +271,36 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float factor = boardConfig.getIna228CalibrationFactor();
     snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
     return true;
+  } else if (strcmp(cmd, "learning") == 0) {
+    // Get auto-learning status (both methods)
+    float capacity = boardConfig.getBatteryCapacity();
+    const char* source = boardConfig.isCapacityLearned() ? "learned" : "manual/default";
+    bool method1_active = boardConfig.isLearningActive();
+    
+    // Check Method 2 (reverse learning) via socStats
+    const BatterySOCStats* socStats = boardConfig.getSOCStats();
+    bool method2_active = (socStats != nullptr) ? socStats->reverse_learning_active : false;
+    
+    if (method1_active) {
+      float accumulated = boardConfig.getLearningAccumulatedMah();
+      snprintf(reply, maxlen, "M1 ACTIVE (100%%→10%%, %.0f mAh) Cap:%.0f mAh (%s)", 
+               accumulated, capacity, source);
+    } else if (method2_active) {
+      float accumulated = socStats->reverse_learning_accumulated_mah;
+      snprintf(reply, maxlen, "M2 ACTIVE (0%%→100%%, %.0f mAh) Cap:%.0f mAh (%s)", 
+               accumulated, capacity, source);
+    } else {
+      snprintf(reply, maxlen, "Learning IDLE Cap:%.0f mAh (%s)", capacity, source);
+    }
+    return true;
+  } else if (strcmp(cmd, "relearn") == 0) {
+    // Reset learned flag to enable auto-learning again
+    boardConfig.resetLearning();
+    snprintf(reply, maxlen, "Learning reset - auto-learning enabled");
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn>");
   return true;
 }
 
@@ -475,9 +502,14 @@ void InheroMr2Board::begin() {
           // Never returns
         }
         
-        // Voltage recovered above wake threshold
+        // Voltage recovered above wake threshold - THIS IS 0% SOC!
         MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
         NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+        
+        // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
+        // This is the perfect moment: we just exited danger zone = 0% SOC
+        // User will plug in USB-C, we accumulate all charged mAh to 100%
+        boardConfig.startReverseLearning();
       }
       // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
       // This is the critical case to prevent motorboating!
@@ -593,48 +625,21 @@ bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
 /// @return Threshold in millivolts (200mV before hardware cutoff for safe shutdown)
 uint16_t InheroMr2Board::getVoltageCriticalThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  
-  switch (chemType) {
-    case BoardConfigContainer::BatteryType::LTO_2S:
-      return 4200;  // 4.2V "Dangerzone" (200mV before 4.0V hardware cutoff)
-    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-      return 2900;  // 2.9V "Dangerzone" (100mV before 2.8V hardware cutoff)
-    case BoardConfigContainer::BatteryType::LIION_1S:
-    default:
-      return 3400;  // 3.4V "Dangerzone" (200mV before 3.2V hardware cutoff)
-  }
+  return BoardConfigContainer::getVoltageCriticalThreshold(chemType);
 }
 
 /// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
 /// @return Threshold in millivolts (higher than critical to avoid bounce)
 uint16_t InheroMr2Board::getVoltageWakeThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  
-  switch (chemType) {
-    case BoardConfigContainer::BatteryType::LTO_2S:
-      return 4400;  // 4.4V - normal operation voltage
-    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-      return 3000;  // 3.0V - normal operation voltage
-    case BoardConfigContainer::BatteryType::LIION_1S:
-    default:
-      return 3600;  // 3.6V - normal operation voltage
-  }
+  return BoardConfigContainer::getVoltageWakeThreshold(chemType);
 }
 
 /// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
 /// @return Hardware cutoff voltage in millivolts (INA228 Alert threshold)
 uint16_t InheroMr2Board::getVoltageHardwareCutoff() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  
-  switch (chemType) {
-    case BoardConfigContainer::BatteryType::LTO_2S:
-      return 4000;  // 4.0V - absolute minimum for LTO
-    case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-      return 2800;  // 2.8V - absolute minimum for LiFePO4
-    case BoardConfigContainer::BatteryType::LIION_1S:
-    default:
-      return 3200;  // 3.2V - absolute minimum for Li-Ion
-  }
+  return BoardConfigContainer::getVoltageHardwareCutoff(chemType);
 }
 
 /// @brief Initiate controlled shutdown with filesystem protection (v0.2)

@@ -163,6 +163,52 @@
 
 ---
 
+### Board-Specific Commands (Inhero MR-2)
+For boards with advanced power management features (e.g., Inhero MR-2 v0.2):
+
+#### View battery capacity auto-learning status
+**Usage:** `board.learning`
+
+**Output Examples:**
+- `Learning IDLE Cap:2150mAh(learned)` - Learning complete, capacity known
+- `M1 ACTIVE (100%→10%, 850 mAh) Cap:2000mAh(manual)` - Method 1 in progress
+- `M2 ACTIVE (0%→100%, 1850 mAh) Cap:2000mAh(manual)` - Method 2 in progress
+
+**Note:** Two auto-learning methods available:
+- **Method 1:** Full discharge cycle (100% → 10% danger zone)
+- **Method 2:** USB-C charging from danger zone (0% → 100%)
+
+---
+
+#### Reset learned capacity flag
+**Usage:** `board.relearn`
+
+**Output:** `Learning reset - auto-learning enabled`
+
+**Note:** Enables auto-learning to run again. Useful after battery replacement.
+
+---
+
+#### View battery State of Charge
+**Usage:** `board.soc`
+
+**Output Example:** `SOC:67.5% Cap:2000mAh(learned)`
+
+**Note:** Available on boards with Coulomb Counter (e.g., INA228)
+
+---
+
+#### View daily energy balance
+**Usage:** `board.balance`
+
+**Output Examples:**
+- `Today:+150mAh SOLAR 3dAvg:+120mAh` - Net positive (solar charging)
+- `Today:-80mAh BATTERY 3dAvg:-75mAh TTL:120h` - Net negative (discharging)
+
+**Note:** Shows energy balance and Time-To-Live forecast
+
+---
+
 ## Configuration
 
 ### Radio

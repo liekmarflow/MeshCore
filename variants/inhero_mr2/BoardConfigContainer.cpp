@@ -1518,8 +1518,15 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   
   // Save to preferences (as integer mAh)
   prefs.putInt(BATTERY_CAPACITY_KEY, (uint16_t)capacity_mah);
+  prefs.putString("cap_learned", "0");  // Reset learned flag
   
   MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh", capacity_mah);
+  return true;
+}
+
+bool BoardConfigContainer::setCapacityLearned(bool learned) {
+  socStats.capacity_learned = learned;
+  prefs.putString("cap_learned", learned ? "1" : "0");
   return true;
 }
 
@@ -1558,6 +1565,47 @@ uint16_t BoardConfigContainer::getTTL_Hours() const {
 /// @return true if using more than charging
 bool BoardConfigContainer::isLivingOnBattery() const {
   return socStats.living_on_battery;
+}
+
+/// @brief Check if battery capacity was auto-learned
+/// @return true if capacity was learned from full charge/discharge cycle
+bool BoardConfigContainer::isCapacityLearned() const {
+  return socStats.capacity_learned;
+}
+
+/// @brief Check if auto-learning is currently active
+/// @return true if currently accumulating discharge data
+bool BoardConfigContainer::isLearningActive() const {
+  return socStats.learning_active;
+}
+
+/// @brief Get accumulated mAh during learning cycle
+/// @return Accumulated discharge in mAh (0 if not learning)
+float BoardConfigContainer::getLearningAccumulatedMah() const {
+  return socStats.learning_accumulated_mah;
+}
+
+void BoardConfigContainer::startReverseLearning() {
+  // Method 2: Start reverse learning (0% → 100%)
+  // Called by InheroMr2Board::begin() when device wakes from LOW_VOLTAGE shutdown
+  // and voltage is above wake_threshold (= exited danger zone = 0% SOC)
+  // Only auto-start if capacity not already learned (user can force via CLI "relearn")
+  
+  if (!socStats.reverse_learning_active && !socStats.capacity_learned) {
+    socStats.reverse_learning_active = true;
+    socStats.reverse_learning_accumulated_mah = 0.0f;
+    socStats.current_soc_percent = 0.0f;
+    
+    MESH_DEBUG_PRINTLN("Reverse Learning: STARTED at 0%% SOC (wake from danger zone)");
+  }
+}
+
+void BoardConfigContainer::resetLearning() {
+  // Reset capacity_learned flag to re-enable automatic learning
+  // This allows user to manually trigger a new learning cycle via CLI
+  socStats.capacity_learned = false;
+  
+  MESH_DEBUG_PRINTLN("Learning reset: Auto-learning will start at next opportunity");
 }
 
 /// @brief Load battery capacity from preferences
@@ -1679,6 +1727,51 @@ Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
 }
 
+/// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
+/// @param type Battery chemistry type
+/// @return Threshold in millivolts (200mV before hardware cutoff for safe shutdown)
+uint16_t BoardConfigContainer::getVoltageCriticalThreshold(BatteryType type) {
+  switch (type) {
+    case BatteryType::LTO_2S:
+      return 4200;  // 4.2V "Dangerzone" (200mV before 4.0V hardware cutoff)
+    case BatteryType::LIFEPO4_1S:
+      return 2900;  // 2.9V "Dangerzone" (100mV before 2.8V hardware cutoff)
+    case BatteryType::LIION_1S:
+    default:
+      return 3400;  // 3.4V "Dangerzone" (200mV before 3.2V hardware cutoff)
+  }
+}
+
+/// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
+/// @param type Battery chemistry type
+/// @return Threshold in millivolts (higher than critical to avoid bounce)
+uint16_t BoardConfigContainer::getVoltageWakeThreshold(BatteryType type) {
+  switch (type) {
+    case BatteryType::LTO_2S:
+      return 4400;  // 4.4V - normal operation voltage
+    case BatteryType::LIFEPO4_1S:
+      return 3000;  // 3.0V - normal operation voltage
+    case BatteryType::LIION_1S:
+    default:
+      return 3600;  // 3.6V - normal operation voltage
+  }
+}
+
+/// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
+/// @param type Battery chemistry type
+/// @return Hardware cutoff voltage in millivolts (INA228 Alert threshold)
+uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
+  switch (type) {
+    case BatteryType::LTO_2S:
+      return 4000;  // 4.0V - absolute minimum for LTO
+    case BatteryType::LIFEPO4_1S:
+      return 2800;  // 2.8V - absolute minimum for LiFePO4
+    case BatteryType::LIION_1S:
+    default:
+      return 3200;  // 3.2V - absolute minimum for Li-Ion
+  }
+}
+
 /// @brief Update battery SOC from INA228 Coulomb Counter (MR2 v0.2)
 void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
@@ -1723,9 +1816,134 @@ void BoardConfigContainer::updateBatterySOC() {
     }
   }
   
-  // TODO: Auto-learning capacity from full charge cycle
-  // Detect "Charge Done" from BQ25798 → Start learning
-  // Accumulate discharge until "Danger Zone" → Calculate capacity
+  // === Auto-learning capacity from charge cycles ===
+  if (!bqDriverInstance) {
+    return;  // Need BQ25798 for charge state detection
+  }
+  
+  bq25798_charging_status charging_status = bqDriverInstance->getChargingStatus();
+  
+  // Get current battery type for voltage threshold
+  BatteryType currentBatType;
+  BoardConfigContainer temp;
+  if (!temp.loadBatType(currentBatType)) {
+    currentBatType = BatteryType::LIION_1S;  // Default fallback
+  }
+  
+  // === METHOD 1: Full Discharge Learning (slow, accurate) ===
+  // Best for batteries with high discharge current
+  
+  // State 1: Detect "Charge Done" → Start full cycle learning
+  // Only auto-start if capacity not already learned (user can force via CLI "relearn")
+  if (charging_status == BQ25798_CHARGER_STATE_DONE_CHARGING && 
+      !socStats.learning_active && !socStats.reverse_learning_active &&
+      !socStats.capacity_learned) {
+    // Battery is fully charged - start learning
+    socStats.learning_active = true;
+    socStats.learning_start_soc = 100.0f;
+    socStats.learning_accumulated_mah = 0.0f;
+    
+    MESH_DEBUG_PRINTLN("Full-Cycle Learning: Started (Battery at 100%%)");
+  }
+  
+  // State 2: Accumulate discharge during learning
+  if (socStats.learning_active && charge_delta_mah < 0) {
+    socStats.learning_accumulated_mah += (-charge_delta_mah);
+  }
+  
+  // State 3: Battery reached danger zone → Calculate capacity
+  uint16_t danger_threshold = getVoltageCriticalThreshold(currentBatType);
+  if (socStats.learning_active && data.voltage_mv <= danger_threshold) {
+    float measured_capacity = socStats.learning_accumulated_mah / 0.9f;  // 90% DoD
+    
+    if (measured_capacity >= 500.0f && measured_capacity <= 50000.0f) {
+      socStats.battery_capacity_mah = measured_capacity;
+      socStats.capacity_learned = true;
+      
+      BoardConfigContainer saveContainer;
+      saveContainer.setBatteryCapacity(measured_capacity);
+      
+      MESH_DEBUG_PRINTLN("Full-Cycle Learning: Complete! Cap=%.0f mAh (%.0f mAh discharge)", 
+                         measured_capacity, socStats.learning_accumulated_mah);
+    } else {
+      MESH_DEBUG_PRINTLN("Full-Cycle Learning: Failed - unreasonable (%.0f mAh)", measured_capacity);
+    }
+    
+    socStats.learning_active = false;
+    socStats.learning_accumulated_mah = 0.0f;
+  }
+  
+  // State 4: Learning interrupted by charging → Reset
+  if (socStats.learning_active && charge_delta_mah > 0 && 
+      charging_status != BQ25798_CHARGER_STATE_NOT_CHARGING) {
+    MESH_DEBUG_PRINTLN("Full-Cycle Learning: Interrupted by charging (%.0f mAh)", 
+                       socStats.learning_accumulated_mah);
+    socStats.learning_active = false;
+    socStats.learning_accumulated_mah = 0.0f;
+  }
+  
+  // === METHOD 2: Reverse Learning (0% → 100% via USB-C charging) ===
+  // Fast learning method when user charges from danger zone to full
+  // Advantages:
+  // - Much faster than Method 1 (hours vs weeks)
+  // - USB-C charging provides stable conditions (no solar fluctuations)
+  // - Boot consumption negligible (30s × 5mA ≈ 0.04mAh vs 10000mAh)
+  // - Precise 0% starting point (wake_threshold after leaving danger zone)
+  //
+  // Trigger: InheroMr2Board::begin() detects LOW_VOLTAGE wake with voltage > wake_threshold
+  // This is called via startReverseLearning() from begin()
+  
+  // State 1: Accumulate charge during reverse learning
+  if (socStats.reverse_learning_active && charge_delta_mah > 0) {
+    socStats.reverse_learning_accumulated_mah += charge_delta_mah;
+    
+    // Debug output every 500 mAh
+    static uint16_t last_debug_mah = 0;
+    uint16_t current_debug_mah = (uint16_t)(socStats.reverse_learning_accumulated_mah / 500.0f);
+    if (current_debug_mah > last_debug_mah) {
+      MESH_DEBUG_PRINTLN("Reverse Learning: %.0f mAh charged so far", 
+                         socStats.reverse_learning_accumulated_mah);
+      last_debug_mah = current_debug_mah;
+    }
+  }
+  
+  // State 2: Charging complete (100% reached) → Calculate capacity
+  if (socStats.reverse_learning_active && 
+      charging_status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
+    
+    float measured_capacity = socStats.reverse_learning_accumulated_mah;
+    
+    // Sanity check: Reasonable capacity range (500mAh to 50Ah)
+    if (measured_capacity >= 500.0f && measured_capacity <= 50000.0f) {
+      socStats.battery_capacity_mah = measured_capacity;
+      socStats.capacity_learned = true;
+      socStats.current_soc_percent = 100.0f;
+      
+      // Persist to filesystem
+      BoardConfigContainer saveContainer;
+      saveContainer.setBatteryCapacity(measured_capacity);
+      saveContainer.setCapacityLearned(true);  // Persist learned flag
+      
+      MESH_DEBUG_PRINTLN("Reverse Learning: COMPLETE! Capacity=%.0f mAh (0%% → 100%%)", 
+                         measured_capacity);
+    } else {
+      MESH_DEBUG_PRINTLN("Reverse Learning: FAILED - unreasonable capacity %.0f mAh", 
+                         measured_capacity);
+    }
+    
+    // Reset learning state
+    socStats.reverse_learning_active = false;
+    socStats.reverse_learning_accumulated_mah = 0.0f;
+  }
+  
+  // State 3: Learning interrupted by discharge → Reset
+  // If battery starts discharging during learning, something went wrong
+  if (socStats.reverse_learning_active && charge_delta_mah < 0) {
+    MESH_DEBUG_PRINTLN("Reverse Learning: Interrupted by discharge (%.0f mAh accumulated)", 
+                       socStats.reverse_learning_accumulated_mah);
+    socStats.reverse_learning_active = false;
+    socStats.reverse_learning_accumulated_mah = 0.0f;
+  }
 }
 
 /// @brief Update daily balance statistics
@@ -1868,13 +2086,28 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   }
   
   socStats.battery_capacity_mah = capacity_mah;
-  socStats.capacity_learned = capacity_loaded;
+  
+  // Load capacity_learned flag from filesystem
+  if (capacity_loaded) {
+    SimplePreferences prefs;
+    if (prefs.begin("inheromr2")) {  // Static function - use literal
+      char buffer[8];
+      prefs.getString("cap_learned", buffer, sizeof(buffer), "0");
+      socStats.capacity_learned = (strcmp(buffer, "1") == 0);
+      prefs.end();
+    } else {
+      socStats.capacity_learned = false;
+    }
+  } else {
+    socStats.capacity_learned = false;
+  }
+  
   socStats.current_soc_percent = 50.0f;  // Initial estimate
   socStats.lastUpdateTime = getRTCTime();
   
   MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh (%s)", 
                      capacity_mah, 
-                     capacity_loaded ? "loaded" : "default");
+                     socStats.capacity_learned ? "learned" : (capacity_loaded ? "manual" : "default"));
   
   // Adaptive monitoring intervals
   uint32_t checkInterval_ms = 60000;  // Start with 60s
