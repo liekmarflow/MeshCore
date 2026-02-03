@@ -71,6 +71,9 @@ bool BqDriver::begin(uint8_t i2c_addr, TwoWire* wire) {
 /// @brief Reads Power Good status from charger
 /// @return true if input power is good (sufficient for charging)
 bool BqDriver::getChargerStatusPowerGood() {
+  // Read from register 0x1B (Adafruit calls it CHARGER_STATUS_0)
+  // This is actually the FLAG register, but Bit 3 contains PG_STAT
+  // Using the original implementation to avoid boot issues
   Adafruit_BusIO_Register chrg_stat_0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
   Adafruit_BusIO_RegisterBits chrg_stat_0_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_0_reg, 1, 3);
 

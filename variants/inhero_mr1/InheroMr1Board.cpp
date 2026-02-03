@@ -242,9 +242,19 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
     #endif
     return true;
+  } else if (strcmp(cmd, "diag") == 0) {
+    char diagBuffer[300];
+    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
+    snprintf(reply, maxlen, "%s", diagBuffer);
+    return true;
+  } else if (strcmp(cmd, "clearhiz") == 0) {
+    char hizBuffer[100];
+    boardConfig.clearHiz(hizBuffer, sizeof(hizBuffer));
+    snprintf(reply, maxlen, "%s", hizBuffer);
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|ci|cstat|cs|mppt|mpps|conf|wdtstatus|togglehiz>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|ci|cstat|cs|mppt|mpps|conf|wdtstatus|diag|togglehiz|clearhiz>");
   return true;
 }
 
