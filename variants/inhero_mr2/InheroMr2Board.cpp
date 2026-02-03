@@ -539,8 +539,9 @@ void InheroMr2Board::begin() {
   // Done after peripheral initialization to avoid voltage glitches
   NRF52BoardDCDC::begin();
   
-  pinMode(LED_BLUE, OUTPUT);
-  digitalWrite(LED_BLUE, LOW);
+  // LEDs already initialized in boardConfig.begin()
+  // Blue LED was used for boot sequence visualization
+  // Red LED indicates missing components (if blinking)
 
   pinMode(SX126X_POWER_EN, OUTPUT);
   digitalWrite(SX126X_POWER_EN, HIGH);

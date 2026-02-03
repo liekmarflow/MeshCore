@@ -414,12 +414,12 @@ void BoardConfigContainer::stopBackgroundTasks() {
 void BoardConfigContainer::heartbeatTask(void* pvParameters) {
   (void)pvParameters;
 
-  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
 
   while (true) {
-    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
     vTaskDelay(pdMS_TO_TICKS(10));  // 10ms flash - well visible, minimal power
-    digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_BLUE, LOW);
     vTaskDelay(pdMS_TO_TICKS(5000)); // 5s interval - lower power consumption
   }
 }
@@ -844,11 +844,23 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
 /// @return true if both BQ25798 and MCP4652 initialized successfully
 bool BoardConfigContainer::begin() {
+  // Initialize LEDs early for boot sequence visualization
+  pinMode(LED_BLUE, OUTPUT);  // Blue LED (P1.03)
+  pinMode(LED_RED, OUTPUT);   // Red LED (P1.04)
+  digitalWrite(LED_BLUE, LOW);
+  digitalWrite(LED_RED, LOW);
+  
   // Initialize BQ25798 (common for both v0.1 and v0.2)
   if (bq.begin()) {
     BQ_INITIALIZED = true;
     bqDriverInstance = &bq;
     MESH_DEBUG_PRINTLN("BQ25798 found. ");
+    
+    // Blue LED flash: BQ25798 initialized
+    digitalWrite(LED_BLUE, HIGH);
+    delay(150);
+    digitalWrite(LED_BLUE, LOW);
+    delay(100);
   } else {
     MESH_DEBUG_PRINTLN("BQ25798 not found.");
     BQ_INITIALIZED = false;
@@ -859,6 +871,12 @@ bool BoardConfigContainer::begin() {
     INA228_INITIALIZED = true;
     ina228DriverInstance = &ina228;
     MESH_DEBUG_PRINTLN("INA228 found @ 0x45");
+    
+    // Blue LED flash: INA228 initialized
+    digitalWrite(LED_BLUE, HIGH);
+    delay(150);
+    digitalWrite(LED_BLUE, LOW);
+    delay(100);
       
       // Load and apply current calibration factor
       float calib_factor = 1.0f;
@@ -896,6 +914,22 @@ bool BoardConfigContainer::begin() {
   } else {
     MESH_DEBUG_PRINTLN("INA228 not found @ 0x45");
     INA228_INITIALIZED = false;
+  }
+  
+  // === RV-3028 RTC Initialization (v0.2) ===
+  bool rtc_initialized = false;
+  Wire.beginTransmission(0x52);  // RV-3028 I2C address
+  if (Wire.endTransmission() == 0) {
+    rtc_initialized = true;
+    MESH_DEBUG_PRINTLN("RV-3028 RTC found @ 0x52");
+    
+    // Blue LED flash: RTC initialized
+    digitalWrite(LED_BLUE, HIGH);
+    delay(150);
+    digitalWrite(LED_BLUE, LOW);
+    delay(100);
+  } else {
+    MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52");
   }
   
   // === MR2 Configuration (v0.2 only) ===
@@ -967,7 +1001,28 @@ bool BoardConfigContainer::begin() {
 
   attachInterrupt(digitalPinToInterrupt(BQ_INT_PIN), onBqInterrupt, FALLING);
 
-  // MR2 always has BQ25798 + INA228
+  // Check if all critical components initialized
+  bool all_components_ok = BQ_INITIALIZED && INA228_INITIALIZED && rtc_initialized;
+  
+  if (!all_components_ok) {
+    // Start permanent slow red LED blink to indicate missing component
+    MESH_DEBUG_PRINTLN("⚠️ Missing components - starting error LED");
+    if (!BQ_INITIALIZED) MESH_DEBUG_PRINTLN("  - BQ25798 missing");
+    if (!INA228_INITIALIZED) MESH_DEBUG_PRINTLN("  - INA228 missing");
+    if (!rtc_initialized) MESH_DEBUG_PRINTLN("  - RV-3028 RTC missing");
+    
+    // Create error LED blink task
+    xTaskCreate([](void* param) {
+      while(1) {
+        digitalWrite(LED_RED, HIGH);  // Red LED on
+        vTaskDelay(pdMS_TO_TICKS(500));
+        digitalWrite(LED_RED, LOW);   // Red LED off
+        vTaskDelay(pdMS_TO_TICKS(500));
+      }
+    }, "ErrorLED", 512, NULL, 1, NULL);
+  }
+  
+  // MR2 requires BQ25798 + INA228 (RTC is optional for basic operation)
   return BQ_INITIALIZED && INA228_INITIALIZED;
 }
 

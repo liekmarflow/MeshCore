@@ -72,8 +72,8 @@ static const uint8_t WB_SPI_MOSI = 30; // IO_SLOT
 #define LED_BUILTIN        PIN_LED1
 #define LED_CONN           PIN_LED2
 
-#define LED_GREEN          PIN_LED1
-#define LED_BLUE           PIN_LED2
+#define LED_BLUE           PIN_LED1  // P1.03
+#define LED_RED            PIN_LED2  // P1.04
 
 #define LED_STATE_ON       1 // State when LED is litted
 
