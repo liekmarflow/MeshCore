@@ -171,11 +171,11 @@ For boards with advanced power management features (e.g., Inhero MR-2 v0.2):
 
 **Output Examples:**
 - `Learning IDLE Cap:2150mAh(learned)` - Learning complete, capacity known
-- `M1 ACTIVE (100%→10%, 850 mAh) Cap:2000mAh(manual)` - Method 1 in progress
+- `M1 ACTIVE (100%→0%, 850 mAh) Cap:2000mAh(manual)` - Method 1 in progress
 - `M2 ACTIVE (0%→100%, 1850 mAh) Cap:2000mAh(manual)` - Method 2 in progress
 
 **Note:** Two auto-learning methods available:
-- **Method 1:** Full discharge cycle (100% → 10% danger zone)
+- **Method 1:** Full discharge cycle (100% → 0% danger zone)
 - **Method 2:** USB-C charging from danger zone (0% → 100%)
 
 ---

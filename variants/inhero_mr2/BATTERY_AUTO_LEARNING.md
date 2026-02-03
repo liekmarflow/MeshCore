@@ -18,7 +18,7 @@ Das MR-2 v0.2 Board enthält ein intelligentes Auto-Learning System zur automati
 
 ## Lernmethoden
 
-### Method 1: Full-Cycle Learning (100% → 10%)
+### Method 1: Full-Cycle Learning (100% → 0%)
 
 #### Funktionsweise
 1. **Start-Trigger:** BQ25798 meldet `CHARGE_DONE` (Batterie voll geladen)
@@ -177,7 +177,7 @@ board.learning
 
 # 3. Learning startet automatisch
 board.learning
-# Output: M1 ACTIVE (100%→10%, 120 mAh) Cap:2000mAh(manual)
+# Output: M1 ACTIVE (100%→0%, 120 mAh) Cap:2000mAh(manual)
 
 # 4. Nach ~29 Tagen (10Ah @ 13mA)
 board.learning
