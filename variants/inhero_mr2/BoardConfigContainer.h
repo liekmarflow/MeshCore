@@ -226,6 +226,10 @@ public:
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
+  
+  // LED control methods
+  bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)
+  bool getLEDsEnabled() const;       ///< Get current LED enable state
 
 private:
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
@@ -238,6 +242,7 @@ private:
   
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
+  bool leds_enabled = true;  // Heartbeat and BQ stat LED control
 
   bool setBatteryType(BatteryType type, bool reducedChargeVoltage);
 

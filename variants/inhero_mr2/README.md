@@ -143,6 +143,10 @@ board.relearn   # Reset learned capacity flag (v0.2 feature) 🆕
                 # Output: Learning reset - auto-learning enabled
                 # Enables auto-learning to run again
                 # Useful when battery capacity has changed
+
+board.leds      # Get LED enable state (v0.2 feature) 🆕
+                # Output: "LEDs: ON (Heartbeat + BQ Stat)" or "LEDs: OFF (Heartbeat + BQ Stat)"
+                # Shows whether heartbeat LED and BQ25798 stat LED are enabled
 ```
 
 ### Set Commands
@@ -176,6 +180,10 @@ set board.ibcal <factor>       # Set INA228 calibration factor (v0.2 feature) �
 set board.bqreset              # Reset BQ25798 and reload config from FS
                                # Performs software reset and reconfigures
                                # all settings from stored preferences
+
+set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2) 🆕
+                               # on/1 = enable, off/0 = disable
+                               # Boot LEDs (3 blue flashes) always active
 ```
 
 ## Diagnostics & Debugging 🆕

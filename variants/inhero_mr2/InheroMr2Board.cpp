@@ -298,9 +298,14 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.resetLearning();
     snprintf(reply, maxlen, "Learning reset - auto-learning enabled");
     return true;
+  } else if (strcmp(cmd, "leds") == 0) {
+    // Get LED enable state (heartbeat + BQ stat LED)
+    bool enabled = boardConfig.getLEDsEnabled();
+    snprintf(reply, maxlen, "LEDs: %s (Heartbeat + BQ Stat)", enabled ? "ON" : "OFF");
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn|leds>");
   return true;
 }
 
@@ -431,9 +436,23 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: BQ reset failed");
     }
     return ret;
+  } else if (strncmp(setCommand, "leds ", 5) == 0) {
+    // Enable/disable heartbeat LED and BQ stat LED
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
+    bool enabled = (strcmp(value, "1") == 0 || strcmp(value, "on") == 0 || strcmp(value, "ON") == 0);
+    bool disabled = (strcmp(value, "0") == 0 || strcmp(value, "off") == 0 || strcmp(value, "OFF") == 0);
+    
+    if (enabled || disabled) {
+      boardConfig.setLEDsEnabled(enabled);
+      snprintf(ret, sizeof(ret), "LEDs %s (Heartbeat + BQ Stat)", enabled ? "enabled" : "disabled");
+      return ret;
+    } else {
+      snprintf(ret, sizeof(ret), "Err: Use 'on/1' or 'off/0'");
+      return ret;
+    }
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap|ibcal|bqreset>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap|ibcal|bqreset|leds>");
   return ret;
 }
 

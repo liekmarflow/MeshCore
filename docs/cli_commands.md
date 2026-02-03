@@ -189,6 +189,36 @@ For boards with advanced power management features (e.g., Inhero MR-2 v0.2):
 
 ---
 
+#### Get LED enable state (Inhero MR2 v0.2)
+**Usage:** `board.leds`
+
+**Description:**
+Shows whether the heartbeat LED (blue, flashes every 5s) and BQ25798 stat LED are enabled.
+
+**Output:**
+- `LEDs: ON (Heartbeat + BQ Stat)` - LEDs enabled (default)
+- `LEDs: OFF (Heartbeat + BQ Stat)` - LEDs disabled (stealth mode)
+
+---
+
+#### Enable/disable heartbeat and BQ stat LEDs (Inhero MR2 v0.2)
+**Usage:** `set board.leds <on|off>`
+
+**Parameters:**
+- `on` or `1` - Enable LEDs
+- `off` or `0` - Disable LEDs
+
+**Description:**
+Controls heartbeat LED (blue, 5s interval) and BQ25798 stat LED. Boot LEDs remain active.
+
+**Example:**
+```bash
+set board.leds off    # Stealth mode
+set board.leds on     # Re-enable
+```
+
+---
+
 #### View battery State of Charge
 **Usage:** `board.soc`
 

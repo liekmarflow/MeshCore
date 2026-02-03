@@ -424,6 +424,49 @@ void BoardConfigContainer::heartbeatTask(void* pvParameters) {
   }
 }
 
+/// @brief Enable or disable heartbeat LED and BQ25798 stat LED
+/// @param enabled true = LEDs enabled, false = LEDs disabled
+/// @return true on success
+bool BoardConfigContainer::setLEDsEnabled(bool enabled) {
+  leds_enabled = enabled;
+  
+  // Save to filesystem
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  prefs.putString("leds_en", enabled ? "1" : "0");
+  prefs.end();
+  
+  // Control heartbeat task
+  if (enabled) {
+    // Start heartbeat if not running
+    if (heartbeatTaskHandle == NULL) {
+      xTaskCreate(heartbeatTask, "Heartbeat", 512, NULL, 1, &heartbeatTaskHandle);
+    }
+  } else {
+    // Stop heartbeat task
+    if (heartbeatTaskHandle != NULL) {
+      vTaskDelete(heartbeatTaskHandle);
+      heartbeatTaskHandle = NULL;
+      // Turn off LED
+      pinMode(LED_BLUE, OUTPUT);
+      digitalWrite(LED_BLUE, LOW);
+    }
+  }
+  
+  // Control BQ25798 STAT LED (only if BQ is initialized)
+  if (BQ_INITIALIZED && bqDriverInstance) {
+    bqDriverInstance->setStatPinEnable(enabled);
+  }
+  
+  return true;
+}
+
+/// @brief Get current LED enable state
+/// @return true if LEDs are enabled
+bool BoardConfigContainer::getLEDsEnabled() const {
+  return leds_enabled;
+}
+
 /// @brief Updates MPPT statistics based on elapsed time and current status
 /// Should be called when MPPT status changes or periodically for time accounting
 void BoardConfigContainer::updateMpptStats() {
@@ -850,6 +893,17 @@ bool BoardConfigContainer::begin() {
   digitalWrite(LED_BLUE, LOW);
   digitalWrite(LED_RED, LOW);
   
+  // Load LED enable state from filesystem (default: enabled)
+  SimplePreferences prefs_led;
+  if (prefs_led.begin("inheromr2")) {
+    char led_buffer[8];
+    prefs_led.getString("leds_en", led_buffer, sizeof(led_buffer), "1");
+    leds_enabled = (strcmp(led_buffer, "1") == 0);
+    prefs_led.end();
+  } else {
+    leds_enabled = true;  // Default: enabled
+  }
+  
   // Initialize BQ25798 (common for both v0.1 and v0.2)
   if (bq.begin()) {
     BQ_INITIALIZED = true;
@@ -980,7 +1034,7 @@ bool BoardConfigContainer::begin() {
     }
   }
 
-  if (heartbeatTaskHandle == NULL) {
+  if (heartbeatTaskHandle == NULL && leds_enabled) {
     BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::heartbeatTask, "Heartbeat", 1024, NULL, 1, &heartbeatTaskHandle);
     if (taskCreated != pdPASS) {
       MESH_DEBUG_PRINTLN("Failed to create Heartbeat task!");
@@ -1245,7 +1299,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setMPPTenable(true);
 
   bq.setMinSystemV(2.7);
-  bq.setStatPinEnable(true);
+  bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
   return true;
 }
