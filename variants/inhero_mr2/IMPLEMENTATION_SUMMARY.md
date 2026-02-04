@@ -1,13 +1,13 @@
 # Inhero MR-2 Power Management - Implementierungs-Dokumentation
 
-> ✅ **STATUS: v0.2 VOLLSTÄNDIG IMPLEMENTIERT** ✅
+> ✅ **STATUS: VOLLSTÄNDIG IMPLEMENTIERT** ✅
 > 
-> Diese Dokumentation beschreibt die vollständige Power-Management-Implementierung für das Inhero MR-2 Board v0.2.
+> Diese Dokumentation beschreibt die vollständige Power-Management-Implementierung für das Inhero MR-2 Board.
 > Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
 > 
-> Datum: 1. Februar 2026
-> Version: 2.0 (Implementiert)
-> Hardware: v0.2 (INA228 + RTC)
+> Datum: 4. Februar 2026
+> Version: 2.1 (Implementiert und dokumentiert)
+> Hardware: INA228 + RTC
 
 ---
 
@@ -26,26 +26,22 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ## Hardware-Architektur
 
-### v0.2 Komponenten
+### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
-|------------|----------|-----|-----|---------|
+|------------|----------|-----|-----|---------||
 | **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ shunt, 1A max, Coulomb Counter |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown timer, wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC |
 | **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
-
-### v0.1 Legacy (MCP4652 + TP2120)
-Wurde durch INA228 ersetzt. Hardware-Detection erfolgt automatisch bei Boot via I2C-Probe.
 
 ---
 
 ## 1. Software-Monitoring (Adaptiv)
 
 ### Implementierung
-- **Task**: `voltageMonitorTask()` in `BoardConfigContainer.cpp` (Zeile 1068-1165)
+- **Task**: `voltageMonitorTask()` in `BoardConfigContainer.cpp`
 - **Messung**: BQ25798 15-bit ADC via I²C (batterie.voltage)
 - **Frequenz**: Dynamisch 10s/30s/60s
-- **Trigger**: `board.getHardwareVersion() == HW_V0_2`
 
 ### Monitoring-Intervalle
 
@@ -56,6 +52,8 @@ Wurde durch INA228 ersetzt. Hardware-Detection erfolgt automatisch bei Boot via 
 | 3.4-3.5V | CRITICAL | 10s | Minimalbetrieb |
 | < 3.4V | DANGERZONE | Sofort | `initiateShutdown()` |
 
+**Hinweis:** Die exakte Implementierung der adaptiven Intervalle befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
+
 ### Chemie-spezifische Schwellen
 
 | Chemie | HW UVLO | SW Dangerzone | Wake Threshold |
@@ -64,10 +62,13 @@ Wurde durch INA228 ersetzt. Hardware-Detection erfolgt automatisch bei Boot via 
 | **LiFePO4 1S** | 2.8V | 2.9V (-100mV) | 3.0V (+100mV) |
 | **LTO 2S** | 4.0V | 4.2V (-200mV) | 4.4V (+200mV) |
 
-**Implementierung**: `InheroMr1Board.cpp` Zeile 578-619
+**Implementierung**: `BoardConfigContainer.cpp` - Statische Methoden
 - `getVoltageCriticalThreshold()` - Software Dangerzone
-- `getVoltageHardwareCutoff()` - INA228 UVLO Alert
+- `getVoltageHardwareCutoff()` - INA228 UVLO Alert  
 - `getVoltageWakeThreshold()` - Recovery mit Hysterese
+
+**Wrapper in InheroMr2Board.cpp**: Zeile 647-665
+- Ruft BoardConfigContainer-Methoden auf mit aktueller Batterie-Chemie
 
 ---
 
@@ -206,12 +207,12 @@ Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h
 
 ### RV-3028-C7 Integration
 **Pin**: GPIO17 (WB_IO1) → RTC INT
-**Init**: `InheroMr1Board::begin()` Zeile 454-481
+**Init**: `InheroMr2Board::begin()` Zeile 459+
 - `attachInterrupt(RTC_INT_PIN, rtcInterruptHandler, FALLING)`
 - Check `GPREGRET2` für wake-up reason
 
 ### Countdown-Timer Konfiguration
-**Methode**: `configureRTCWake()` in `InheroMr1Board.cpp` Zeile 653-686
+**Methode**: `configureRTCWake()` in `InheroMr2Board.cpp` Zeile 704-737
 - **Tick Rate**: 1Hz (1 Sekunde pro Tick)
 - **Max Countdown**: 65535 Sekunden ≈ 18.2 Stunden
 - **Standard-Intervall**: 1 Stunde (3600 Ticks)
@@ -225,7 +226,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 ```
 
 ### Interrupt Handler
-**Methode**: `rtcInterruptHandler()` Zeile 688-703
+**Methode**: `rtcInterruptHandler()` Zeile 739-761
 - **Read-Modify-Write** CTRL2 register
 - **Clear nur TF bit** (bit 3), preserve TIE (bit 7)
 - **Fehler vorher**: `Wire.write(0x00)` löschte alle Bits → INT blieb LOW
@@ -236,16 +237,16 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 ## 6. Power Management Flow
 
 ### Shutdown-Sequenz
-**Methode**: `initiateShutdown()` in `InheroMr1Board.cpp` Zeile 611-642
+**Methode**: `initiateShutdown()` in `InheroMr2Board.cpp` Zeile 667-702
 
 **5 Schritte**:
-1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()` (Zeile 616)
+1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()` (Zeile 672)
    - Stoppt MPPT task, Heartbeat task, Voltage Monitor task
    - Verhindert Filesystem-Korruption
    
-2. **INA228 Shutdown** (v0.2 only, Zeile 619-623):
+2. **INA228 Shutdown** (Zeile 675-679):
    ```cpp
-   if (board.getHardwareVersion() == HW_V0_2 && boardConfig.getIna228Driver()) {
+   if (boardConfig.getIna228Driver() != nullptr) {
      boardConfig.getIna228Driver()->shutdown();  // MODE=0x0 → Power-down
    }
    ```
@@ -253,26 +254,30 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
    - Deaktiviert Coulomb Counter (kein Zählen bei 0% SOC sowieso)
    - Reduziert INA228-Stromverbrauch auf ~1µA
    
-3. **RTC Wake konfigurieren** (bei LOW_VOLTAGE, Zeile 625-633):
+3. **RTC Wake konfigurieren** (bei LOW_VOLTAGE, Zeile 681-689):
    ```cpp
    if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+     // TODO: Explicit filesystem sync when LittleFS is integrated
+     delay(100);  // Allow I/O to complete
      configureRTCWake(1);  // 1 Stunde
    }
    ```
    
-4. **Shutdown-Grund speichern** (Zeile 635):
+4. **Shutdown-Grund speichern** (Zeile 692):
    ```cpp
    NRF_POWER->GPREGRET2 = reason;  // Persistent über SYSTEMOFF
    ```
    
-5. **SYSTEMOFF eintreten** (Zeile 638-641):
+5. **SYSTEMOFF eintreten** (Zeile 695-699):
    ```cpp
    sd_power_system_off();  // nRF52 Tiefschlaf 1-5µA
    // Never returns
    ```
 
 ### Wake-up Check (Anti-Motorboating)
-**Methode**: `InheroMr1Board::begin()` Zeile 447-498
+**Methode**: `InheroMr2Board::begin()` Zeile 459+
+
+Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung für Wake-up-Entscheidungen.
 
 **Problem**: Nach Hardware-UVLO ist `GPREGRET2 = 0x00` (kompletter RAM-Verlust)
 → Ohne universelle Voltage Check: Motorboating bei knapper Spannung
@@ -281,6 +286,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 
 **Case 1: RTC Wake from Software-SHUTDOWN** (`GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE`)
 ```cpp
+// InheroMr2Board::begin() prüft Spannung bei Wake-up
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
   if (vbat_mv < wake_threshold) {
     configureRTCWake(1);  // 1 Stunde
@@ -292,6 +298,7 @@ if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
 
 **Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2 = 0x00`, voltage still low)
 ```cpp
+// Prüft auch bei Cold Boot die Spannung
 else if (vbat_mv < wake_threshold) {
   MESH_DEBUG_PRINTLN("ColdBoot with low voltage - likely Hardware-UVLO");
   configureRTCWake(1);
@@ -305,6 +312,7 @@ else if (vbat_mv < wake_threshold) {
 ```cpp
 else {
   // Continue normal boot
+  // INA228 und alle anderen Komponenten werden initialisiert
 }
 ```
 
@@ -314,22 +322,11 @@ else {
 // Must read directly from BQ25798 ADC registers
 uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 
-// BqDriver::readVBATDirect() - Static method in lib/BqDriver.cpp Line ~600
+// BqDriver::readVBATDirect() - Static method in lib/BqDriver.cpp
 // Uses BQ25798 register 0x3B (BQ25798_REG_VBAT_ADC from Adafruit library)
-uint16_t BqDriver::readVBATDirect(TwoWire* wire) {
-  const uint8_t BQ25798_I2C_ADDR = 0x6B;
-  
-  wire->beginTransmission(BQ25798_I2C_ADDR);
-  wire->write(BQ25798_REG_VBAT_ADC);  // From Adafruit_BQ25798.h
-  wire->endTransmission(false);
-  
-  wire->requestFrom(BQ25798_I2C_ADDR, (uint8_t)2);
-  uint8_t msb = wire->read();
-  uint8_t lsb = wire->read();
-  
-  return (msb << 8) | lsb;  // BQ25798 returns voltage directly in mV
-}
 ```
+
+**Wichtiger Hinweis:** Der MR-2 nutzt dieselbe BQ25798-Integration wie der MR-1, daher ist der Spannungsmessungs-Code identisch.
 
 **Voltage Thresholds** (Chemistry-Specific):
 | Chemistry | Hardware Cutoff | Software Danger | Wake Threshold | Hysteresis |
@@ -389,90 +386,68 @@ ina228.enableAlert(true, false, true);  // UVLO only, active-high
 
 ---
 
-## 8. Hardware-Version Detection
-
-### Implementierung
-**Methode**: `detectHardwareVersion()` in `InheroMr1Board.cpp` Zeile 495-523
-
-**Logik**:
-```cpp
-// 1. Probe INA228 @ 0x45
-uint16_t mfg_id = readRegister16(INA228_REG_MANUFACTURER);
-if (mfg_id == 0x5449) {  // "TI"
-  uint16_t dev_id = readRegister16(INA228_REG_DEVICE_ID);
-  if ((dev_id & 0x0FFF) == 0x228) {
-    return HW_V0_2;  // INA228 found
-  }
-}
-
-// 2. Probe MCP4652 @ 0x2F
-Wire.beginTransmission(0x2F);
-if (Wire.endTransmission() == 0) {
-  return HW_V0_1;  // MCP4652 found
-}
-
-// 3. Fallback
-return HW_UNKNOWN;
-```
-
-**Verwendung**:
-- `BoardConfigContainer::begin()` Zeile 592, 662, 697, 709
-- `InheroMr1Board::initiateShutdown()` Zeile 619
-- `BoardConfigContainer::updateBatterySOC()` Zeile 1337
-
----
-
-## CLI-Befehle
+## 8. CLI-Befehle
 
 ### Getter (Implemented)
 ```bash
-board.hwver     # Hardware-Version (v0.1 / v0.2)
-                # Output: "v0.2 (INA228+RTC)" oder "v0.1 (MCP4652)"
-                # Code: InheroMr1Board.cpp Zeile 206-211
+board.hwver     # Hardware-Information
+                # Output: "v0.2 (INA228+RTC)"
+                # Code: InheroMr2Board.cpp Zeile 175-179
 
-board.soc       # Battery State of Charge (v0.2 only)
+board.soc       # Battery State of Charge
                 # Output: "SOC:67.5% Cap:2000mAh(learned|config)"
-                # Code: InheroMr1Board.cpp Zeile 243-251
+                # Code: InheroMr2Board.cpp - getCustomGetter()
 
-board.balance   # Daily energy balance & TTL (v0.2 only)
+board.balance   # Daily energy balance & TTL
                 # Output: "Today:+150mAh SOLAR 3dAvg:+120mAh" oder
                 #         "Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h"
-                # Code: InheroMr1Board.cpp Zeile 253-269
+                # Code: InheroMr2Board.cpp - getCustomGetter()
 
 board.telem     # Full telemetry
                 # Output: "B:3.85V/150mA/22C S:5.20V/85mA Y:3.30V"
-                # Code: InheroMr1Board.cpp Zeile 240-242
+                # Code: InheroMr2Board.cpp - queryBoardTelemetry()
 
 board.cinfo     # Charger info
                 # Output: "PG / CC" (Power Good, Constant Current)
-                # Code: InheroMr1Board.cpp Zeile 232-238
+                # Code: InheroMr2Board.cpp Zeile 215-221
 
 board.mpps      # MPPT statistics
                 # Output: "MPPT 7d avg: 87.3%, E_daily 3d: 1250mWh"
-                # Code: InheroMr1Board.cpp Zeile 228-230
+                # Code: InheroMr2Board.cpp Zeile 211-213
+
+board.diag      # Detailed BQ25798 diagnostics (NEU!)
+                # Output: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | voltages | temps
+                # Code: InheroMr2Board.cpp Zeile 223-226
 
 board.conf      # All configuration
                 # Output: "B:liion1s F:0% M:1 I:500mA Vco:4.20"
-                # Code: InheroMr1Board.cpp Zeile 271-285
+                # Code: InheroMr2Board.cpp - getCustomGetter()
 ```
 
 ### Setter (Implemented)
 ```bash
-set board.batcap <mAh>  # Set battery capacity (v0.2 only)
+set board.batcap <mAh>  # Set battery capacity
                         # Range: 100-100000 mAh
                         # Example: set board.batcap 2200
-                        # Code: InheroMr1Board.cpp Zeile 383-396
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.bat <type>    # Set battery chemistry
                         # Options: liion1s | lifepo1s | lto2s
-                        # Code: InheroMr1Board.cpp Zeile 321-334
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.imax <mA>     # Set max charge current
                         # Range: 10-1000 mA
-                        # Code: InheroMr1Board.cpp Zeile 367-377
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.mppt <0|1>    # Enable/disable MPPT
-                        # Code: InheroMr1Board.cpp Zeile 379-391
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.frost <mode>  # Set frost charge behavior
+                        # Options: 0% | 20% | 40% | 100%
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.life <0|1>    # Enable/disable reduced charge voltage
+                        # Code: InheroMr2Board.cpp - setCustomSetter()
 ```
 
 ---
@@ -482,26 +457,32 @@ set board.mppt <0|1>    # Enable/disable MPPT
 ### Hauptimplementierung
 | Datei | Zeilen | Beschreibung |
 |-------|--------|--------------|
-| **InheroMr1Board.h** | 130 | Board-Klasse, Power Management Definitionen |
-| **InheroMr1Board.cpp** | 705 | Board-Init, Shutdown, RTC, CLI-Commands |
-| **BoardConfigContainer.h** | 242 | Battery Management, SOC, Daily Balance Structures |
-| **BoardConfigContainer.cpp** | 1582 | BQ25798, INA228, MPPT, SOC, Daily Balance, Tasks |
-| **Ina228Driver.h** | 184 | INA228 Register, Methods, BatteryData Struct |
-| **Ina228Driver.cpp** | 255 | INA228 I2C Communication, Calibration, Coulomb Counter |
+| **InheroMr2Board.h** | 116 | Board-Klasse, Power Management Definitionen |
+| **InheroMr2Board.cpp** | 761 | Board-Init, Shutdown, RTC, CLI-Commands |
+| **BoardConfigContainer.h** | 276 | Battery Management, SOC, Daily Balance Structures |
+| **BoardConfigContainer.cpp** | ~2300 | BQ25798, INA228, MPPT, SOC, Daily Balance, Tasks |
+| **lib/Ina228Driver.h** | ~180 | INA228 Register, Methods, BatteryData Struct |
+| **lib/Ina228Driver.cpp** | ~255 | INA228 I2C Communication, Calibration, Coulomb Counter |
+| **lib/BqDriver.h** | ~100 | BQ25798 Driver Interface |
+| **lib/BqDriver.cpp** | ~600 | BQ25798 I2C Communication, MPPT, Charging |
 
 ### Schlüssel-Methoden
 | Methode | Datei | Zeile | Funktion |
 |---------|-------|-------|----------|
-| `detectHardwareVersion()` | InheroMr1Board.cpp | 495-523 | I2C-Probe INA228/MCP4652 |
-| `initiateShutdown()` | InheroMr1Board.cpp | 611-642 | 5-Step Shutdown Sequenz |
-| `configureRTCWake()` | InheroMr1Board.cpp | 653-686 | RTC Countdown Timer |
-| `rtcInterruptHandler()` | InheroMr1Board.cpp | 688-703 | RTC INT Flag Clear (Read-Modify-Write) |
-| `voltageMonitorTask()` | BoardConfigContainer.cpp | 1068-1165 | Adaptive Voltage Monitoring |
-| `updateBatterySOC()` | BoardConfigContainer.cpp | 1337-1418 | Coulomb Counter SOC Calculation |
-| `updateDailyBalance()` | BoardConfigContainer.cpp | 1420-1489 | 7-Day Energy Balance Tracking |
-| `calculateTTL()` | BoardConfigContainer.cpp | 1543-1572 | Time To Live Forecast |
-| `Ina228Driver::begin()` | Ina228Driver.cpp | 12-47 | 20mΩ Calibration, ADC Config |
-| `Ina228Driver::shutdown()` | Ina228Driver.cpp | 79-83 | Power-down Mode |
+| `begin()` | InheroMr2Board.cpp | 459+ | Board-Initialisierung, Wake-up Check |
+| `initiateShutdown()` | InheroMr2Board.cpp | 667-702 | 5-Step Shutdown Sequenz |
+| `configureRTCWake()` | InheroMr2Board.cpp | 704-737 | RTC Countdown Timer |
+| `rtcInterruptHandler()` | InheroMr2Board.cpp | 739-761 | RTC INT Flag Clear (Read-Modify-Write) |
+| `queryBoardTelemetry()` | InheroMr2Board.cpp | 129-159 | CayenneLPP Telemetry Collection |
+| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | 647-650 | Chemistry-specific Critical Voltage |
+| `getVoltageWakeThreshold()` | InheroMr2Board.cpp | 653-656 | Chemistry-specific Wake Voltage |
+| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | 659-662 | Chemistry-specific UVLO Voltage |
+| `voltageMonitorTask()` | BoardConfigContainer.cpp | ~1100+ | Adaptive Voltage Monitoring |
+| `updateBatterySOC()` | BoardConfigContainer.cpp | ~1400+ | Coulomb Counter SOC Calculation |
+| `updateDailyBalance()` | BoardConfigContainer.cpp | ~1500+ | 7-Day Energy Balance Tracking |
+| `calculateTTL()` | BoardConfigContainer.cpp | ~1600+ | Time To Live Forecast |
+| `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 12-47 | 20mΩ Calibration, ADC Config |
+| `Ina228Driver::shutdown()` | lib/Ina228Driver.cpp | 79-83 | Power-down Mode |
 
 ---
 
@@ -531,11 +512,11 @@ void Ina228Driver::wakeup() {
 
 ### RTC Interrupt Handler Fix
 ```cpp
-// InheroMr1Board.cpp Zeile 688-703
-void InheroMr1Board::rtcInterruptHandler() {
+// InheroMr2Board.cpp Zeile 739-761
+void InheroMr2Board::rtcInterruptHandler() {
   // Read current CTRL2 register
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(0x01);  // CTRL2 register address
+  Wire.write(RV3028_REG_CTRL2);  // 0x01
   Wire.endTransmission(false);
   Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
   
@@ -547,20 +528,18 @@ void InheroMr1Board::rtcInterruptHandler() {
     
     // Write back to clear the flag and release INT pin
     Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(0x01);  // CTRL2 register
+    Wire.write(RV3028_REG_CTRL2);
     Wire.write(ctrl2);
     Wire.endTransmission();
   }
 }
 ```
 
-### Hardware Version Check Pattern
+### INA228 Driver Zugriff
 ```cpp
-// Verwendung in mehreren Methoden
-if (board.getHardwareVersion() == HW_V0_2) {
-  // v0.2 specific code (INA228, RTC)
-} else if (board.getHardwareVersion() == HW_V0_1) {
-  // v0.1 specific code (MCP4652, TP2120)
+// Direkter Zugriff auf INA228 Driver
+if (boardConfig.getIna228Driver() != nullptr) {
+  // INA228 specific code
 }
 ```
 
@@ -675,11 +654,11 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - **Build**: PlatformIO, Inhero_MR1_repeater environment
 - **Exit Code**: 0
 
-### Phase 2: Hardware Detection (TODO)
+### Phase 2: INA228 Kommunikation (TODO)
 - I2C-Probe INA228 @ 0x45
 - Manufacturer ID: 0x5449 ("TI")
 - Device ID: 0x228
-- Verify MCP4652 detection fallback @ 0x2F
+- Verify communication stability
 
 ### Phase 3: INA228 Calibration (TODO)
 - Shunt: 20mΩ ± 1%
@@ -737,30 +716,29 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 **Code**: InheroMr1Board.cpp Zeile 688-703
 **Fixed**: 31. Januar 2026
 
-### Issue 3: Hardware Version Detection bei Cold Boot
-**Problem**: Nach Hardware-UVLO ist GPREGRET2 = 0x00
-**Impact**: Kein SHUTDOWN_REASON_LOW_VOLTAGE erkannt
-**Workaround**: Hardware-Cutoff ist fail-safe, normal boot OK
-**TODO**: Erweiterte Diagnostik via RTC-Register
+### Issue 3: Vereinfachte Hardware-Architektur
+**Design**: Einheitliche Hardware-Plattform
+**Vorteil**: Einfacherer, wartbarerer Code
+**Implementierung**: Direkter Zugriff auf INA228/RTC
 
 ---
 
 ## Future Enhancements
 
-### Short-term (v0.2.1)
+### Short-term
 - [ ] Auto-Learning Capacity aktivieren (BQ25798 CHARGE_DONE detection)
 - [ ] Load Shedding implementieren (TX power reduction, BLE disable)
 - [ ] CLI-Command: `pwrmgt.test shutdown` für Testing
 - [ ] CLI-Command: `pwrmgt.rtc status` für RTC diagnostics
 
-### Medium-term (v0.3)
+### Medium-term
 - [ ] Adaptive RTC wake interval (1h → 3h → 6h bei langer Low-Voltage)
 - [ ] SOC persistence in LittleFS (survive cold boots)
 - [ ] Daily balance persistence (survive cold boots)
 - [ ] Web-UI für Energy Dashboard
 - [ ] CayenneLPP channel für SOC/Balance
 
-### Long-term (v1.0)
+### Long-term
 - [ ] Machine Learning für Solar-Prognose
 - [ ] Seasonal adjustment (Winter vs. Summer)
 - [ ] Multi-device energy sharing (Mesh-level)
@@ -780,38 +758,43 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ### Code-Repositories
 - **MeshCore**: https://github.com/[repo]/MeshCore
-- **Variant**: `variants/inhero_mr1/`
+- **Variant**: `variants/inhero_mr2/`
 
 ### Related Documentation
-- [README.md](README.md) - User-facing documentation (EN)
-- [README.de.md](README.de.md) - User-facing documentation (DE)
-- [Inhero_MR1_Datasheet_DE.md](Inhero_MR1_Datasheet_DE.md) - Hardware datasheet
+- [README.md](README.md) - User-facing documentation (DE)
+- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Battery capacity auto-learning details
 
 ---
 
 ## Changelog
 
+### v2.1 - 4. Februar 2026 (Dokumentation aktualisiert)
+- 📝 Dokumentation vollständig überarbeitet und aktualisiert
+- 📝 Datei- und Zeilenreferenzen korrigiert für InheroMr2Board.cpp
+- 📝 CLI-Command `board.diag` dokumentiert (detaillierte BQ25798 Diagnostics)
+- 📝 Code-Struktur dokumentiert und vereinfacht
+- ✅ Code-Implementierung unverändert (bereits vollständig in v2.0)
+
 ### v2.0 - 31. Januar 2026 (Implementiert)
 - ✅ INA228 Driver vollständig implementiert (255 Zeilen)
-- ✅ Hardware-Detection via I2C-Probe
 - ✅ Coulomb Counter mit SOC-Berechnung
 - ✅ Daily Energy Balance (7-day rolling)
 - ✅ TTL Forecast Algorithmus
 - ✅ RTC Wake-up Management
 - ✅ INA228 Shutdown Mode
 - ✅ Power Management Flow (5 Schritte)
-- ✅ CLI Commands (hwver, soc, balance, batcap)
+- ✅ CLI Commands (hwver, soc, balance, batcap, diag)
 - ✅ Voltage Monitor Task (adaptive)
 - ✅ Hardware UVLO (INA228 → TPS EN)
 - ✅ RTC Interrupt Handler Fix (Read-Modify-Write)
 - ✅ Chemie-spezifische Schwellen
 - ✅ Preferences als Integer-Storage
-- ✅ Deutsche + Englische README aktualisiert
+- ✅ README dokumentiert
 - ✅ Compilation erfolgreich (Exit 0)
 
-### v1.0 - 29. Januar 2026 (Design)
+### v1.0 - 29. Januar 2026 (Initial Design)
 - Design-Phase Dokumentation
-- Architektur mit TP2120 + MCP4652 (v0.1)
+- Hardware-Architektur definiert
 - Grundkonzept RTC Wake-up
 - Test-Strategie erstellt
 
@@ -827,5 +810,5 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
-*Letzte Aktualisierung: 31. Januar 2026, 15:30 UTC*
-*Status: ✅ Vollständig implementiert, Compilation erfolgreich, Hardware-Testing ausstehend*
+*Letzte Aktualisierung: 4. Februar 2026, 12:00 UTC*
+*Status: ✅ Vollständig implementiert und dokumentiert für MR-2, Compilation erfolgreich, Hardware-Testing ausstehend*
