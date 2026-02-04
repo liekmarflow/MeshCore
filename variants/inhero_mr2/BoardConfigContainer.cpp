@@ -70,6 +70,13 @@ static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid so
 // Watchdog state
 static bool wdt_enabled = false;
 
+// Cooldown timers to prevent interrupt loops and excessive toggling:
+// - MPPT writes can trigger BQ25798 interrupts, which wake the task, creating a loop
+// - HIZ toggles should be rare events only for stuck PGOOD conditions
+static uint32_t lastMpptWriteTime = 0;      // 60-second cooldown for MPPT register writes
+static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
+#define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
+
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
 ///          Watchdog continues running during sleep and pauses during debug.
@@ -226,18 +233,35 @@ const char* BoardConfigContainer::getAvailableBatOptions() {
 }
 
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
-/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source.
-///          This function forces input qualification by toggling HIZ mode.
-///          Only triggers if: PG=0, VBUS sufficient, and PG_STAT flag NOT set.
+/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source properly.
+///          This function forces input qualification by toggling HIZ mode to reset the input detection.
+///          
+///          Trigger conditions (all must be true):
+///          - PG=0 (PowerGood stuck low)
+///          - VBUS sufficient (>3.5V)
+///          - PG_STAT flag NOT set (no recent PGOOD change detected)
+///          
+///          Cooldown mechanism:
+///          - Only allows HIZ toggle once per 5 minutes to prevent excessive toggling
+///          - When HIZ is toggled, also resets the MPPT write cooldown timer
+///          - This allows immediate MPPT re-enable after HIZ toggle when PG goes high
 void BoardConfigContainer::checkAndFixPgoodStuck() {
   if (!bqDriverInstance) return;
 
-  bqDriverInstance->readReg(0x22);  // Refresh status register
+  bqDriverInstance->readReg(0x22); // Refresh status register
 
-  uint8_t flag0 = bqDriverInstance->readReg(0x1B);  // CHARGER_FLAG_0 register
-  bool pgFlagSet = (flag0 & 0x08) != 0;  // Bit 3: PG_STAT flag (set when PGOOD changes)
+  uint8_t flag0 = bqDriverInstance->readReg(0x1B); // CHARGER_FLAG_0 register
+  bool pgFlagSet = (flag0 & 0x08) != 0;            // Bit 3: PG_STAT flag (set when PGOOD changes)
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
-  
+
+  // Cooldown: Don't toggle HIZ too frequently (max once per 5 minutes)
+  // This prevents excessive toggling when PG remains stuck
+  uint32_t currentTime = millis();
+  if (lastHizToggleTime != 0 && (currentTime - lastHizToggleTime) < HIZ_TOGGLE_COOLDOWN_MS) {
+    // Too soon since last toggle - skip
+    return;
+  }
+
   // Get VBUS voltage from telemetry data
   const Telemetry* telem = bqDriverInstance->getTelemetryData();
   uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
@@ -254,12 +278,12 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
   //
   // If PG_STAT flag is set, it means BQ25798 just changed PGOOD itself
   // and we should NOT interfere by toggling HIZ!
-  
+
   if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING && !pgFlagSet) {
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
     MESH_DEBUG_PRINT(vbusVoltage);
     MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
-    
+
     // Force input source detection by toggling HIZ
     // Per datasheet: Exiting HIZ triggers input source qualification
     bool wasHIZ = bq.getHIZMode();
@@ -267,22 +291,40 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
       // EN_HIZ already set (poor source) - just clear it
       MESH_DEBUG_PRINTLN("EN_HIZ was set - clearing");
       bq.setHIZMode(false);
+      delay(200); // Allow HIZ exit to settle
     } else {
       // EN_HIZ not set - toggle to force input re-detection
       MESH_DEBUG_PRINTLN("Toggling HIZ to force input scan");
       bq.setHIZMode(true);
-      delay(50);
+      delay(250); // Give BQ time to process HIZ state
       bq.setHIZMode(false);
     }
+    
+    // Reset MPPT write cooldown so it can be written immediately when PG=1
+    // Don't write MPPT=1 here - let BQ finish input qualification first
+    // MPPT=1 will be set by checkAndFixSolarLogic() on next task run when PG=1
+    lastMpptWriteTime = 0;
+    
+    // Set HIZ toggle cooldown timestamp
+    lastHizToggleTime = currentTime;
+
     delay(100); // Allow input qualification to complete
-    bq.setMPPTenable(true); // Ensure MPPT remains enabled
+    
     MESH_DEBUG_PRINTLN("Input detection triggered");
   }
 }
 
 /// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
-/// @details BQ25798 does not persist MPPT=1 and sets MPPT=0 when PG=0.
+/// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
 ///          This function restores MPPT=1 when PG returns to 1.
+///          
+///          CRITICAL: Only runs when PowerGood=1 to avoid false positives and interrupt loops
+///          
+///          Interrupt loop prevention:
+///          - Writing to MPPT register triggers BQ25798 interrupts
+///          - Interrupts wake the MPPT task, which may call this function again
+///          - Implements 60-second cooldown between MPPT writes to break the loop
+///          - Cooldown is reset by checkAndFixPgoodStuck() when HIZ is toggled
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -291,26 +333,40 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   BoardConfigContainer::loadMpptEnabled(mpptEnabled);
 
   if (!mpptEnabled) {
-    // MPPT disabled in config - ensure register is cleared
+    // MPPT disabled in config - only disable if currently enabled (avoid unnecessary writes)
     uint8_t mpptVal = bqDriverInstance->readReg(0x15);
     if ((mpptVal & 0x01) != 0) {
       bqDriverInstance->writeReg(0x15, mpptVal & ~0x01);
+      MESH_DEBUG_PRINTLN("MPPT disabled via config");
     }
     return;
   }
 
-  // Check current PGOOD status (real-time from CHARGER_STATUS_0)
+  // Check if PowerGood is currently set
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
 
-  // Re-enable MPPT whenever PGOOD=1 (removed PG_FLAG dependency)
-  // This ensures MPPT activates even on boot with solar already connected
-  if (powerGood) {
-    uint8_t mpptVal = bqDriverInstance->readReg(0x15);
+  // Only re-enable MPPT when PowerGood=1
+  if (!powerGood) {
+    // PG=0 - nothing to do, don't set cooldown
+    return;
+  }
 
-    if ((mpptVal & 0x01) == 0) {
-      bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
-      MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
-    }
+  // Cooldown: Only run every 60 seconds to prevent interrupt loop
+  // IMPORTANT: Cooldown only when PG=1, so MPPT is set immediately when PG goes high
+  uint32_t currentTime = millis();
+  
+  if (lastMpptWriteTime != 0 && (currentTime - lastMpptWriteTime) < 60000) {
+    // Less than 60 seconds since last run - skip
+    return;
+  }
+
+  // Re-enable MPPT when PGOOD=1
+  uint8_t mpptVal = bqDriverInstance->readReg(0x15);
+
+  if ((mpptVal & 0x01) == 0) {
+    bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
+    lastMpptWriteTime = currentTime; // Set cooldown timestamp AFTER write
+    MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
   }
 }
 
@@ -365,6 +421,14 @@ void BoardConfigContainer::onBqInterrupt() {
   digitalWrite(LED_BLUE, HIGH);
 
   if (solarEventSem == NULL) return; // Safety check
+  
+  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
+  // The BQ25798 requires reading register 0x1B to acknowledge interrupts and clear flags.
+  // Without this, the interrupt line stays asserted and no new interrupts will be generated.
+  // This must happen on EVERY interrupt, regardless of whether we process the event or not.
+  if (bqDriverInstance) {
+    bqDriverInstance->readReg(0x1B); // Read CHARGER_STATUS_0 (0x1B) to clear interrupt flags
+  }
 
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
@@ -1025,6 +1089,11 @@ bool BoardConfigContainer::begin() {
   }
 
   this->configureSolarOnlyInterrupts();
+  
+  // Clear any latched fault status from previous operation/boot
+  // This ensures we start with clean state after full configuration
+  bq.readReg(0x20); // FAULT_STATUS_0
+  bq.readReg(0x21); // FAULT_STATUS_1
 
   if (mpptTaskHandle == NULL) {
     BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::solarMpptTask, "SolarDaemon", 4096, NULL, 1, &mpptTaskHandle);

@@ -166,7 +166,128 @@ avg_deficit = (day0 + day1 + day2).net_balance / 3
 
 ---
 
-## 4. Time To Live (TTL) Forecast
+## 4. Solar Power Management & Interrupt Loop Prevention
+
+### Problem: Interrupt Loop zwischen MPPT und BQ25798
+
+**Root Cause**:
+- BQ25798 setzt MPPT=0 automatisch wenn PowerGood=0 (kein Solar)
+- `checkAndFixSolarLogic()` schreibt MPPT=1 zurück
+- **Schreiben auf MPPT-Register triggert BQ25798 Interrupt**
+- Interrupt weckt solarMpptTask() → ruft `checkAndFixSolarLogic()` → schreibt MPPT → neuer Interrupt → **Loop**
+
+**Solution: Cooldown Timer (60 Sekunden)**
+
+**Implementierung**: `BoardConfigContainer.cpp` Zeile 69-72
+```cpp
+static uint32_t lastMpptWriteTime = 0;      // 60-second cooldown for MPPT register writes
+static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
+#define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
+```
+
+### Stuck PGOOD Detection
+
+**Problem**: Bei langsamen Sonnenaufgang (slow sunrise) kann BQ25798 input source nicht erkennen.
+
+**Symptom**: 
+- VBUS vorhanden (>3.5V)
+- PowerGood bleibt bei 0
+- PG_STAT flag nicht gesetzt (kein PGOOD-Wechsel erkannt)
+
+**Solution: HIZ Toggle**
+
+**Implementierung**: `checkAndFixPgoodStuck()` in `BoardConfigContainer.cpp` Zeile 228-291
+
+**Trigger-Bedingungen** (alle müssen erfüllt sein):
+1. PowerGood = 0 (stuck low)
+2. VBUS > 3.5V (Solar vorhanden)
+3. PG_STAT flag = 0 (keine Änderung erkannt)
+4. Cooldown abgelaufen (>5 Minuten seit letztem Toggle)
+
+**Ablauf**:
+1. Toggle HIZ: `setHIZMode(true)` → `setHIZMode(false)`
+2. Zwingt BQ25798 zu input source qualification
+3. **Resettet MPPT-Cooldown** (`lastMpptWriteTime = 0`)
+4. Erlaubt sofortiges MPPT=1 schreiben wenn PG=1 wird
+5. Setzt HIZ-Cooldown-Timer (5 Minuten)
+
+### MPPT Recovery
+
+**Problem**: BQ25798 deaktiviert MPPT automatisch bei PG=0.
+
+**Solution: Conditional MPPT Re-enable**
+
+**Implementierung**: `checkAndFixSolarLogic()` in `BoardConfigContainer.cpp` Zeile 307-363
+
+**Kritische Bedingung**: **Nur wenn PowerGood=1**
+- Verhindert false positives
+- Verhindert Interrupt Loop bei instabilem Solar
+
+**Cooldown-Logik**:
+- 60 Sekunden zwischen MPPT-Writes
+- **Exception**: Cooldown wird resettet nach HIZ toggle
+- Nur schreiben wenn tatsächliche Änderung nötig (readback check)
+
+**Ablauf**:
+```
+1. PowerGood=1? → JA
+2. Cooldown abgelaufen? → JA
+3. MPPT aktuell=0? → JA
+4. Schreibe MPPT=1
+5. Setze lastMpptWriteTime
+```
+
+### Interrupt Handling
+
+**Problem**: BQ25798 Interrupts müssen acknowledged werden, sonst Lockup.
+
+**Solution: Always Clear Flags**
+
+**Implementierung**: `onBqInterrupt()` in `BoardConfigContainer.cpp` Zeile 404-420
+
+**KRITISCH**: **Immer** Register 0x1B lesen, auch wenn Event ignoriert wird.
+
+```cpp
+void BoardConfigContainer::onBqInterrupt() {
+  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
+  // The BQ25798 requires reading register 0x1B to acknowledge interrupts
+  if (bqDriverInstance) {
+    bqDriverInstance->readReg(0x1B); // Clear interrupt flags
+  }
+  
+  // Wake solarMpptTask for immediate processing
+  if (solarEventSem != NULL) {
+    xSemaphoreGiveFromISR(solarEventSem, NULL);
+  }
+}
+```
+
+**Flag Clearing auf Boot**: `BoardConfigContainer::configureBq()` Zeile 925
+- Liest FAULT_STATUS Register (0x20, 0x21) nach Konfiguration
+- Vermeidet stale faults von vorherigem Power-Cycle
+
+### Task-Architektur
+
+**solarMpptTask** (15-Minuten Intervall + Interrupt-getriggert):
+```
+Periodic Check (15min):
+  ├─ checkAndFixPgoodStuck()  ← 5-Min Cooldown
+  └─ checkAndFixSolarLogic()  ← 60s Cooldown + PG=1 Check
+
+Interrupt Event:
+  ├─ onBqInterrupt() clears 0x1B
+  └─ Task wacht auf → läuft sofort
+```
+
+**Timing Summary**:
+- **MPPT Write Cooldown**: 60 Sekunden (verhindert Loop)
+- **HIZ Toggle Cooldown**: 5 Minuten (verhindert excessive toggling)
+- **Periodic Check**: 15 Minuten (normal task run)
+- **Interrupt Response**: Sofort (weckt task)
+
+---
+
+## 5. Time To Live (TTL) Forecast
 
 ### Berechnung
 **Methode**: `calculateTTL()` in `BoardConfigContainer.cpp` Zeile 1543-1572
@@ -196,7 +317,7 @@ Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h
 
 ---
 
-## 5. RTC Wake-up Management
+## 6. RTC Wake-up Management
 
 ### RV-3028-C7 Integration
 **Pin**: GPIO17 (WB_IO1) → RTC INT
@@ -227,7 +348,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 
 ---
 
-## 6. Power Management Flow
+## 7. Power Management Flow
 
 ### Shutdown-Sequenz
 **Methode**: `initiateShutdown()` in `InheroMr1Board.cpp` Zeile 611-642
@@ -349,7 +470,7 @@ uint16_t BqDriver::readVBATDirect(TwoWire* wire) {
 
 ---
 
-## 7. Hardware UVLO (INA228 → TPS62840)
+## 8. Hardware UVLO (INA228 → TPS62840)
 
 ### Funktionsweise
 **Alert-Pin Verdrahtung**: INA228.ALERT → TPS62840.EN (direkt)
@@ -383,7 +504,7 @@ ina228.enableAlert(true, false, true);  // UVLO only, active-high
 
 ---
 
-## 8. Hardware-Version Detection
+## 9. Hardware-Version Detection
 
 ### Implementierung
 **Methode**: `detectHardwareVersion()` in `InheroMr1Board.cpp` Zeile 495-523

@@ -31,7 +31,7 @@
 static SemaphoreHandle_t solarEventSem = NULL;
 
 // Solar MPPT task interval
-#define SOLAR_MPPT_TASK_INTERVAL_MS (15 * 60 * 1000)  // 15 minutes
+#define SOLAR_MPPT_TASK_INTERVAL_MS (3 * 60 * 1000)  // 3 minutes
 
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
@@ -107,11 +107,22 @@ public:
   static FrostChargeBehaviour getFrostChargeBehaviourFromCommandString(const char* cmdStr);
   static const char* getAvailableFrostChargeBehaviourOptions();
   static const char* getAvailableBatOptions();
-  static void checkAndFixPgoodStuck();  ///< Check for stuck PGOOD and toggle HIZ if needed
-  static void checkAndFixSolarLogic();  ///< Re-enable MPPT if BQ disabled it
+  
+  /// @brief Detects stuck PGOOD state (slow sunrise) and triggers input qualification
+  /// @details Toggles HIZ to force BQ25798 input detection. 5-minute cooldown prevents excessive toggling.
+  static void checkAndFixPgoodStuck();
+  
+  /// @brief Re-enables MPPT when PowerGood=1 if BQ disabled it
+  /// @details 60-second cooldown prevents interrupt loop. Only runs when PG=1.
+  static void checkAndFixSolarLogic();
+  
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
+  
+  /// @brief ISR handler for BQ25798 interrupt
+  /// @details Always clears interrupt flags by reading CHARGER_FLAG_0 register
   static void onBqInterrupt();
+  
   static bool loadMpptEnabled(bool& enabled);
   static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
 
@@ -142,7 +153,7 @@ public:
   void getChargerInfo(char* buffer, uint32_t bufferSize);
   void toggleHizAndCheck(char* buffer, uint32_t bufferSize); ///< Manual HIZ toggle with status report
   void clearHiz(char* buffer, uint32_t bufferSize); ///< Force clear HIZ mode (bypass PGOOD check)
-  void getDetailedDiagnostics(char* buffer, uint32_t bufferSize); ///< Get detailed BQ25798 diagnostics for debugging
+  void getDetailedDiagnostics(char* buffer, uint32_t bufferSize, int part = 1); ///< Get detailed BQ25798 diagnostics (part 1 or 2)
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %

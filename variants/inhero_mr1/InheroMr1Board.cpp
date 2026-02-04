@@ -242,9 +242,19 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
     #endif
     return true;
+  } else if (strcmp(cmd, "diag1") == 0) {
+    char diagBuffer[300];
+    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer), 1);
+    snprintf(reply, maxlen, "%s", diagBuffer);
+    return true;
+  } else if (strcmp(cmd, "diag2") == 0) {
+    char diagBuffer[300];
+    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer), 2);
+    snprintf(reply, maxlen, "%s", diagBuffer);
+    return true;
   } else if (strcmp(cmd, "diag") == 0) {
     char diagBuffer[300];
-    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
+    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer), 1);
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
   } else if (strcmp(cmd, "clearhiz") == 0) {
@@ -254,7 +264,7 @@ bool InheroMr1Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|ci|cstat|cs|mppt|mpps|conf|wdtstatus|diag|togglehiz|clearhiz>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|ci|cstat|cs|mppt|mpps|conf|wdtstatus|diag1|diag2|togglehiz|clearhiz>");
   return true;
 }
 

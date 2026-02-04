@@ -45,6 +45,13 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 - **Manual override:** `set board.batcap` or `board.relearn` to re-enable learning
 - **7-day energy balance** analysis for TTL forecasting
 
+### Solar Power Management 🆕
+- **Stuck PGOOD Detection:** Automatically detects slow sunrise conditions where PGOOD gets stuck and triggers input qualification via HIZ toggle (5-minute cooldown to prevent excessive toggling)
+- **MPPT Recovery:** Re-enables MPPT when PowerGood=1 with 60-second cooldown to prevent interrupt loops between solar logic and BQ25798 interrupts
+- **Interrupt Clearing:** Always clears BQ25798 interrupt flags (CHARGER_STATUS_0 register 0x1B) to ensure continued operation and prevent interrupt lockup
+- **Fault Monitoring:** Diagnostic commands expose FAULT_STATUS registers (0x20, 0x21) for detailed error analysis including VBAT_OVP, VBUS_OVP, and thermal conditions
+- **VREG Display:** Shows actual configured battery regulation voltage in diagnostics for voltage threshold verification
+
 ## Firmware Build
 
 ```bash

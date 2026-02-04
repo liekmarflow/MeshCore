@@ -57,6 +57,13 @@ bool BoardConfigContainer::lastHizToggleSuccess = false;
 // Watchdog state
 static bool wdt_enabled = false;
 
+// Cooldown timers to prevent interrupt loops and excessive toggling:
+// - MPPT writes can trigger BQ25798 interrupts, which wake the task, creating a loop
+// - HIZ toggles should be rare events only for stuck PGOOD conditions
+static uint32_t lastMpptWriteTime = 0;      // 60-second cooldown for MPPT register writes
+static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
+#define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
+
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
@@ -218,9 +225,18 @@ const char* BoardConfigContainer::getAvailableBatOptions() {
 }
 
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
-/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source.
-///          This function forces input qualification by toggling HIZ mode.
-///          Only triggers if: PG=0, VBUS sufficient, and PG_STAT flag NOT set.
+/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source properly.
+///          This function forces input qualification by toggling HIZ mode to reset the input detection.
+///          
+///          Trigger conditions (all must be true):
+///          - PG=0 (PowerGood stuck low)
+///          - VBUS sufficient (>3.5V)
+///          - PG_STAT flag NOT set (no recent PGOOD change detected)
+///          
+///          Cooldown mechanism:
+///          - Only allows HIZ toggle once per 5 minutes to prevent excessive toggling
+///          - When HIZ is toggled, also resets the MPPT write cooldown timer
+///          - This allows immediate MPPT re-enable after HIZ toggle when PG goes high
 void BoardConfigContainer::checkAndFixPgoodStuck() {
   if (!bqDriverInstance) return;
 
@@ -229,6 +245,14 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
   uint8_t flag0 = bqDriverInstance->readReg(0x1B); // CHARGER_FLAG_0 register
   bool pgFlagSet = (flag0 & 0x08) != 0;            // Bit 3: PG_STAT flag (set when PGOOD changes)
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
+
+  // Cooldown: Don't toggle HIZ too frequently (max once per 5 minutes)
+  // This prevents excessive toggling when PG remains stuck
+  uint32_t currentTime = millis();
+  if (lastHizToggleTime != 0 && (currentTime - lastHizToggleTime) < HIZ_TOGGLE_COOLDOWN_MS) {
+    // Too soon since last toggle - skip
+    return;
+  }
 
   // Get VBUS voltage from telemetry data
   const Telemetry* telem = bqDriverInstance->getTelemetryData();
@@ -272,8 +296,14 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
       bq.setHIZMode(false);
       lastHizToggleTimestamp = rtc_clock.getCurrentTime(); // Record HIZ toggle event
     }
-    delay(250);             // Allow input qualification to complete
-    bq.setMPPTenable(true); // Ensure MPPT remains enabled
+    
+    // Reset MPPT write cooldown so it can be written immediately when PG=1
+    // Don't write MPPT=1 here - let BQ finish input qualification first
+    // MPPT=1 will be set by checkAndFixSolarLogic() on next task run when PG=1
+    lastMpptWriteTime = 0;
+    
+    // Set HIZ toggle cooldown timestamp
+    lastHizToggleTime = currentTime;
 
     // Check if toggle was successful (PGOOD now set)
     bqDriverInstance->readReg(0x22); // Refresh status
@@ -285,8 +315,16 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
 }
 
 /// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
-/// @details BQ25798 does not persist MPPT=1 and sets MPPT=0 when PG=0.
+/// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
 ///          This function restores MPPT=1 when PG returns to 1.
+///          
+///          CRITICAL: Only runs when PowerGood=1 to avoid false positives and interrupt loops
+///          
+///          Interrupt loop prevention:
+///          - Writing to MPPT register triggers BQ25798 interrupts
+///          - Interrupts wake the MPPT task, which may call this function again
+///          - Implements 60-second cooldown between MPPT writes to break the loop
+///          - Cooldown is reset by checkAndFixPgoodStuck() when HIZ is toggled
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -295,10 +333,11 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   BoardConfigContainer::loadMpptEnabled(mpptEnabled);
 
   if (!mpptEnabled) {
-    // MPPT disabled in config - ensure register is cleared
+    // MPPT disabled in config - only disable if currently enabled (avoid unnecessary writes)
     uint8_t mpptVal = bqDriverInstance->readReg(0x15);
     if ((mpptVal & 0x01) != 0) {
       bqDriverInstance->writeReg(0x15, mpptVal & ~0x01);
+      MESH_DEBUG_PRINTLN("MPPT disabled via config");
     }
     return;
   }
@@ -306,15 +345,28 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   // Check if PowerGood is currently set
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
 
-  // Re-enable MPPT whenever PowerGood is set (PG=1)
-  // BQ25798 automatically disables MPPT when PG=0, so we restore it when PG=1
-  if (powerGood) {
-    uint8_t mpptVal = bqDriverInstance->readReg(0x15);
+  // Only re-enable MPPT when PowerGood=1
+  if (!powerGood) {
+    // PG=0 - nichts zu tun, kein Cooldown setzen
+    return;
+  }
 
-    if ((mpptVal & 0x01) == 0) {
-      bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
-      MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
-    }
+  // Cooldown: Nur alle 60 Sekunden ausführen um Interrupt-Loop zu vermeiden
+  // WICHTIG: Cooldown nur wenn PG=1, damit MPPT sofort gesetzt wird wenn PG high geht
+  uint32_t currentTime = millis();
+  
+  if (lastMpptWriteTime != 0 && (currentTime - lastMpptWriteTime) < 60000) {
+    // Weniger als 60 Sekunden seit letztem Durchlauf - skip
+    return;
+  }
+
+  // Re-enable MPPT only when PowerGood is set (PG=1)
+  uint8_t mpptVal = bqDriverInstance->readReg(0x15);
+
+  if ((mpptVal & 0x01) == 0) {
+    bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
+    lastMpptWriteTime = currentTime; // Cooldown NUR setzen wenn tatsächlich geschrieben
+    MESH_DEBUG_PRINTLN("MPPT re-enabled via register (PG=1)");
   }
 }
 
@@ -367,6 +419,14 @@ void BoardConfigContainer::onBqInterrupt() {
   digitalWrite(LED_BLUE, HIGH);
 
   if (solarEventSem == NULL) return; // Safety check
+  
+  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
+  // The BQ25798 requires reading register 0x1B to acknowledge interrupts and clear flags.
+  // Without this, the interrupt line stays asserted and no new interrupts will be generated.
+  // This must happen on EVERY interrupt, regardless of whether we process the event or not.
+  if (bqDriverInstance) {
+    bqDriverInstance->readReg(0x1B); // Read CHARGER_STATUS_0 (0x1B) to clear interrupt flags
+  }
 
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
@@ -606,7 +666,7 @@ void BoardConfigContainer::clearHiz(char* buffer, uint32_t bufferSize) {
 /// @brief Get detailed BQ25798 diagnostics for debugging PG / !CHG issues
 /// @param buffer Destination buffer for diagnostics string
 /// @param bufferSize Size of destination buffer
-void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferSize) {
+void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferSize, int part) {
   if (!buffer || bufferSize == 0) {
     return;
   }
@@ -626,9 +686,11 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   // Verified against BQ25798 datasheet (bq25798en.txt)
   uint8_t reg0F = bqDriverInstance->readReg(0x0F); // CHARGER_CONTROL_0 (EN_HIZ at bit 2, EN_CHG at bit 5)
   uint8_t reg15 = bqDriverInstance->readReg(0x15); // MPPT_CONTROL (EN_MPPT at bit 0)
-  uint8_t reg1B = bqDriverInstance->readReg(0x1B); // CHARGER_STATUS_0 (PG_STAT bit 3, VINDPM bit 6, IINDPM bit 7)
-  uint8_t reg1C = bqDriverInstance->readReg(0x1C); // CHARGER_STATUS_1 (CHG_STAT bits 7:5, VBUS_STAT bits 4:1)
-  uint8_t reg1F = bqDriverInstance->readReg(0x1F); // CHARGER_STATUS_4 (TS status bits 3:0)
+  uint8_t reg1B = bqDriverInstance->readReg(0x1B); // CHARGER_FLAG_0 (PG_STAT bit 3, VINDPM bit 6, IINDPM bit 7)
+  uint8_t reg1C = bqDriverInstance->readReg(0x1C); // CHARGER_FLAG_1 (CHG_STAT bits 7:5, VBUS_STAT bits 4:1)
+  uint8_t reg20 = bqDriverInstance->readReg(0x20); // FAULT_STATUS_0 (VBUS faults, VBAT faults)
+  uint8_t reg21 = bqDriverInstance->readReg(0x21); // FAULT_STATUS_1 (TSBUS, TSBAT, TDIE faults)
+  uint8_t reg1F = bqDriverInstance->readReg(0x1F); // CHARGER_FLAG_3 (TS status bits 3:0)
 
   // Extract key status bits (verified against datasheet Section 9.5.1)
   bool hiz_enabled = (reg0F & 0x04) != 0;   // Bit 2: EN_HIZ in REG0F
@@ -647,76 +709,6 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   bool ts_warm = (reg1F & 0x02) != 0;       // Bit 1: TS_WARM_STAT in REG1F
   bool ts_hot = (reg1F & 0x01) != 0;        // Bit 0: TS_HOT_STAT in REG1F
 
-  // VBUS_STAT interpretation (4 bits: 0h-Fh from REG1C bits 4:1)
-  const char* vbus_str;
-  switch (vbus_stat) {
-  case 0x0:
-    vbus_str = "NoIn";
-    break; // No input
-  case 0x1:
-    vbus_str = "SDP";
-    break; // USB SDP (500mA)
-  case 0x2:
-    vbus_str = "CDP";
-    break; // USB CDP (1.5A)
-  case 0x3:
-    vbus_str = "DCP";
-    break; // USB DCP (3.25A)
-  case 0x4:
-    vbus_str = "HVDCP";
-    break; // High Voltage DCP
-  case 0x5:
-    vbus_str = "UnkAdp";
-    break; // Unknown adapter
-  case 0x6:
-    vbus_str = "NStd";
-    break; // Non-standard adapter
-  case 0x7:
-    vbus_str = "OTG";
-    break; // OTG mode
-  case 0x8:
-    vbus_str = "NotQual";
-    break; // Not qualified adapter
-  case 0xB:
-    vbus_str = "DirPwr";
-    break; // Direct VBUS power
-  case 0xC:
-    vbus_str = "Backup";
-    break; // Backup mode
-  default:
-    vbus_str = "Rsv";
-    break; // Reserved
-  }
-
-  // CHG_STAT interpretation
-  const char* chg_str;
-  switch (chg_stat) {
-  case 0:
-    chg_str = "!CHG";
-    break;
-  case 1:
-    chg_str = "TRKL";
-    break;
-  case 2:
-    chg_str = "PRE";
-    break;
-  case 3:
-    chg_str = "CC";
-    break;
-  case 4:
-    chg_str = "CV";
-    break;
-  case 6:
-    chg_str = "TOP";
-    break;
-  case 7:
-    chg_str = "DONE";
-    break;
-  default:
-    chg_str = "???";
-    break;
-  }
-
   // Get telemetry for voltage/current
   const Telemetry* telem = bqDriverInstance->getTelemetryData();
   float vbus_v = telem ? telem->solar.voltage / 1000.0f : 0.0f;
@@ -724,48 +716,122 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   int16_t ibat_ma = telem ? telem->batterie.current : 0;
   float temp_c = telem ? telem->batterie.temperature : 0.0f;
 
-  // VOC_PCT decoding (REG15 bits 7-5)
-  const char* voc_pct_str;
-  switch (voc_pct) {
-  case 0: voc_pct_str = "56.25%"; break;
-  case 1: voc_pct_str = "62.5%"; break;
-  case 2: voc_pct_str = "68.75%"; break;
-  case 3: voc_pct_str = "75%"; break;
-  case 4: voc_pct_str = "81.25%"; break;
-  case 5: voc_pct_str = "87.5%"; break;  // Default
-  case 6: voc_pct_str = "93.75%"; break;
-  case 7: voc_pct_str = "100%"; break;
-  default: voc_pct_str = "???"; break;
-  }
-  
-  // VOC_DLY decoding (REG15 bits 4-3)
-  const char* voc_dly_str;
-  switch (voc_dly) {
-  case 0: voc_dly_str = "50ms"; break;
-  case 1: voc_dly_str = "300ms"; break;  // Default
-  case 2: voc_dly_str = "2s"; break;
-  case 3: voc_dly_str = "5s"; break;
-  default: voc_dly_str = "???"; break;
-  }
-  
-  // VOC_RATE decoding (REG15 bits 2-1)
-  const char* voc_rate_str;
-  switch (voc_rate) {
-  case 0: voc_rate_str = "30s"; break;
-  case 1: voc_rate_str = "2min"; break;  // Default
-  case 2: voc_rate_str = "10min"; break;
-  case 3: voc_rate_str = "30min"; break;
-  default: voc_rate_str = "???"; break;
+  // VBUS_STAT interpretation (4 bits: 0h-Fh from REG1C bits 4:1)
+  const char* vbus_str;
+  switch (vbus_stat) {
+  case 0x0: vbus_str = "NoIn"; break;
+  case 0x1: vbus_str = "SDP"; break;
+  case 0x2: vbus_str = "CDP"; break;
+  case 0x3: vbus_str = "DCP"; break;
+  case 0x4: vbus_str = "HVDCP"; break;
+  case 0x5: vbus_str = "UnkAdp"; break;
+  case 0x6: vbus_str = "NStd"; break;
+  case 0x7: vbus_str = "OTG"; break;
+  case 0x8: vbus_str = "NotQual"; break;
+  case 0xB: vbus_str = "DirPwr"; break;
+  case 0xC: vbus_str = "Backup"; break;
+  default: vbus_str = "Rsv"; break;
   }
 
-  // Build comprehensive diagnostic string
-  snprintf(buffer, bufferSize,
-           "PG:%d CE:%d HIZ:%d MPPT:%d CHG:%s VBUS:%s VINDPM:%d IINDPM:%d | "
-           "Vbus:%.2fV Vbat:%.2fV Ibat:%dmA Temp:%.1fC | "
-           "TS: %s%s%s%s | R0F:0x%02X R15:0x%02X | VOC:%s/%s/%s",
-           powerGood, !ce_disabled, hiz_enabled, mppt_enabled, chg_str, vbus_str, vindpm, iindpm, vbus_v,
-           vbat_v, ibat_ma, temp_c, ts_cold ? "COLD " : "", ts_cool ? "COOL " : "", ts_warm ? "WARM " : "",
-           ts_hot ? "HOT" : "OK", reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
+  // CHG_STAT interpretation
+  const char* chg_str;
+  switch (chg_stat) {
+  case 0: chg_str = "!CHG"; break;
+  case 1: chg_str = "TRKL"; break;
+  case 2: chg_str = "PRE"; break;
+  case 3: chg_str = "CC"; break;
+  case 4: chg_str = "CV"; break;
+  case 6: chg_str = "TOP"; break;
+  case 7: chg_str = "DONE"; break;
+  default: chg_str = "???"; break;
+  }
+
+  if (part == 1) {
+    // DIAG1: Status flags and voltages
+    snprintf(buffer, bufferSize,
+             "PG:%d CE:%d HIZ:%d MPPT:%d CHG:%s VBUS:%s VINDPM:%d IINDPM:%d | "
+             "Vbus:%.2fV Vbat:%.2fV Ibat:%dmA Temp:%.1fC",
+             powerGood, !ce_disabled, hiz_enabled, mppt_enabled, chg_str, vbus_str, vindpm, iindpm,
+             vbus_v, vbat_v, ibat_ma, temp_c);
+  } else {
+    // DIAG2: Faults and additional details
+    // Extract fault bits from REG20 (FAULT_STATUS_0) per BQ25798 datasheet Table 9-41
+    bool ibat_reg = (reg20 & 0x80) != 0;    // Bit 7: IBAT_REG_STAT
+    bool vbus_ovp = (reg20 & 0x40) != 0;    // Bit 6: VBUS_OVP_STAT
+    bool vbat_ovp = (reg20 & 0x20) != 0;    // Bit 5: VBAT_OVP_STAT
+    bool ibus_ocp = (reg20 & 0x10) != 0;    // Bit 4: IBUS_OCP_STAT
+    bool ibat_ocp = (reg20 & 0x08) != 0;    // Bit 3: IBAT_OCP_STAT
+    bool conv_ocp = (reg20 & 0x04) != 0;    // Bit 2: CONV_OCP_STAT
+    bool vac2_ovp = (reg20 & 0x02) != 0;    // Bit 1: VAC2_OVP_STAT
+    bool vac1_ovp = (reg20 & 0x01) != 0;    // Bit 0: VAC1_OVP_STAT
+    
+    // Extract fault bits from REG21 (FAULT_STATUS_1) per BQ25798 datasheet Table 9-42
+    bool vsys_short = (reg21 & 0x80) != 0;  // Bit 7: VSYS_SHORT_STAT
+    bool vsys_ovp = (reg21 & 0x40) != 0;    // Bit 6: VSYS_OVP_STAT
+    bool otg_ovp = (reg21 & 0x20) != 0;     // Bit 5: OTG_OVP_STAT
+    bool otg_uvp = (reg21 & 0x10) != 0;     // Bit 4: OTG_UVP_STAT
+    bool tshut = (reg21 & 0x04) != 0;       // Bit 2: TSHUT_STAT
+    
+    // Read VREG for all cases (faults and no faults)
+    uint8_t reg01_high = bqDriverInstance->readReg(0x01);
+    uint8_t reg01_low = bqDriverInstance->readReg(0x02);
+    uint16_t vreg_raw = ((uint16_t)(reg01_high & 0x07) << 8) | reg01_low;
+    float vreg_v = (vreg_raw * 10.0f) / 1000.0f;
+    
+    bool faults = ibat_reg || vbus_ovp || vbat_ovp || ibus_ocp || ibat_ocp || conv_ocp || 
+                  vac2_ovp || vac1_ovp || vsys_short || vsys_ovp || otg_ovp || otg_uvp || tshut;
+    
+    if (faults) {
+      snprintf(buffer, bufferSize,
+               "FAULTS: %s%s%s%s%s%s%s%s%s%s%s%s%s | VREG:%.2fV R20:0x%02X R21:0x%02X",
+               ibat_reg ? "IBAT_REG " : "", vbus_ovp ? "VBUS_OVP " : "", vbat_ovp ? "VBAT_OVP " : "",
+               ibus_ocp ? "IBUS_OCP " : "", ibat_ocp ? "IBAT_OCP " : "", conv_ocp ? "CONV_OCP " : "",
+               vac2_ovp ? "VAC2_OVP " : "", vac1_ovp ? "VAC1_OVP " : "",
+               vsys_short ? "VSYS_SHORT " : "", vsys_ovp ? "VSYS_OVP " : "",
+               otg_ovp ? "OTG_OVP " : "", otg_uvp ? "OTG_UVP " : "", tshut ? "TSHUT" : "",
+               vreg_v, reg20, reg21);
+    } else {
+      // VOC_PCT decoding
+      const char* voc_pct_str;
+      switch (voc_pct) {
+      case 0: voc_pct_str = "56.25%"; break;
+      case 1: voc_pct_str = "62.5%"; break;
+      case 2: voc_pct_str = "68.75%"; break;
+      case 3: voc_pct_str = "75%"; break;
+      case 4: voc_pct_str = "81.25%"; break;
+      case 5: voc_pct_str = "87.5%"; break;
+      case 6: voc_pct_str = "93.75%"; break;
+      case 7: voc_pct_str = "100%"; break;
+      default: voc_pct_str = "???"; break;
+      }
+      
+      // VOC_DLY decoding
+      const char* voc_dly_str;
+      switch (voc_dly) {
+      case 0: voc_dly_str = "50ms"; break;
+      case 1: voc_dly_str = "300ms"; break;
+      case 2: voc_dly_str = "2s"; break;
+      case 3: voc_dly_str = "5s"; break;
+      default: voc_dly_str = "???"; break;
+      }
+      
+      // VOC_RATE decoding
+      const char* voc_rate_str;
+      switch (voc_rate) {
+      case 0: voc_rate_str = "30s"; break;
+      case 1: voc_rate_str = "2min"; break;
+      case 2: voc_rate_str = "10min"; break;
+      case 3: voc_rate_str = "30min"; break;
+      default: voc_rate_str = "???"; break;
+      }
+      
+      // VREG already read above for fault case
+      snprintf(buffer, bufferSize,
+               "No faults | TS: %s%s%s%s | VREG:%.2fV | VOC:%s/%s/%s",
+               ts_cold ? "COLD " : "", ts_cool ? "COOL " : "", ts_warm ? "WARM " : "",
+               ts_hot ? "HOT" : "OK", vreg_v, voc_pct_str, voc_dly_str, voc_rate_str);
+    }
+  }
 }
 
 /// @brief Writes charger status information into provided buffer
@@ -897,6 +963,11 @@ bool BoardConfigContainer::begin() {
   }
 
   this->configureSolarOnlyInterrupts();
+  
+  // Clear any latched fault status from previous operation/boot
+  // This ensures we start with clean state after full configuration
+  bq.readReg(0x20); // FAULT_STATUS_0
+  bq.readReg(0x21); // FAULT_STATUS_1
 
   if (mpptTaskHandle == NULL) {
     BaseType_t taskCreated =

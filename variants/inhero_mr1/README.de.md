@@ -65,7 +65,11 @@ PIN_VBAT_READ   = 5
 ### Solar-Power-Management
 - **MPPT-Task**: FreeRTOS-Task überwacht Solar-Eingang alle 15 Minuten
 - **Interrupt-gesteuert**: Hardware-Interrupt bei Power Good Zustandsänderungen
-- **Automatische Wiederherstellung**: Erkennt und reaktiviert MPPT bei Chip-Störungen
+- **Stuck PGOOD Erkennung**: Erkennt automatisch langsame Sonnenaufgänge und löst Eingangsqualifizierung via HIZ-Toggle aus (5-Minuten-Cooldown zur Vermeidung exzessiven Togglens)
+- **MPPT-Wiederherstellung**: Aktiviert MPPT neu wenn PowerGood=1 mit 60-Sekunden-Cooldown zur Vermeidung von Interrupt-Schleifen zwischen Solar-Logik und BQ25798-Interrupts
+- **Interrupt-Clearing**: Löscht immer BQ25798-Interrupt-Flags (CHARGER_STATUS_0 Register 0x1B) zur Sicherstellung des fortlaufenden Betriebs und Vermeidung von Interrupt-Lockup
+- **Fehlerüberwachung**: Diagnose-Befehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Fehleranalyse inklusive VBAT_OVP, VBUS_OVP und thermische Bedingungen
+- **VREG-Anzeige**: Zeigt die tatsächlich konfigurierte Batterie-Regelspannung in der Diagnose zur Verifizierung der Spannungsschwellen
 - **Visuelle Rückmeldung**: Blaues LED-Blinken bei Solar-Ereignissen
 
 ### Telemetrie-System

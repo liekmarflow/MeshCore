@@ -151,11 +151,26 @@ public:
   static FrostChargeBehaviour getFrostChargeBehaviourFromCommandString(const char* cmdStr);
   static const char* getAvailableFrostChargeBehaviourOptions();
   static const char* getAvailableBatOptions();
-  static void checkAndFixPgoodStuck();  ///< Check for stuck PGOOD and toggle HIZ if needed
-  static void checkAndFixSolarLogic();  ///< Re-enable MPPT if BQ disabled it
+  
+  // Solar Power Management Functions
+  // These functions work together to handle stuck PGOOD conditions and MPPT recovery:
+  
+  /// Check for stuck PGOOD (slow sunrise condition) and toggle HIZ if needed.
+  /// Implements 5-minute cooldown to prevent excessive HIZ toggling.
+  /// When toggling HIZ, also resets the MPPT cooldown timer to allow immediate MPPT re-enable.
+  static void checkAndFixPgoodStuck();
+  
+  /// Re-enable MPPT if BQ disabled it (when PG=1).
+  /// Implements 60-second cooldown to prevent interrupt loops between MPPT writes and BQ interrupts.
+  /// Only writes to MPPT register if PowerGood is high to avoid false positives.
+  static void checkAndFixSolarLogic();
+  
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
+  
+  /// BQ25798 interrupt handler - ALWAYS clears interrupt flags (reads 0x1B) to prevent lockup.
   static void onBqInterrupt();
+  
   static bool loadMpptEnabled(bool& enabled);
   static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
 

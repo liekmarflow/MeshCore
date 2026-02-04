@@ -65,7 +65,10 @@ RTC_I2C_ADDR    = 0x52
 ### Solar Power Management
 - **MPPT Task**: FreeRTOS task monitoring solar input every 15 minutes
 - **Interrupt-Driven**: Hardware interrupt on Power Good state changes
-- **Automatic Recovery**: Detects and re-enables MPPT if disabled by chip glitches
+- **Stuck PGOOD Detection**: Automatically detects slow sunrise conditions and triggers input qualification via HIZ toggle (5-minute cooldown)
+- **MPPT Recovery**: Re-enables MPPT when PowerGood=1 with 60-second cooldown to prevent interrupt loops
+- **Interrupt Clearing**: Always clears BQ25798 interrupt flags to ensure continued operation
+- **Fault Monitoring**: Reads FAULT_STATUS registers at boot to start with clean state
 - **Visual Feedback**: Blue LED flash on solar events
 
 ### Telemetry System
