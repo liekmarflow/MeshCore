@@ -1,8 +1,14 @@
+// Includes
 #include <Arduino.h>
 #include "target.h"
 #include <helpers/ArduinoHelpers.h>
 
+// Global objects
 InheroMr2Board board;
+RADIO_CLASS radio = new Module(P_LORA_NSS, P_LORA_DIO_1, P_LORA_RESET, P_LORA_BUSY, SPI);
+WRAPPER_CLASS radio_driver(radio, board);
+VolatileRTCClock fallback_clock;
+AutoDiscoverRTCClock rtc_clock(fallback_clock);
 
 #ifndef PIN_USER_BTN
   #define PIN_USER_BTN (-1)
@@ -17,13 +23,6 @@ InheroMr2Board board;
   #endif
 #endif
 
-RADIO_CLASS radio = new Module(P_LORA_NSS, P_LORA_DIO_1, P_LORA_RESET, P_LORA_BUSY, SPI);
-
-WRAPPER_CLASS radio_driver(radio, board);
-
-VolatileRTCClock fallback_clock;
-AutoDiscoverRTCClock rtc_clock(fallback_clock);
-
 #if ENV_INCLUDE_GPS
   #include <helpers/sensors/MicroNMEALocationProvider.h>
   MicroNMEALocationProvider nmea = MicroNMEALocationProvider(Serial1);
@@ -32,6 +31,7 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
   EnvironmentSensorManager sensors;
 #endif
 
+// Public functions
 bool radio_init() {
   rtc_clock.begin(Wire);
   return radio.std_init(&SPI);

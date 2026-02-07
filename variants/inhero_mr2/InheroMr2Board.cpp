@@ -21,96 +21,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+// Includes
 #include "InheroMr2Board.h"
-
-/// @brief Find next available channel number in CayenneLPP packet
-/// @param lpp CayenneLPP packet to analyze
-/// @return Next free channel number (starts at 200 if no channels used yet)
-/// @note This method parses the LPP buffer to find the highest channel number in use,
-///       then returns the next available channel. Used by queryBoardTelemetry() to
-///       append board-specific telemetry without channel conflicts.
-uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
-  uint8_t max_channel = 0;
-  uint8_t cursor = 0;
-  uint8_t* buffer = lpp.getBuffer();
-  uint8_t size = lpp.getSize();
-
-  while (cursor < size) {
-    if (cursor + 1 >= size) break;
-
-    uint8_t channel = buffer[cursor];
-    if (channel > max_channel) max_channel = channel;
-
-    uint8_t type = buffer[cursor + 1];
-    uint8_t data_len = 0;
-
-    switch (type) {
-    case LPP_DIGITAL_INPUT:
-    case LPP_DIGITAL_OUTPUT:
-    case LPP_PRESENCE:
-    case LPP_RELATIVE_HUMIDITY:
-    case LPP_PERCENTAGE:
-    case LPP_SWITCH:
-      data_len = 1;
-      break;
-
-    case LPP_ANALOG_INPUT:
-    case LPP_ANALOG_OUTPUT:
-    case LPP_LUMINOSITY:
-    case LPP_TEMPERATURE:
-    case LPP_BAROMETRIC_PRESSURE:
-    case LPP_VOLTAGE:
-    case LPP_CURRENT:
-    case LPP_ALTITUDE:
-    case LPP_POWER:
-    case LPP_DIRECTION:
-    case LPP_CONCENTRATION:
-      data_len = 2;
-      break;
-
-    case LPP_COLOUR:
-      data_len = 3;
-      break;
-
-    case LPP_FREQUENCY:
-    case LPP_DISTANCE:
-    case LPP_ENERGY:
-    case LPP_UNIXTIME:
-      data_len = 4;
-      break;
-
-    case LPP_ACCELEROMETER:
-    case LPP_GYROMETER:
-      data_len = 6;
-      break;
-
-    case LPP_GPS:
-      data_len = 9;
-      break;
-
-    default:
-      return (max_channel < 200) ? 200 : max_channel + 1;
-    }
-
-    cursor += (2 + data_len);
-  }
-
-  return max_channel + 1;
-}
-
 #include "BoardConfigContainer.h"
-
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
 #include <nrf_soc.h>
 
+// Static declarations
 static BLEDfu bledfu;
-
 static BoardConfigContainer boardConfig;
 
-// MR2 is v0.2 only - no hardware detection needed
-
+// Static callback functions
 static void connect_callback(uint16_t conn_handle) {
   (void)conn_handle;
   MESH_DEBUG_PRINTLN("BLE client connected");
@@ -119,8 +43,192 @@ static void connect_callback(uint16_t conn_handle) {
 static void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
   (void)conn_handle;
   (void)reason;
-
   MESH_DEBUG_PRINTLN("BLE client disconnected");
+}
+
+// ===== Public Methods =====
+
+void InheroMr2Board::begin() {
+  pinMode(PIN_VBAT_READ, INPUT);
+
+#ifdef PIN_USER_BTN
+  pinMode(PIN_USER_BTN, INPUT_PULLUP);
+#endif
+
+#ifdef PIN_USER_BTN_ANA
+  pinMode(PIN_USER_BTN_ANA, INPUT_PULLUP);
+#endif
+
+#if defined(PIN_BOARD_SDA) && defined(PIN_BOARD_SCL)
+  Wire.setPins(PIN_BOARD_SDA, PIN_BOARD_SCL);
+#endif
+
+  Wire.begin();
+
+  // MR2 is v0.2 hardware only - no detection needed
+  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware v0.2 (INA228 + RTC)");
+  
+  // Initialize board configuration (BQ25798, INA228, etc.)
+  boardConfig.begin();
+  
+  // === v0.2 hardware initialization ===
+  MESH_DEBUG_PRINTLN("Initializing v0.2 features (RTC, INA228 alerts)");
+    
+    // Configure RTC INT pin for wake-up from SYSTEMOFF
+    pinMode(RTC_INT_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
+    
+    // === CRITICAL: Early Boot Voltage Check ===
+    // Prevents motorboating after Hardware-UVLO or Software-SHUTDOWN
+    // When INA228 Alert cuts power via TPS62840 EN, RAK loses all RAM (GPREGRET2=0x00)
+    // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN
+    
+    uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
+    
+    // === High-Precision INA228 voltage measurement (24-bit ADC, ±0.1% accuracy) ===
+    // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
+    // Use static INA228 method with One-Shot ADC for fresh, accurate measurement
+    // This is critical for wake/sleep decisions in danger zone
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire);
+    
+    if (vbat_mv == 0) {
+      MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
+      // Continue boot if we can't read voltage (better than blocking)
+    } else {
+      uint16_t wake_threshold = getVoltageWakeThreshold();
+      uint16_t danger_threshold = getVoltageCriticalThreshold();
+      
+      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Danger=%dmV, Wake=%dmV, Reason=0x%02X", 
+                         vbat_mv, danger_threshold, wake_threshold, shutdown_reason);
+      
+      // Case 1: Waking from Software-SHUTDOWN (GPREGRET2 set, RTC wake-up)
+      if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+        MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
+        
+        if (vbat_mv < wake_threshold) {
+          MESH_DEBUG_PRINTLN("Voltage still below wake threshold (%dmV), going back to sleep for 1h", wake_threshold);
+          delay(100);  // Let debug output complete
+          configureRTCWake(1);  // Wake up in 1 hour
+          sd_power_system_off();
+          // Never returns
+        }
+        
+        // Voltage recovered above wake threshold - THIS IS 0% SOC!
+        MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+        
+        // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
+        // This is the perfect moment: we just exited danger zone = 0% SOC
+        // User will plug in USB-C, we accumulate all charged mAh to 100%
+        boardConfig.startReverseLearning();
+      }
+      // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
+      // This is the critical case to prevent motorboating!
+      else if (vbat_mv < wake_threshold) {
+        MESH_DEBUG_PRINTLN("ColdBoot with low voltage detected (%dmV < %dmV)", vbat_mv, wake_threshold);
+        MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery - voltage not stable yet");
+        MESH_DEBUG_PRINTLN("Going to sleep for 1h to avoid motorboating");
+        
+        delay(100);  // Let debug output complete
+        
+        // Configure RTC wake-up before shutdown
+        configureRTCWake(1);  // Wake up in 1 hour
+        
+        // Store reason for next boot (this time GPREGRET2 will be valid after RTC wake)
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
+        
+        sd_power_system_off();
+        // Never returns
+      }
+      // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
+      else {
+        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, wake_threshold);
+      }
+    }
+  
+  // Enable DC/DC converter for improved power efficiency
+  // Done after peripheral initialization to avoid voltage glitches
+  NRF52BoardDCDC::begin();
+  
+  // LEDs already initialized in boardConfig.begin()
+  // Blue LED was used for boot sequence visualization
+  // Red LED indicates missing components (if blinking)
+
+  pinMode(SX126X_POWER_EN, OUTPUT);
+  digitalWrite(SX126X_POWER_EN, HIGH);
+  delay(10); // give sx1262 some time to power up
+  
+  // Start hardware watchdog (600s timeout)
+  // Must be last - after all initializations are complete
+  BoardConfigContainer::setupWatchdog();
+}
+
+void InheroMr2Board::tick() {
+  // Feed watchdog to prevent system reset
+  // This ensures the main loop is running properly
+  BoardConfigContainer::feedWatchdog();
+}
+
+uint16_t InheroMr2Board::getBattMilliVolts() {
+  const Telemetry* telemetry = boardConfig.getTelemetryData();
+
+  return telemetry->batterie.voltage;
+}
+
+bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
+  // Note: 600s watchdog timeout allows OTA to complete (typically 2-5 min)
+  // No need to disable watchdog as timeout is sufficient
+  
+  // Stop all background tasks and clean up peripherals before OTA
+  // This is critical - without stopping tasks, OTA will fail
+  BoardConfigContainer::stopBackgroundTasks();
+  
+  // Use standard NRF52Board OTA implementation (same as RAK4631)
+  // Config the peripheral connection with maximum bandwidth
+  // more SRAM required by SoftDevice
+  // Note: All config***() function must be called before begin()
+  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+  Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
+
+  Bluefruit.begin(1, 0);
+  // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
+  Bluefruit.setTxPower(4);
+  // Set the BLE device name
+  Bluefruit.setName("InheroMR2_OTA");
+
+  Bluefruit.Periph.setConnectCallback(connect_callback);
+  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
+
+  // To be consistent OTA DFU should be added first if it exists
+  bledfu.begin();
+
+  // Set up and start advertising
+  // Advertising packet
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
+  Bluefruit.Advertising.addName();
+
+  /* Start Advertising
+    - Enable auto advertising if disconnected
+    - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
+    - Timeout for fast mode is 30 seconds
+    - Start(timeout) with timeout = 0 will advertise forever (until connected)
+
+    For recommended advertising interval
+    https://developer.apple.com/library/content/qa/qa1931/_index.html
+  */
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
+  Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
+  Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
+
+  uint8_t mac_addr[6];
+  memset(mac_addr, 0, sizeof(mac_addr));
+  Bluefruit.getAddr(mac_addr);
+  sprintf(reply, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
+          mac_addr[2], mac_addr[1], mac_addr[0]);
+
+  return true;
 }
 
 /// @brief Collects board telemetry and appends to CayenneLPP packet
@@ -456,189 +564,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   return ret;
 }
 
-void InheroMr2Board::begin() {
-  pinMode(PIN_VBAT_READ, INPUT);
-
-#ifdef PIN_USER_BTN
-  pinMode(PIN_USER_BTN, INPUT_PULLUP);
-#endif
-
-#ifdef PIN_USER_BTN_ANA
-  pinMode(PIN_USER_BTN_ANA, INPUT_PULLUP);
-#endif
-
-#if defined(PIN_BOARD_SDA) && defined(PIN_BOARD_SCL)
-  Wire.setPins(PIN_BOARD_SDA, PIN_BOARD_SCL);
-#endif
-
-  Wire.begin();
-
-  // MR2 is v0.2 hardware only - no detection needed
-  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware v0.2 (INA228 + RTC)");
-  
-  // Initialize board configuration (BQ25798, INA228, etc.)
-  boardConfig.begin();
-  
-  // === v0.2 hardware initialization ===
-  MESH_DEBUG_PRINTLN("Initializing v0.2 features (RTC, INA228 alerts)");
-    
-    // Configure RTC INT pin for wake-up from SYSTEMOFF
-    pinMode(RTC_INT_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
-    
-    // === CRITICAL: Early Boot Voltage Check ===
-    // Prevents motorboating after Hardware-UVLO or Software-SHUTDOWN
-    // When INA228 Alert cuts power via TPS62840 EN, RAK loses all RAM (GPREGRET2=0x00)
-    // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN
-    
-    uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
-    
-    // === High-Precision INA228 voltage measurement (24-bit ADC, ±0.1% accuracy) ===
-    // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
-    // Use static INA228 method with One-Shot ADC for fresh, accurate measurement
-    // This is critical for wake/sleep decisions in danger zone
-    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire);
-    
-    if (vbat_mv == 0) {
-      MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
-      // Continue boot if we can't read voltage (better than blocking)
-    } else {
-      uint16_t wake_threshold = getVoltageWakeThreshold();
-      uint16_t danger_threshold = getVoltageCriticalThreshold();
-      
-      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Danger=%dmV, Wake=%dmV, Reason=0x%02X", 
-                         vbat_mv, danger_threshold, wake_threshold, shutdown_reason);
-      
-      // Case 1: Waking from Software-SHUTDOWN (GPREGRET2 set, RTC wake-up)
-      if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-        MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
-        
-        if (vbat_mv < wake_threshold) {
-          MESH_DEBUG_PRINTLN("Voltage still below wake threshold (%dmV), going back to sleep for 1h", wake_threshold);
-          delay(100);  // Let debug output complete
-          configureRTCWake(1);  // Wake up in 1 hour
-          sd_power_system_off();
-          // Never returns
-        }
-        
-        // Voltage recovered above wake threshold - THIS IS 0% SOC!
-        MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-        
-        // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
-        // This is the perfect moment: we just exited danger zone = 0% SOC
-        // User will plug in USB-C, we accumulate all charged mAh to 100%
-        boardConfig.startReverseLearning();
-      }
-      // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
-      // This is the critical case to prevent motorboating!
-      else if (vbat_mv < wake_threshold) {
-        MESH_DEBUG_PRINTLN("ColdBoot with low voltage detected (%dmV < %dmV)", vbat_mv, wake_threshold);
-        MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery - voltage not stable yet");
-        MESH_DEBUG_PRINTLN("Going to sleep for 1h to avoid motorboating");
-        
-        delay(100);  // Let debug output complete
-        
-        // Configure RTC wake-up before shutdown
-        configureRTCWake(1);  // Wake up in 1 hour
-        
-        // Store reason for next boot (this time GPREGRET2 will be valid after RTC wake)
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
-        
-        sd_power_system_off();
-        // Never returns
-      }
-      // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
-      else {
-        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, wake_threshold);
-      }
-    }
-  
-  // Enable DC/DC converter for improved power efficiency
-  // Done after peripheral initialization to avoid voltage glitches
-  NRF52BoardDCDC::begin();
-  
-  // LEDs already initialized in boardConfig.begin()
-  // Blue LED was used for boot sequence visualization
-  // Red LED indicates missing components (if blinking)
-
-  pinMode(SX126X_POWER_EN, OUTPUT);
-  digitalWrite(SX126X_POWER_EN, HIGH);
-  delay(10); // give sx1262 some time to power up
-  
-  // Start hardware watchdog (600s timeout)
-  // Must be last - after all initializations are complete
-  BoardConfigContainer::setupWatchdog();
-}
-
-void InheroMr2Board::tick() {
-  // Feed watchdog to prevent system reset
-  // This ensures the main loop is running properly
-  BoardConfigContainer::feedWatchdog();
-}
-
-uint16_t InheroMr2Board::getBattMilliVolts() {
-  const Telemetry* telemetry = boardConfig.getTelemetryData();
-
-  return telemetry->batterie.voltage;
-}
-
-bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
-  // Note: 600s watchdog timeout allows OTA to complete (typically 2-5 min)
-  // No need to disable watchdog as timeout is sufficient
-  
-  // Stop all background tasks and clean up peripherals before OTA
-  // This is critical - without stopping tasks, OTA will fail
-  BoardConfigContainer::stopBackgroundTasks();
-  
-  // Use standard NRF52Board OTA implementation (same as RAK4631)
-  // Config the peripheral connection with maximum bandwidth
-  // more SRAM required by SoftDevice
-  // Note: All config***() function must be called before begin()
-  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
-
-  Bluefruit.begin(1, 0);
-  // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
-  Bluefruit.setTxPower(4);
-  // Set the BLE device name
-  Bluefruit.setName("InheroMR2_OTA");
-
-  Bluefruit.Periph.setConnectCallback(connect_callback);
-  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
-
-  // To be consistent OTA DFU should be added first if it exists
-  bledfu.begin();
-
-  // Set up and start advertising
-  // Advertising packet
-  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
-  Bluefruit.Advertising.addName();
-
-  /* Start Advertising
-    - Enable auto advertising if disconnected
-    - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
-    - Timeout for fast mode is 30 seconds
-    - Start(timeout) with timeout = 0 will advertise forever (until connected)
-
-    For recommended advertising interval
-    https://developer.apple.com/library/content/qa/qa1931/_index.html
-  */
-  Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
-  Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
-  Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
-
-  uint8_t mac_addr[6];
-  memset(mac_addr, 0, sizeof(mac_addr));
-  Bluefruit.getAddr(mac_addr);
-  sprintf(reply, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
-          mac_addr[2], mac_addr[1], mac_addr[0]);
-
-  return true;
-}
-
 // ===== Power Management Methods (v0.2) =====
 
 /// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
@@ -758,3 +683,79 @@ void InheroMr2Board::rtcInterruptHandler() {
   // Note: Main logic for voltage/charge check happens in begin()
 }
 
+// ===== Helper Functions =====
+
+/// @brief Find next available channel number in CayenneLPP packet
+/// @param lpp CayenneLPP packet to analyze
+/// @return Next free channel number (starts at 200 if no channels used yet)
+/// @note This method parses the LPP buffer to find the highest channel number in use,
+///       then returns the next available channel. Used by queryBoardTelemetry() to
+///       append board-specific telemetry without channel conflicts.
+uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
+  uint8_t max_channel = 0;
+  uint8_t cursor = 0;
+  uint8_t* buffer = lpp.getBuffer();
+  uint8_t size = lpp.getSize();
+
+  while (cursor < size) {
+    if (cursor + 1 >= size) break;
+
+    uint8_t channel = buffer[cursor];
+    if (channel > max_channel) max_channel = channel;
+
+    uint8_t type = buffer[cursor + 1];
+    uint8_t data_len = 0;
+
+    switch (type) {
+    case LPP_DIGITAL_INPUT:
+    case LPP_DIGITAL_OUTPUT:
+    case LPP_PRESENCE:
+    case LPP_RELATIVE_HUMIDITY:
+    case LPP_PERCENTAGE:
+    case LPP_SWITCH:
+      data_len = 1;
+      break;
+
+    case LPP_ANALOG_INPUT:
+    case LPP_ANALOG_OUTPUT:
+    case LPP_LUMINOSITY:
+    case LPP_TEMPERATURE:
+    case LPP_BAROMETRIC_PRESSURE:
+    case LPP_VOLTAGE:
+    case LPP_CURRENT:
+    case LPP_ALTITUDE:
+    case LPP_POWER:
+    case LPP_DIRECTION:
+    case LPP_CONCENTRATION:
+      data_len = 2;
+      break;
+
+    case LPP_COLOUR:
+      data_len = 3;
+      break;
+
+    case LPP_FREQUENCY:
+    case LPP_DISTANCE:
+    case LPP_ENERGY:
+    case LPP_UNIXTIME:
+      data_len = 4;
+      break;
+
+    case LPP_ACCELEROMETER:
+    case LPP_GYROMETER:
+      data_len = 6;
+      break;
+
+    case LPP_GPS:
+      data_len = 9;
+      break;
+
+    default:
+      return (max_channel < 200) ? 200 : max_channel + 1;
+    }
+
+    cursor += (2 + data_len);
+  }
+
+  return max_channel + 1;
+}

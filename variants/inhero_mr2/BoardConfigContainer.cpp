@@ -122,116 +122,6 @@ void BoardConfigContainer::disableWatchdog() {
   #endif
 }
 
-BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromCommandString(const char* cmdStr) {
-  for (const auto& entry : bat_map) {
-    if (entry.command_string == nullptr) break;
-    if (strcmp(entry.command_string, cmdStr) == 0) {
-      return entry.type;
-    }
-  }
-  return BatteryType::BAT_UNKNOWN;
-}
-
-char* BoardConfigContainer::trim(char* str) {
-  char* end;
-
-  while (isspace((unsigned char)*str))
-    str++;
-
-  if (*str == 0) {
-    return str;
-  }
-
-  end = str + strlen(str) - 1;
-
-  while (end > str && isspace((unsigned char)*end))
-    end--;
-
-  *(end + 1) = 0;
-
-  return str;
-}
-
-const char* BoardConfigContainer::getBatteryTypeCommandString(BatteryType type) {
-  for (const auto& entry : bat_map) {
-    if (entry.command_string == nullptr) break;
-    if (entry.type == type) {
-      return entry.command_string;
-    }
-  }
-  return "unknown";
-}
-
-const char* BoardConfigContainer::getFrostChargeBehaviourCommandString(FrostChargeBehaviour type) {
-  for (const auto& entry : frostchargebehaviour_map) {
-    if (entry.command_string == nullptr) break;
-    if (entry.type == type) {
-      return entry.command_string;
-    }
-  }
-  return "unknown";
-}
-
-BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeBehaviourFromCommandString(const char* cmdStr) {
-  for (const auto& entry : frostchargebehaviour_map) {
-    if (entry.command_string == nullptr) break;
-    if (strcmp(entry.command_string, cmdStr) == 0) {
-      return entry.type;
-    }
-  }
-  return FrostChargeBehaviour::REDUCE_UNKNOWN;
-}
-
-const char* BoardConfigContainer::getAvailableFrostChargeBehaviourOptions() {
-  static char buffer[64];
-
-  if (buffer[0] != '\0') return buffer;
-
-  buffer[0] = '\0';
-
-  for (const auto& entry : frostchargebehaviour_map) {
-    if (entry.command_string == nullptr) break;
-
-    size_t space_needed = strlen(buffer) + 1 + strlen(entry.command_string) + 1;
-
-    if (space_needed >= sizeof(buffer)) {
-      break;
-    }
-
-    if (buffer[0] != '\0') {
-      strcat(buffer, "|");
-    }
-    strcat(buffer, entry.command_string);
-  }
-
-  return buffer;
-}
-
-const char* BoardConfigContainer::getAvailableBatOptions() {
-  static char buffer[64];
-
-  if (buffer[0] != '\0') return buffer;
-
-  buffer[0] = '\0';
-
-  for (const auto& entry : bat_map) {
-    if (entry.command_string == nullptr) break;
-
-    size_t space_needed = strlen(buffer) + 1 + strlen(entry.command_string) + 1;
-
-    if (space_needed >= sizeof(buffer)) {
-      break;
-    }
-
-    if (buffer[0] != '\0') {
-      strcat(buffer, "|");
-    }
-    strcat(buffer, entry.command_string);
-  }
-
-  return buffer;
-}
-
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
 /// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source properly.
 ///          This function forces input qualification by toggling HIZ mode to reset the input detection.
@@ -2331,4 +2221,123 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
     
     vTaskDelay(pdMS_TO_TICKS(checkInterval_ms));
   }
+}
+
+// ===== Helper Functions =====
+
+/// @brief Trim whitespace from string
+char* BoardConfigContainer::trim(char* str) {
+  char* end;
+
+  while (isspace((unsigned char)*str))
+    str++;
+
+  if (*str == 0) {
+    return str;
+  }
+
+  end = str + strlen(str) - 1;
+
+  while (end > str && isspace((unsigned char)*end))
+    end--;
+
+  *(end + 1) = 0;
+
+  return str;
+}
+
+/// @brief Convert command string to battery type enum
+BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromCommandString(const char* cmdStr) {
+  for (const auto& entry : bat_map) {
+    if (entry.command_string == nullptr) break;
+    if (strcmp(entry.command_string, cmdStr) == 0) {
+      return entry.type;
+    }
+  }
+  return BatteryType::BAT_UNKNOWN;
+}
+
+/// @brief Convert battery type enum to command string
+const char* BoardConfigContainer::getBatteryTypeCommandString(BatteryType type) {
+  for (const auto& entry : bat_map) {
+    if (entry.command_string == nullptr) break;
+    if (entry.type == type) {
+      return entry.command_string;
+    }
+  }
+  return "unknown";
+}
+
+/// @brief Convert frost charge behaviour enum to command string
+const char* BoardConfigContainer::getFrostChargeBehaviourCommandString(FrostChargeBehaviour type) {
+  for (const auto& entry : frostchargebehaviour_map) {
+    if (entry.command_string == nullptr) break;
+    if (entry.type == type) {
+      return entry.command_string;
+    }
+  }
+  return "unknown";
+}
+
+/// @brief Convert command string to frost charge behaviour enum
+BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeBehaviourFromCommandString(const char* cmdStr) {
+  for (const auto& entry : frostchargebehaviour_map) {
+    if (entry.command_string == nullptr) break;
+    if (strcmp(entry.command_string, cmdStr) == 0) {
+      return entry.type;
+    }
+  }
+  return FrostChargeBehaviour::REDUCE_UNKNOWN;
+}
+
+/// @brief Get available frost charge behaviour option strings
+const char* BoardConfigContainer::getAvailableFrostChargeBehaviourOptions() {
+  static char buffer[64];
+
+  if (buffer[0] != '\0') return buffer;
+
+  buffer[0] = '\0';
+
+  for (const auto& entry : frostchargebehaviour_map) {
+    if (entry.command_string == nullptr) break;
+
+    size_t space_needed = strlen(buffer) + 1 + strlen(entry.command_string) + 1;
+
+    if (space_needed >= sizeof(buffer)) {
+      break;
+    }
+
+    if (buffer[0] != '\0') {
+      strcat(buffer, "|");
+    }
+    strcat(buffer, entry.command_string);
+  }
+
+  return buffer;
+}
+
+/// @brief Get available battery type option strings
+const char* BoardConfigContainer::getAvailableBatOptions() {
+  static char buffer[64];
+
+  if (buffer[0] != '\0') return buffer;
+
+  buffer[0] = '\0';
+
+  for (const auto& entry : bat_map) {
+    if (entry.command_string == nullptr) break;
+
+    size_t space_needed = strlen(buffer) + 1 + strlen(entry.command_string) + 1;
+
+    if (space_needed >= sizeof(buffer)) {
+      break;
+    }
+
+    if (buffer[0] != '\0') {
+      strcat(buffer, "|");
+    }
+    strcat(buffer, entry.command_string);
+  }
+
+  return buffer;
 }
