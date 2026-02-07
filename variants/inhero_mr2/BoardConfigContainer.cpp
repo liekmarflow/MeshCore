@@ -67,6 +67,16 @@ BatterySOCStats BoardConfigContainer::socStats = {};
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
+// Battery voltage hardware cutoff thresholds (in millivolts) - INA228 Alert/UVLO
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 4000;      // 4.0V - LTO 2S absolute minimum (INA228 Alert → TPS62840 EN)
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2800;  // 2.8V - LiFePO4 1S absolute minimum (INA228 Alert → TPS62840 EN)
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3200;    // 3.2V - Li-Ion 1S absolute minimum (INA228 Alert → TPS62840 EN)
+
+// Battery voltage critical thresholds (in millivolts) - Danger zone boundary, 0% SOC, software shutdown
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LTO_2S = 4200;      // 4.2V - LTO 2S 0% SOC (200mV hysteresis above UVLO)
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S = 2900;  // 2.9V - LiFePO4 1S 0% SOC (100mV hysteresis above UVLO)
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIION_1S = 3400;    // 3.4V - Li-Ion 1S 0% SOC (200mV hysteresis above UVLO)
+
 // Watchdog state
 static bool wdt_enabled = false;
 
@@ -905,14 +915,14 @@ bool BoardConfigContainer::begin() {
       uint16_t uvlo_mv = 0;
       switch (bat) {
         case BatteryType::LTO_2S:
-          uvlo_mv = 4000;  // 4.0V
+          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;
           break;
         case BatteryType::LIFEPO4_1S:
-          uvlo_mv = 2800;  // 2.8V
+          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;
           break;
         case BatteryType::LIION_1S:
         default:
-          uvlo_mv = 3200;  // 3.2V
+          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;
           break;
       }
       
@@ -1656,7 +1666,7 @@ float BoardConfigContainer::getLearningAccumulatedMah() const {
 void BoardConfigContainer::startReverseLearning() {
   // Method 2: Start reverse learning (0% → 100%)
   // Called by InheroMr2Board::begin() when device wakes from LOW_VOLTAGE shutdown
-  // and voltage is above wake_threshold (= exited danger zone = 0% SOC)
+  // and voltage is above critical_threshold (= exited danger zone = 0% SOC)
   // Only auto-start if capacity not already learned (user can force via CLI "relearn")
   
   if (!socStats.reverse_learning_active && !socStats.capacity_learned) {
@@ -1796,32 +1806,19 @@ Ina228Driver* BoardConfigContainer::getIna228Driver() {
 }
 
 /// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
+/// @details This is the danger zone boundary and 0% SOC point. Below this: danger zone (no TX, RTC wake).
+///          Above this: normal operation. Hysteresis above UVLO prevents motorboating.
 /// @param type Battery chemistry type
-/// @return Threshold in millivolts (200mV before hardware cutoff for safe shutdown)
+/// @return Threshold in millivolts - Danger zone boundary (100-200mV above hardware UVLO)
 uint16_t BoardConfigContainer::getVoltageCriticalThreshold(BatteryType type) {
   switch (type) {
     case BatteryType::LTO_2S:
-      return 4200;  // 4.2V "Dangerzone" (200mV before 4.0V hardware cutoff)
+      return VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;
     case BatteryType::LIFEPO4_1S:
-      return 2900;  // 2.9V "Dangerzone" (100mV before 2.8V hardware cutoff)
+      return VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;
     case BatteryType::LIION_1S:
     default:
-      return 3400;  // 3.4V "Dangerzone" (200mV before 3.2V hardware cutoff)
-  }
-}
-
-/// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
-/// @param type Battery chemistry type
-/// @return Threshold in millivolts (higher than critical to avoid bounce)
-uint16_t BoardConfigContainer::getVoltageWakeThreshold(BatteryType type) {
-  switch (type) {
-    case BatteryType::LTO_2S:
-      return 4400;  // 4.4V - normal operation voltage
-    case BatteryType::LIFEPO4_1S:
-      return 3000;  // 3.0V - normal operation voltage
-    case BatteryType::LIION_1S:
-    default:
-      return 3600;  // 3.6V - normal operation voltage
+      return VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;
   }
 }
 
@@ -1831,12 +1828,12 @@ uint16_t BoardConfigContainer::getVoltageWakeThreshold(BatteryType type) {
 uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
   switch (type) {
     case BatteryType::LTO_2S:
-      return 4000;  // 4.0V - absolute minimum for LTO
+      return VOLTAGE_HARDWARE_CUTOFF_LTO_2S;
     case BatteryType::LIFEPO4_1S:
-      return 2800;  // 2.8V - absolute minimum for LiFePO4
+      return VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;
     case BatteryType::LIION_1S:
     default:
-      return 3200;  // 3.2V - absolute minimum for Li-Ion
+      return VOLTAGE_HARDWARE_CUTOFF_LIION_1S;
   }
 }
 
@@ -1956,9 +1953,9 @@ void BoardConfigContainer::updateBatterySOC() {
   // - Much faster than Method 1 (hours vs weeks)
   // - USB-C charging provides stable conditions (no solar fluctuations)
   // - Boot consumption negligible (30s × 5mA ≈ 0.04mAh vs 10000mAh)
-  // - Precise 0% starting point (wake_threshold after leaving danger zone)
+  // - Precise 0% starting point (critical_threshold = exited danger zone = 0% SOC)
   //
-  // Trigger: InheroMr2Board::begin() detects LOW_VOLTAGE wake with voltage > wake_threshold
+  // Trigger: InheroMr2Board::begin() detects LOW_VOLTAGE wake with voltage >= critical_threshold
   // This is called via startReverseLearning() from begin()
   
   // State 1: Accumulate charge during reverse learning

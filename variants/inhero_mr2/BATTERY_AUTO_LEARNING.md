@@ -77,9 +77,9 @@ if (learning_active && vbat_mv <= danger_threshold) {
 ```cpp
 // Start-Bedingung (in InheroMr2Board::begin)
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE && 
-    vbat_mv >= wake_threshold) {
+    vbat_mv >= critical_threshold) {
   
-  MESH_DEBUG_PRINTLN("Voltage recovered, starting reverse learning");
+  MESH_DEBUG_PRINTLN("Voltage recovered to 0%% SOC, starting reverse learning");
   boardConfig.startReverseLearning();
 }
 
@@ -241,10 +241,10 @@ set board.batcap 10000
 - **Learning-Overhead:** ~100µA (INA228 Coulomb Counter)
 
 ### Voltage Thresholds (Beispiel: Li-Ion 1S)
-- **Hardware Cutoff:** 3.2V (INA228 Alert → TPS62840 EN)
-- **Software Danger Zone:** 3.4V (initiateShutdown)
-- **Wake Threshold:** 3.6V (Resume operation)
-- **Full Charge:** 4.2V (CHARGE_DONE)
+- **Hardware UVLO:** 3.2V (INA228 Alert → TPS62840 EN, absolute cutoff)
+- **Critical Threshold:** 3.4V (0% SOC, danger zone boundary, software shutdown)
+- **Hysteresis:** 200mV (prevents motorboating between UVLO and Critical)
+- **Full Charge:** 4.2V (CHARGE_DONE, 100% SOC)
 
 ### Filesystem Layout
 ```

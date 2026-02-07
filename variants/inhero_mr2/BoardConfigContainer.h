@@ -233,9 +233,8 @@ public:
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
   
   // Voltage threshold helpers (chemistry-specific)
-  static uint16_t getVoltageCriticalThreshold(BatteryType type);  ///< Get danger zone threshold
-  static uint16_t getVoltageWakeThreshold(BatteryType type);      ///< Get wake-up threshold
-  static uint16_t getVoltageHardwareCutoff(BatteryType type);     ///< Get hardware UVLO threshold
+  static uint16_t getVoltageCriticalThreshold(BatteryType type);  ///< Get danger zone threshold (0% SOC)
+  static uint16_t getVoltageHardwareCutoff(BatteryType type);     ///< Get hardware UVLO threshold (INA228 Alert)
   
   // Watchdog methods
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)

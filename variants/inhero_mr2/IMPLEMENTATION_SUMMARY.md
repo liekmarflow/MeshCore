@@ -47,25 +47,24 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 | Spannung (Li-Ion) | Zustand | Intervall | Aktion |
 |-------------------|---------|-----------|--------|
-| > 3.6V | NORMAL | 60s | Coulomb Counter + Daily Balance |
-| 3.5-3.6V | WARNING | 30s | Load shedding vorbereitet |
-| 3.4-3.5V | CRITICAL | 10s | Minimalbetrieb |
-| < 3.4V | DANGERZONE | Sofort | `initiateShutdown()` |
+| ≥ 3.4V | NORMAL | 60s | Coulomb Counter + Daily Balance |
+| 3.35-3.4V | WARNING | 30s | Load shedding vorbereitet |
+| < 3.35V | CRITICAL | 10s | Minimalbetrieb, shutdown imminent |
+| < 3.4V (sustained) | DANGERZONE | Sofort | `initiateShutdown()` |
 
 **Hinweis:** Die exakte Implementierung der adaptiven Intervalle befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
 
-### Chemie-spezifische Schwellen
+### Chemie-spezifische Schwellen (2-Level System)
 
-| Chemie | HW UVLO | SW Dangerzone | Wake Threshold |
-|--------|---------|---------------|----------------|
-| **Li-Ion 1S** | 3.2V | 3.4V (-200mV) | 3.6V (+200mV) |
-| **LiFePO4 1S** | 2.8V | 2.9V (-100mV) | 3.0V (+100mV) |
-| **LTO 2S** | 4.0V | 4.2V (-200mV) | 4.4V (+200mV) |
+| Chemie | HW UVLO (Alert) | Critical (0% SOC) | Hysterese |
+|--------|-----------------|-------------------|----------|
+| **Li-Ion 1S** | 3.2V | 3.4V | +200mV |
+| **LiFePO4 1S** | 2.8V | 2.9V | +100mV |
+| **LTO 2S** | 4.0V | 4.2V | +200mV |
 
 **Implementierung**: `BoardConfigContainer.cpp` - Statische Methoden
-- `getVoltageCriticalThreshold()` - Software Dangerzone
-- `getVoltageHardwareCutoff()` - INA228 UVLO Alert  
-- `getVoltageWakeThreshold()` - Recovery mit Hysterese
+- `getVoltageCriticalThreshold()` - Danger zone boundary, 0% SOC, software shutdown trigger
+- `getVoltageHardwareCutoff()` - INA228 UVLO Alert threshold (hardware protection)
 
 **Wrapper in InheroMr2Board.cpp**: Zeile 647-665
 - Ruft BoardConfigContainer-Methoden auf mit aktueller Batterie-Chemie
@@ -409,19 +408,21 @@ Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung fü
 ```cpp
 // InheroMr2Board::begin() prüft Spannung bei Wake-up
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-  if (vbat_mv < wake_threshold) {
+  if (vbat_mv < critical_threshold) {
     configureRTCWake(1);  // 1 Stunde
     sd_power_system_off();
   }
+  // Voltage recovered - resume at 0% SOC
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+  boardConfig.startReverseLearning();  // Start at 0% SOC
 }
 ```
 
 **Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2 = 0x00`, voltage still low)
 ```cpp
 // Prüft auch bei Cold Boot die Spannung
-else if (vbat_mv < wake_threshold) {
-  MESH_DEBUG_PRINTLN("ColdBoot with low voltage - likely Hardware-UVLO");
+else if (vbat_mv < critical_threshold) {
+  MESH_DEBUG_PRINTLN("ColdBoot in danger zone - likely Hardware-UVLO");
   configureRTCWake(1);
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
   sd_power_system_off();
@@ -449,20 +450,20 @@ uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 
 **Wichtiger Hinweis:** Der MR-2 nutzt dieselbe BQ25798-Integration wie der MR-1, daher ist der Spannungsmessungs-Code identisch.
 
-**Voltage Thresholds** (Chemistry-Specific):
-| Chemistry | Hardware Cutoff | Software Danger | Wake Threshold | Hysteresis |
-|-----------|----------------|-----------------|----------------|------------|
-| Li-Ion 1S | 3200mV (INA228 Alert) | 3400mV | 3600mV | 400mV |
-| LiFePO4 1S | 2800mV (INA228 Alert) | 2900mV | 3000mV | 200mV |
-| LTO 2S | 4000mV (INA228 Alert) | 4200mV | 4400mV | 400mV |
+**Voltage Thresholds** (Chemistry-Specific, 2-Level System):
+| Chemistry | Hardware UVLO (Alert) | Critical (0% SOC) | Hysteresis |
+|-----------|-----------------------|-------------------|------------|
+| Li-Ion 1S | 3200mV (INA228 Alert) | 3400mV | 200mV |
+| LiFePO4 1S | 2800mV (INA228 Alert) | 2900mV | 100mV |
+| LTO 2S | 4000mV (INA228 Alert) | 4200mV | 200mV |
 
 **Motorboating-Prevention-Flow**:
 1. Hardware UVLO @ 3.2V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
 2. Solar lädt auf 3.25V → TPS62840 EN=HIGH (50mV Hysterese)
 3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
-4. **Early Boot Check** → `vbat=3250mV < wake_threshold=3600mV` ✅ DETECTED
+4. **Early Boot Check** → `vbat=3250mV < critical_threshold=3400mV` ✅ DETECTED
 5. **Action** → `configureRTCWake(1)` + `GPREGRET2 = LOW_VOLTAGE` + SYSTEMOFF
-6. **Result** → Kein Motorboating! System schläft bis 3.6V erreicht
+6. **Result** → Kein Motorboating! System schläft bis Critical (3.4V) erreicht
 
 **Stromverbrauch während SYSTEMOFF**:
 - nRF52840: 1-5µA
@@ -501,9 +502,9 @@ ina228.enableAlert(true, false, true);  // UVLO only, active-high
 - VBAT > UVLO → ALERT=HIGH → TPS62840 EN=HIGH → RAK powered
 
 **Schutzschichten**:
-1. Software Dangerzone (3.4V Li-Ion) → Controlled shutdown
-2. Hardware UVLO (3.2V Li-Ion) → Emergency cutoff
-3. Hysterese beim Wake-up (3.6V Li-Ion) → Verhindert Bounce
+1. Software Critical (3.4V Li-Ion / 0% SOC) → Controlled shutdown, danger zone boundary
+2. Hardware UVLO (3.2V Li-Ion) → Emergency cutoff via INA228 Alert
+3. Hysterese (200mV) → Verhindert Motorboating zwischen UVLO und Critical
 
 ---
 
@@ -595,9 +596,8 @@ set board.life <0|1>    # Enable/disable reduced charge voltage
 | `configureRTCWake()` | InheroMr2Board.cpp | 704-737 | RTC Countdown Timer |
 | `rtcInterruptHandler()` | InheroMr2Board.cpp | 739-761 | RTC INT Flag Clear (Read-Modify-Write) |
 | `queryBoardTelemetry()` | InheroMr2Board.cpp | 129-159 | CayenneLPP Telemetry Collection |
-| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | 647-650 | Chemistry-specific Critical Voltage |
-| `getVoltageWakeThreshold()` | InheroMr2Board.cpp | 653-656 | Chemistry-specific Wake Voltage |
-| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | 659-662 | Chemistry-specific UVLO Voltage |
+| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | 570-574 | Chemistry-specific Critical Voltage (0% SOC) |
+| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | 577-580 | Chemistry-specific UVLO Voltage (INA228 Alert) |
 | `voltageMonitorTask()` | BoardConfigContainer.cpp | ~1100+ | Adaptive Voltage Monitoring |
 | `updateBatterySOC()` | BoardConfigContainer.cpp | ~1400+ | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | ~1500+ | 7-Day Energy Balance Tracking |
@@ -685,21 +685,22 @@ t=+2.5h:  VBAT = 3.39V → Software Dangerzone (< 3.4V)
           - SYSTEMOFF (2-6µA total)
           
 t=+3.5h:  RTC weckt auf
-          - VBAT = 3.35V (noch unter 3.6V)
+          - VBAT = 3.35V (noch unter Critical 3.4V)
           - INA228 wakeup
           - Check voltage
           - Zurück zu SYSTEMOFF (1h)
           
 t=+4.5h:  RTC weckt auf
-          - VBAT = 3.38V (noch unter 3.6V)
+          - VBAT = 3.38V (noch unter Critical 3.4V)
           - Zurück zu SYSTEMOFF (1h)
           
 t=+5.5h:  Sonne kommt → VBAT = 3.85V
           (Aber: Noch kein RTC-Wake, RAK schläft)
           
 t=+6.5h:  RTC weckt auf
-          - VBAT = 4.05V (OK, über 3.6V)
-          - Normal weiter ✅
+          - VBAT = 4.05V (OK, über Critical 3.4V)
+          - Normal weiter bei 0% SOC ✅
+          - Reverse Learning startet
           - Coulomb Counter resumes
           - Daily balance continues
 ```
@@ -804,7 +805,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - Verify INA228 enters shutdown mode
 - Verify RTC wake after 1h
 - Verify voltage recovery check
-- Verify resume at 3.6V+
+- Verify resume at Critical (3.4V+) and 0% SOC initialization
 
 ### Phase 7: Daily Balance (TODO)
 - Run 3 days with varying solar

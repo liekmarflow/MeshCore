@@ -95,26 +95,26 @@ void InheroMr2Board::begin() {
       MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
       // Continue boot if we can't read voltage (better than blocking)
     } else {
-      uint16_t wake_threshold = getVoltageWakeThreshold();
-      uint16_t danger_threshold = getVoltageCriticalThreshold();
+      uint16_t critical_threshold = getVoltageCriticalThreshold();
+      uint16_t uvlo_threshold = getVoltageHardwareCutoff();
       
-      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Danger=%dmV, Wake=%dmV, Reason=0x%02X", 
-                         vbat_mv, danger_threshold, wake_threshold, shutdown_reason);
+      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Critical=%dmV (0%% SOC), UVLO=%dmV, Reason=0x%02X", 
+                         vbat_mv, critical_threshold, uvlo_threshold, shutdown_reason);
       
       // Case 1: Waking from Software-SHUTDOWN (GPREGRET2 set, RTC wake-up)
       if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
         MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
         
-        if (vbat_mv < wake_threshold) {
-          MESH_DEBUG_PRINTLN("Voltage still below wake threshold (%dmV), going back to sleep for 1h", wake_threshold);
+        if (vbat_mv < critical_threshold) {
+          MESH_DEBUG_PRINTLN("Voltage still in danger zone (%dmV < %dmV), going back to sleep for 1h", vbat_mv, critical_threshold);
           delay(100);  // Let debug output complete
           configureRTCWake(1);  // Wake up in 1 hour
           sd_power_system_off();
           // Never returns
         }
         
-        // Voltage recovered above wake threshold - THIS IS 0% SOC!
-        MESH_DEBUG_PRINTLN("Voltage recovered, resuming normal operation");
+        // Voltage recovered above critical threshold - THIS IS 0% SOC!
+        MESH_DEBUG_PRINTLN("Voltage recovered to %dmV, resuming normal operation at 0%% SOC", vbat_mv);
         NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
         
         // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
@@ -124,9 +124,9 @@ void InheroMr2Board::begin() {
       }
       // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
       // This is the critical case to prevent motorboating!
-      else if (vbat_mv < wake_threshold) {
-        MESH_DEBUG_PRINTLN("ColdBoot with low voltage detected (%dmV < %dmV)", vbat_mv, wake_threshold);
-        MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery - voltage not stable yet");
+      else if (vbat_mv < critical_threshold) {
+        MESH_DEBUG_PRINTLN("ColdBoot in danger zone detected (%dmV < %dmV)", vbat_mv, critical_threshold);
+        MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery at %dmV - voltage not stable yet", uvlo_threshold);
         MESH_DEBUG_PRINTLN("Going to sleep for 1h to avoid motorboating");
         
         delay(100);  // Let debug output complete
@@ -142,7 +142,7 @@ void InheroMr2Board::begin() {
       }
       // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
       else {
-        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, wake_threshold);
+        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, critical_threshold);
       }
     }
   
@@ -567,17 +567,10 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
 // ===== Power Management Methods (v0.2) =====
 
 /// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
-/// @return Threshold in millivolts (200mV before hardware cutoff for safe shutdown)
+/// @return Threshold in millivolts - Danger zone boundary and 0% SOC point
 uint16_t InheroMr2Board::getVoltageCriticalThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
   return BoardConfigContainer::getVoltageCriticalThreshold(chemType);
-}
-
-/// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
-/// @return Threshold in millivolts (higher than critical to avoid bounce)
-uint16_t InheroMr2Board::getVoltageWakeThreshold() {
-  BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  return BoardConfigContainer::getVoltageWakeThreshold(chemType);
 }
 
 /// @brief Get hardware UVLO voltage cutoff (chemistry-specific)

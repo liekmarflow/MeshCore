@@ -86,12 +86,8 @@ public:
   void configureRTCWake(uint32_t hours);
   
   /// @brief Get voltage threshold for critical shutdown (chemistry-specific)
-  /// @return Threshold in millivolts
+  /// @return Threshold in millivolts - Danger zone boundary and 0% SOC point
   uint16_t getVoltageCriticalThreshold();
-  
-  /// @brief Get voltage threshold for wake-up with hysteresis (chemistry-specific)
-  /// @return Threshold in millivolts (typically critical + 100-200mV)
-  uint16_t getVoltageWakeThreshold();
   
   /// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
   /// @return Hardware cutoff voltage in millivolts

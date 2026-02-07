@@ -24,15 +24,16 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 
 ## Power Management Features (v0.2)
 
-### 3-Layer Protection System
-1. **Software Voltage Monitoring** - Adaptive task (10s/30s/60s intervals)
-2. **RTC Wake-up Management** - Periodic recovery checks during SYSTEMOFF
-3. **Hardware UVLO** - INA228 Alert → TPS62840 EN
+### 2-Level Protection System
+1. **Software Voltage Monitoring** - Adaptive task (10s/30s/60s intervals), monitors for critical threshold
+2. **Hardware UVLO** - INA228 Alert → TPS62840 EN (absolute protection at hardware level)
+
+**Hysteresis Management:** RTC wake-up checks voltage during danger zone (between UVLO and Critical)
 
 ### Voltage Thresholds (Li-Ion 1S)
-- **Hardware Cutoff:** 3.2V (INA228 Alert)
-- **Software Dangerzone:** 3.4V (initiateShutdown)
-- **Wake Threshold:** 3.6V (Resume operation)
+- **Hardware Cutoff (UVLO):** 3.2V (INA228 Alert → TPS62840 EN)
+- **Critical Threshold (0% SOC):** 3.4V (Danger zone boundary, software shutdown)
+- **Hysteresis:** 200mV prevents motorboating
 
 ### Coulomb Counter & Auto-Learning 🆕
 - **Real-time SOC tracking** via INA228 (±0.1% accuracy)
@@ -254,9 +255,9 @@ board.learning
 **Nachteil:** Benötigt USB-C Ladung
 
 **Wie es funktioniert:**
-1. Batterie erreicht Danger Zone → Software Shutdown
+1. Batterie erreicht Danger Zone (< 3.4V) → Software Shutdown
 2. RTC weckt Gerät nach 1 Stunde → Spannung geprüft
-3. Spannung über Wake Threshold → Reverse Learning startet (0% SOC)
+3. Spannung über Critical Threshold (≥ 3.4V) → Reverse Learning startet bei 0% SOC
 4. Benutzer steckt USB-C ein → BQ25798 lädt Batterie
 5. Bei CHARGE_DONE: Gelernte Kapazität = Akkumulierte mAh
 
