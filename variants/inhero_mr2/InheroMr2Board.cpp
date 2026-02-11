@@ -346,7 +346,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float precise_current_ma = 0.0f;
     Ina228Driver* ina = boardConfig.getIna228Driver();
     if (ina != nullptr) {
-      precise_current_ma = (float)ina->readCurrent_mA();
+      precise_current_ma = ina->readCurrent_mA_precise();
     } else {
       precise_current_ma = (float)telemetry->batterie.current;
     }

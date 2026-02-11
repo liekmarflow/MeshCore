@@ -109,6 +109,11 @@ public:
   /// @return Current in milliamps (+ = charging, - = discharging)
   int16_t readCurrent_mA();
 
+  /// @brief Read battery current with full precision
+  /// @return Current in milliamps with decimal precision (+ = charging, - = discharging)
+  /// @note Returns float for high-precision measurements (±1 LSB ≈ 1.91 µA)
+  float readCurrent_mA_precise();
+
   /// @brief Read battery power
   /// @return Power in milliwatts
   int32_t readPower_mW();

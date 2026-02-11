@@ -138,6 +138,17 @@ int16_t Ina228Driver::readCurrent_mA() {
   return (int16_t)(current_a * 1000.0f);  // Convert to mA
 }
 
+float Ina228Driver::readCurrent_mA_precise() {
+  int32_t current_raw = readRegister24(INA228_REG_CURRENT);
+  // INA228 CURRENT: 20-bit ADC left-aligned in 24-bit register
+  // Must right-shift by 4 bits to get actual 20-bit value
+  current_raw >>= 4;
+  // Current = raw × CURRENT_LSB
+  // Calibration is applied via SHUNT_CAL register (hardware calibration)
+  float current_a = current_raw * _current_lsb;
+  return current_a * 1000.0f;  // Convert to mA with full precision
+}
+
 void Ina228Driver::shutdown() {
   // Set operating mode to Shutdown (MODE = 0x0)
   // This disables all conversions and Coulomb Counter
