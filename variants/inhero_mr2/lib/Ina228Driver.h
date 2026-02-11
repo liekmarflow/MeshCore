@@ -152,7 +152,7 @@ public:
   /// @param enable_uvlo Enable under-voltage alert
   /// @param enable_ovlo Enable over-voltage alert
   /// @param active_high True for active-high, false for active-low
-  void enableAlert(bool enable_uvlo = true, bool enable_ovlo = false, bool active_high = true);
+  void enableAlert(bool enable_uvlo = true, bool active_high = false, bool latch_alert = false);
 
   /// @brief Check if alert condition is active
   /// @return true if alert flag is set

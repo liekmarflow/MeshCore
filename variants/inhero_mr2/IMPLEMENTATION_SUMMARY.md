@@ -45,22 +45,29 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ### Monitoring-Intervalle
 
-| Spannung (Li-Ion) | Zustand | Intervall | Aktion |
-|-------------------|---------|-----------|--------|
-| ≥ 3.4V | NORMAL | 60s | Coulomb Counter + Daily Balance |
-| 3.35-3.4V | WARNING | 30s | Load shedding vorbereitet |
-| < 3.35V | CRITICAL | 10s | Minimalbetrieb, shutdown imminent |
-| < 3.4V (sustained) | DANGERZONE | Sofort | `initiateShutdown()` |
+**Two-Stage Strategy (Power-Optimized):**
 
-**Hinweis:** Die exakte Implementierung der adaptiven Intervalle befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
+| System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
+|--------------|------------------|----------|----------------|----------|
+| **Running (Normal)** | ≥ 3.4V | **1 hour** | ~1µAh | System already awake, INA228 I²C read minimal cost |
+| **SYSTEMOFF (Danger Zone)** | < 3.4V | **12 hours** | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
+
+**Key Insight:** Normal mode checks are essentially free (system running anyway), but Danger Zone wake-ups cost significant energy due to full boot sequence. 12h interval in Danger Zone maximizes battery preservation.
+
+**Active System Sub-Intervals** (when voltage drops while running):
+- WARNING (3.35-3.4V): 30s checks
+- CRITICAL (< 3.35V): 10s checks
+- **Action at < 3.4V**: `initiateShutdown()` → SYSTEMOFF + RTC timer 12h
+
+**Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
 
 ### Chemie-spezifische Schwellen (2-Level System)
 
-| Chemie | HW UVLO (Alert) | Critical (0% SOC) | Hysterese |
-|--------|-----------------|-------------------|----------|
-| **Li-Ion 1S** | 3.2V | 3.4V | +200mV |
-| **LiFePO4 1S** | 2.8V | 2.9V | +100mV |
-| **LTO 2S** | 4.0V | 4.2V | +200mV |
+| Chemie | HW UVLO (Alert) | Critical (0% SOC) | Hysterese | ADC Averaging |
+|--------|-----------------|-------------------|----------|---------------|
+| **Li-Ion 1S** | 3.1V | 3.4V | +300mV | 64 samples (TX peak filtering) |
+| **LiFePO4 1S** | 2.7V | 2.9V | +200mV | 64 samples (TX peak filtering) |
+| **LTO 2S** | 3.9V | 4.2V | +300mV | 64 samples (TX peak filtering) |
 
 **Implementierung**: `BoardConfigContainer.cpp` - Statische Methoden
 - `getVoltageCriticalThreshold()` - Danger zone boundary, 0% SOC, software shutdown trigger
@@ -79,13 +86,14 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
   - 20mΩ Shunt-Kalibrierung
   - CURRENT_LSB = 1A / 524288 ≈ 1.91µA
   - ADC Range ±40.96mV (optimal für 1A @ 20mΩ)
+  - **ADC Averaging**: 64 samples (filters TX voltage peaks, prevents false UVLO)
   - Chemie-spezifischer UVLO-Alert setzen
 
 ### SOC-Berechnung
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: voltageMonitorTask() ruft auf (10s/30s/60s)
+- **Update-Intervall**: voltageMonitorTask() ruft auf (1h normal, 12h Danger Zone SYSTEMOFF wake)
 
 **Formel**:
 ```
@@ -335,7 +343,8 @@ Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h
 **Methode**: `configureRTCWake()` in `InheroMr2Board.cpp` Zeile 704-737
 - **Tick Rate**: 1Hz (1 Sekunde pro Tick)
 - **Max Countdown**: 65535 Sekunden ≈ 18.2 Stunden
-- **Standard-Intervall**: 1 Stunde (3600 Ticks)
+- **Danger Zone Interval**: 12 Stunden (43200 Ticks)
+- **Rationale**: Each wake costs ~50-150mAh (full boot), long interval maximizes battery life
 
 **Register**:
 ```cpp
@@ -379,7 +388,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
    if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
      // TODO: Explicit filesystem sync when LittleFS is integrated
      delay(100);  // Allow I/O to complete
-     configureRTCWake(1);  // 1 Stunde
+     configureRTCWake(12);  // 12 Stunden (43200 Sekunden)
    }
    ```
    
@@ -409,7 +418,7 @@ Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung fü
 // InheroMr2Board::begin() prüft Spannung bei Wake-up
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
   if (vbat_mv < critical_threshold) {
-    configureRTCWake(1);  // 1 Stunde
+    configureRTCWake(12);  // 12 Stunden (minimize boot cost)
     sd_power_system_off();
   }
   // Voltage recovered - resume at 0% SOC
@@ -423,7 +432,7 @@ if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
 // Prüft auch bei Cold Boot die Spannung
 else if (vbat_mv < critical_threshold) {
   MESH_DEBUG_PRINTLN("ColdBoot in danger zone - likely Hardware-UVLO");
-  configureRTCWake(1);
+  configureRTCWake(12);  // 12h (minimize repeated boot attempts)
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
   sd_power_system_off();
 }
@@ -451,19 +460,19 @@ uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 **Wichtiger Hinweis:** Der MR-2 nutzt dieselbe BQ25798-Integration wie der MR-1, daher ist der Spannungsmessungs-Code identisch.
 
 **Voltage Thresholds** (Chemistry-Specific, 2-Level System):
-| Chemistry | Hardware UVLO (Alert) | Critical (0% SOC) | Hysteresis |
-|-----------|-----------------------|-------------------|------------|
-| Li-Ion 1S | 3200mV (INA228 Alert) | 3400mV | 200mV |
-| LiFePO4 1S | 2800mV (INA228 Alert) | 2900mV | 100mV |
-| LTO 2S | 4000mV (INA228 Alert) | 4200mV | 200mV |
+| Chemistry | Hardware UVLO (Alert) | Critical (0% SOC) | Hysteresis | ADC Filter |
+|-----------|-----------------------|-------------------|------------|------------|
+| Li-Ion 1S | 3100mV (INA228 Alert) | 3400mV | 300mV | 64-sample avg (TX peaks) |
+| LiFePO4 1S | 2700mV (INA228 Alert) | 2900mV | 200mV | 64-sample avg (TX peaks) |
+| LTO 2S | 3900mV (INA228 Alert) | 4200mV | 300mV | 64-sample avg (TX peaks) |
 
-**Motorboating-Prevention-Flow**:
-1. Hardware UVLO @ 3.2V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
-2. Solar lädt auf 3.25V → TPS62840 EN=HIGH (50mV Hysterese)
+**Motorboating-Prevention-Flow** (Li-Ion example):
+1. Hardware UVLO @ 3.1V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
+2. Solar lädt auf 3.15V → TPS62840 EN=HIGH (50mV Hysterese)
 3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
-4. **Early Boot Check** → `vbat=3250mV < critical_threshold=3400mV` ✅ DETECTED
-5. **Action** → `configureRTCWake(1)` + `GPREGRET2 = LOW_VOLTAGE` + SYSTEMOFF
-6. **Result** → Kein Motorboating! System schläft bis Critical (3.4V) erreicht
+4. **Early Boot Check** → `vbat=3150mV < critical_threshold=3400mV` ✅ DETECTED
+5. **Action** → `configureRTCWake(12)` + `GPREGRET2 = LOW_VOLTAGE` + SYSTEMOFF
+6. **Result** → Kein Motorboating! System schläft bis Critical (3.4V) erreicht (250mV margin)
 
 **Stromverbrauch während SYSTEMOFF**:
 - nRF52840: 1-5µA
@@ -480,12 +489,12 @@ uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 **Alert-Pin Verdrahtung**: INA228.ALERT → TPS62840.EN (direkt)
 **Config**: `BoardConfigContainer::begin()` Zeile 614-620
 
-**Schwellenwerte**:
+**Schwellenwerte** (with safety margins below software Critical thresholds):
 ```cpp
 switch (batteryType) {
-  case LTO_2S:      uvlo_mv = 4000; break;  // 4.0V
-  case LIFEPO4_1S:  uvlo_mv = 2800; break;  // 2.8V
-  case LIION_1S:    uvlo_mv = 3200; break;  // 3.2V (default)
+  case LTO_2S:      uvlo_mv = 3900; break;  // 3.9V (300mV margin)
+  case LIFEPO4_1S:  uvlo_mv = 2700; break;  // 2.7V (200mV margin)
+  case LIION_1S:    uvlo_mv = 3100; break;  // 3.1V (300mV margin, default)
 }
 
 ina228.setUnderVoltageAlert(uvlo_mv);
@@ -501,10 +510,11 @@ ina228.enableAlert(true, false, true);  // UVLO only, active-high
 - VBAT < UVLO → ALERT=LOW → TPS62840 EN=LOW → RAK stromlos (0µA)
 - VBAT > UVLO → ALERT=HIGH → TPS62840 EN=HIGH → RAK powered
 
-**Schutzschichten**:
-1. Software Critical (3.4V Li-Ion / 0% SOC) → Controlled shutdown, danger zone boundary
-2. Hardware UVLO (3.2V Li-Ion) → Emergency cutoff via INA228 Alert
-3. Hysterese (200mV) → Verhindert Motorboating zwischen UVLO und Critical
+**Schutzschichten** (Li-Ion example):
+1. Software Critical (3.4V / 0% SOC) → Controlled shutdown, danger zone boundary
+2. Hardware UVLO (3.1V) → Emergency cutoff via INA228 Alert
+3. Hysterese (300mV) → Verhindert Motorboating zwischen UVLO und Critical
+4. ADC Filter (64-sample avg) → Filtert TX-Peaks (~100ms), verhindert false triggers
 
 ---
 
@@ -626,7 +636,7 @@ void Ina228Driver::shutdown() {
 void Ina228Driver::wakeup() {
   // Re-enable continuous measurement mode
   uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all
-                        (INA228_ADC_AVG_16 << 0);             // 16 samples average
+                        (INA228_ADC_AVG_64 << 0);             // 64 samples average (TX peak filtering)
   writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
 }
 ```
@@ -681,23 +691,23 @@ t=+2h:    VBAT = 3.45V → Critical (10s checks)
 t=+2.5h:  VBAT = 3.39V → Software Dangerzone (< 3.4V)
           - INA228 shutdown mode
           - Filesystem sync
-          - RTC: Wake in 1h
+          - RTC: Wake in 12h (43200s)
           - SYSTEMOFF (2-6µA total)
           
-t=+3.5h:  RTC weckt auf
-          - VBAT = 3.35V (noch unter Critical 3.4V)
+t=+14.5h: RTC weckt auf (first check after 12h)
+          - VBAT = 3.25V (noch unter Critical 3.4V)
           - INA228 wakeup
           - Check voltage
-          - Zurück zu SYSTEMOFF (1h)
+          - Zurück zu SYSTEMOFF (12h)
           
-t=+4.5h:  RTC weckt auf
-          - VBAT = 3.38V (noch unter Critical 3.4V)
-          - Zurück zu SYSTEMOFF (1h)
+t=+26.5h: RTC weckt auf (second check)
+          - VBAT = 3.20V (noch unter Critical 3.4V)
+          - Zurück zu SYSTEMOFF (12h)
           
-t=+5.5h:  Sonne kommt → VBAT = 3.85V
+t=+32h:   Sonne kommt → VBAT = 3.85V
           (Aber: Noch kein RTC-Wake, RAK schläft)
           
-t=+6.5h:  RTC weckt auf
+t=+38.5h: RTC weckt auf (third check, battery recovered)
           - VBAT = 4.05V (OK, über Critical 3.4V)
           - Normal weiter bei 0% SOC ✅
           - Reverse Learning startet
@@ -711,15 +721,15 @@ t=0:      VBAT = 3.35V → Software Dangerzone
           - INA228 shutdown
           - SYSTEMOFF
           
-t=+30min: VBAT = 3.15V (weiter gesunken im Sleep!)
-          → INA228 ALERT LOW (< 3.2V UVLO)
+t=+30min: VBAT = 3.05V (weiter gesunken im Sleep!)
+          → INA228 ALERT LOW (< 3.1V UVLO)
           → TPS62840 EN = LOW
           → RAK komplett stromlos (0µA)
           → RTC läuft weiter
           → INA228 in Shutdown (1µA)
           
 t=+6h:    Solar lädt → VBAT = 3.65V
-          → INA228 ALERT HIGH (> 3.2V)
+          → INA228 ALERT HIGH (> 3.1V + 50mV hysteresis)
           → TPS62840 EN = HIGH
           → Hardware-Boot (Cold boot)
           → begin() checkt GPREGRET2

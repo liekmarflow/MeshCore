@@ -25,10 +25,11 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   // Resetting causes timing issues where subsequent writes fail
   // Just reconfigure registers directly
   
-  // Configure ADC: Continuous mode, all channels, 16 samples averaging
+  // Configure ADC: Continuous mode, all channels, 64 samples averaging
+  // AVG_64 filters TX voltage peaks (prevents false UVLO triggers during transmit)
   uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all = 0xF
-                        (INA228_ADC_AVG_16 << 0);             // 16 samples avg = 0x2
-  // Expected: 0xF002
+                        (INA228_ADC_AVG_64 << 0);             // 64 samples avg = 0x3
+  // Expected: 0xF003
   
   // Write ADC_CONFIG with retry and verify
   // Sometimes the first write after readVBATDirect() fails
@@ -159,7 +160,7 @@ void Ina228Driver::shutdown() {
 void Ina228Driver::wakeup() {
   // Re-enable continuous measurement mode
   uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all
-                        (INA228_ADC_AVG_16 << 0);             // 16 samples average
+                        (INA228_ADC_AVG_64 << 0);             // 64 samples average (TX peak filtering)
   writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
 }
 
@@ -279,36 +280,28 @@ void Ina228Driver::resetCoulombCounter() {
 }
 
 bool Ina228Driver::setUnderVoltageAlert(uint16_t voltage_mv) {
-  // BUVL = voltage / 195.3125 µV
-  float voltage_v = voltage_mv / 1000.0f;
-  uint16_t buvl_value = (uint16_t)(voltage_v / 195.3125e-6);
+  // BUVL register: 3.125 mV/LSB (per datasheet Table 7-20)
+  // Example: 2800mV / 3.125 mV = 896
+  uint16_t buvl_value = (uint16_t)(voltage_mv / 3.125f);
   return writeRegister16(INA228_REG_BUVL, buvl_value);
 }
 
-bool Ina228Driver::setOverVoltageAlert(uint16_t voltage_mv) {
-  // BOVL = voltage / 195.3125 µV
-  float voltage_v = voltage_mv / 1000.0f;
-  uint16_t bovl_value = (uint16_t)(voltage_v / 195.3125e-6);
-  return writeRegister16(INA228_REG_BOVL, bovl_value);
-}
-
-void Ina228Driver::enableAlert(bool enable_uvlo, bool enable_ovlo, bool active_high) {
+void Ina228Driver::enableAlert(bool enable_uvlo, bool active_high, bool latch_alert) {
   uint16_t diag_alrt = 0;
 
   if (enable_uvlo) {
     diag_alrt |= INA228_DIAG_ALRT_BUSUL;  // Enable bus under-voltage alert
   }
 
-  if (enable_ovlo) {
-    diag_alrt |= INA228_DIAG_ALRT_BUSOL;  // Enable bus over-voltage alert
-  }
-
   if (active_high) {
     diag_alrt |= INA228_DIAG_ALRT_APOL;   // Active-high polarity
   }
 
-  // Enable alert latch (must be cleared manually)
-  diag_alrt |= INA228_DIAG_ALRT_ALATCH;
+  if (latch_alert) {
+    // Latch mode: Alert stays active until DIAG_ALRT register is read
+    diag_alrt |= INA228_DIAG_ALRT_ALATCH;
+  }
+  // else: Transparent mode (default) - Alert auto-clears when condition is resolved
 
   writeRegister16(INA228_REG_DIAG_ALRT, diag_alrt);
 }

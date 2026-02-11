@@ -25,15 +25,17 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 ## Power Management Features (v0.2)
 
 ### 2-Level Protection System
-1. **Software Voltage Monitoring** - Adaptive task (10s/30s/60s intervals), monitors for critical threshold
+1. **Software Voltage Monitoring** - Two-stage strategy:
+   - **Normal Mode**: 1 hour checks (system running, minimal cost)
+   - **Danger Zone**: 12 hour RTC wake-ups (SYSTEMOFF, expensive boot)
 2. **Hardware UVLO** - INA228 Alert → TPS62840 EN (absolute protection at hardware level)
 
-**Hysteresis Management:** RTC wake-up checks voltage during danger zone (between UVLO and Critical)
+**Key Insight:** Normal checks cost ~1µAh (INA228 I²C read), Danger Zone wake costs ~50-150mAh (full system boot). Strategy optimizes for maximum battery life.
 
 ### Voltage Thresholds (Li-Ion 1S)
-- **Hardware Cutoff (UVLO):** 3.2V (INA228 Alert → TPS62840 EN)
+- **Hardware Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-sample averaging filters TX peaks)
 - **Critical Threshold (0% SOC):** 3.4V (Danger zone boundary, software shutdown)
-- **Hysteresis:** 200mV prevents motorboating
+- **Hysteresis:** 300mV prevents motorboating and provides safety margin for voltage dips
 
 ### Coulomb Counter & Auto-Learning 🆕
 - **Real-time SOC tracking** via INA228 (±0.1% accuracy)

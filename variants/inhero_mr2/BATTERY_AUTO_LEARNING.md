@@ -241,9 +241,10 @@ set board.batcap 10000
 - **Learning-Overhead:** ~100µA (INA228 Coulomb Counter)
 
 ### Voltage Thresholds (Beispiel: Li-Ion 1S)
-- **Hardware UVLO:** 3.2V (INA228 Alert → TPS62840 EN, absolute cutoff)
-- **Critical Threshold:** 3.4V (0% SOC, danger zone boundary, software shutdown)
-- **Hysteresis:** 200mV (prevents motorboating between UVLO and Critical)
+- **Hardware UVLO:** 3.1V (INA228 Alert → TPS62840 EN, absolute cutoff)
+- **Critical Threshold:** 3.4V (0% SOC, danger zone boundary, software shutdown)  
+- **Hysteresis:** 300mV (prevents motorboating, provides margin for TX voltage dips)
+- **ADC Averaging:** 64 samples (filters ~100ms TX peaks, prevents false UVLO triggers)
 - **Full Charge:** 4.2V (CHARGE_DONE, 100% SOC)
 
 ### Filesystem Layout

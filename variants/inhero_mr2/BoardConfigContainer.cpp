@@ -70,14 +70,21 @@ bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
 // Battery voltage hardware cutoff thresholds (in millivolts) - INA228 Alert/UVLO
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 4000;      // 4.0V - LTO 2S absolute minimum (INA228 Alert → TPS62840 EN)
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2800;  // 2.8V - LiFePO4 1S absolute minimum (INA228 Alert → TPS62840 EN)
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3200;    // 3.2V - Li-Ion 1S absolute minimum (INA228 Alert → TPS62840 EN)
+// SAFETY FEATURE: Latched alert for catastrophic battery protection
+// Set below software Danger Zone (200-300mV margin) but not so low to risk battery damage
+// CRITICAL: INA228 powered by battery, NOT by 3.3V rail!
+//   → Latched alert CANNOT be cleared by software (INA stays powered)
+//   → Recovery requires PHYSICAL battery disconnect to reset INA228 registers
+//   → Or complete battery voltage collapse (INA loses power)
+// This is intentional: Forces battery replacement/external charging for extreme deep discharge
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 3900;      // 3.9V - LTO 2S (300mV below software 4.2V)
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2700;  // 2.7V - LiFePO4 1S (200mV below software 2.9V)
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3100;    // 3.1V - Li-Ion 1S (300mV below software 3.4V)
 
 // Battery voltage critical thresholds (in millivolts) - Danger zone boundary, 0% SOC, software shutdown
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LTO_2S = 4200;      // 4.2V - LTO 2S 0% SOC (200mV hysteresis above UVLO)
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S = 2900;  // 2.9V - LiFePO4 1S 0% SOC (100mV hysteresis above UVLO)
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIION_1S = 3400;    // 3.4V - Li-Ion 1S 0% SOC (200mV hysteresis above UVLO)
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LTO_2S = 4200;      // 4.2V - LTO 2S 0% SOC
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S = 2900;  // 2.9V - LiFePO4 1S 0% SOC
+static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIION_1S = 3400;    // 3.4V - Li-Ion 1S 0% SOC
 
 // Watchdog state
 static bool wdt_enabled = false;
@@ -965,25 +972,16 @@ bool BoardConfigContainer::begin() {
         bat = DEFAULT_BATTERY_TYPE;
       }
       
-      // Set hardware UVLO threshold based on chemistry
-      uint16_t uvlo_mv = 0;
-      switch (bat) {
-        case BatteryType::LTO_2S:
-          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;
-          break;
-        case BatteryType::LIFEPO4_1S:
-          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;
-          break;
-        case BatteryType::LIION_1S:
-        default:
-          uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;
-          break;
-      }
-      
+      // INA228 UVLO Alert: ENABLED in LATCH mode (safety feature)
+      // Purpose: Catastrophic battery protection - permanent shutdown if battery critically low
+      // NOTE: Set to LOWEST threshold (2700mV) during boot as safe default
+      //       Will be updated to chemistry-specific value later via setBatteryType() after filesystem loads
+      // Latch mode: Alert stays LOW permanently (INA228 powered by battery, not 3.3V rail)
+      // Recovery: Requires PHYSICAL battery disconnect to reset INA228 registers
+      uint16_t uvlo_mv = 2700;  // Safe default = lowest threshold (LiFePO4)
       ina228.setUnderVoltageAlert(uvlo_mv);
-      ina228.enableAlert(true, false, true);  // UVLO only, active-high
-      MESH_DEBUG_PRINTLN("INA228 UVLO threshold: %dmV", uvlo_mv);
-      delay(10);
+      ina228.enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
+      MESH_DEBUG_PRINTLN("INA228 UVLO: %dmV (Alert active-LOW, LATCHED - will update after FS loads)", uvlo_mv);
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
       INA228_INITIALIZED = false;
@@ -1506,6 +1504,31 @@ float BoardConfigContainer::getMaxChargeVoltage() const {
 bool BoardConfigContainer::setBatteryType(BatteryType type, bool reducedChargeVoltage) {
   bool bqBaseConfigured = this->configureBaseBQ();
   bool bqConfigured = this->configureChemistry(type, reducedChargeVoltage);
+  
+  // === CRITICAL: Update INA228 UVLO threshold when battery type changes ===
+  if (ina228DriverInstance) {
+    uint16_t uvlo_mv = 0;
+    switch (type) {
+      case BatteryType::LTO_2S:
+        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;      // 3900mV
+        break;
+      case BatteryType::LIFEPO4_1S:
+        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;  // 2700mV
+        break;
+      case BatteryType::LIION_1S:
+      default:
+        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;    // 3100mV
+        break;
+    }
+    
+    
+    // INA228 UVLO Alert: Update threshold for new battery chemistry
+    ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
+    ina228DriverInstance->enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
+    MESH_DEBUG_PRINTLN("INA228 UVLO updated to %dmV for battery type %d (LATCHED)", uvlo_mv, (int)type);
+    delay(10);
+  }
+  
   // MR2 (v0.2) doesn't use MCP4652
   return bqBaseConfigured && bqConfigured;
 }
@@ -2314,11 +2337,11 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   MESH_DEBUG_PRINTLN("PWRMGT: Waiting 10s for system stabilization before initial check");
   delay(10000);
   
-  // Two-stage monitoring:
-  // - Above Critical: Check every 6 hours (large batteries, slow discharge)
-  // - In Danger Zone: Check every 1 hour (critical region, frequent checks)
-  // TEST MODE: Using 1 minute intervals for lab testing
-  uint32_t checkInterval_ms = 60000;  // 1 minute for testing (normally 6 hours)
+  // Two-stage monitoring optimized for power efficiency:
+  // - Normal Mode: Check every 1 hour (system running, minimal cost)
+  // - Danger Zone: Check every 12 hours (SYSTEMOFF wake = expensive boot, minimize frequency)
+  const uint32_t NORMAL_CHECK_INTERVAL_MS = 1UL * 60UL * 60UL * 1000UL;  // 1 hour
+  const uint32_t DANGER_CHECK_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;  // 12 hours
   
   while (true) {
     // Update SOC from Coulomb Counter
@@ -2453,11 +2476,13 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
         Wire.write(0x00);  // Clear TF flag (bit 3) and all others
         rtc_result3 = Wire.endTransmission();
         
-        // Step 2: Set Timer Value (60 seconds)
+        // Step 2: Set Timer Value (43200 seconds = 12 hours for production)
+        // RTC wakes system every 12 hours to check voltage in Danger Zone
+        // Long interval because each wake = expensive boot process (~50-150mAh)
         Wire.beginTransmission(0x52);
-        Wire.write(0x0A);  // CORRECT: Timer Value 0 register (NOT 0x09!)
-        Wire.write(60 & 0xFF);  // Lower 8 bits (60 = 0x3C)
-        Wire.write((60 >> 8) & 0x0F);  // Upper 4 bits (0)
+        Wire.write(0x0A);  // Timer Value 0 register
+        Wire.write(43200 & 0xFF);  // Lower 8 bits (43200 = 0xA8C0)
+        Wire.write((43200 >> 8) & 0x0F);  // Upper 4 bits (0xA8)
         rtc_result4 = Wire.endTransmission();
         
         // Step 3: Configure and Start Timer
@@ -2551,6 +2576,8 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
     }
   }
     
+    // Dynamic interval: Use shorter checks in Danger Zone for safety
+    uint32_t checkInterval_ms = in_danger_zone ? DANGER_CHECK_INTERVAL_MS : NORMAL_CHECK_INTERVAL_MS;
     vTaskDelay(pdMS_TO_TICKS(checkInterval_ms));
   }
 }
