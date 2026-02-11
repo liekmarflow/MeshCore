@@ -70,13 +70,26 @@ void InheroMr2Board::begin() {
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware v0.2 (INA228 + RTC)");
   
   // Initialize board configuration (BQ25798, INA228, etc.)
+  // Note: voltageMonitorTask will check Danger Zone within 10s after boot
   boardConfig.begin();
   
   // === v0.2 hardware initialization ===
   MESH_DEBUG_PRINTLN("Initializing v0.2 features (RTC, INA228 alerts)");
     
-    // Configure RTC INT pin for wake-up from SYSTEMOFF
+    // === CRITICAL: Configure RTC INT pin for wake-up from SYSTEMOFF ===
+    // attachInterrupt() alone is NOT sufficient for SYSTEMOFF wake-up!
+    // We MUST configure the pin with SENSE for nRF52 SYSTEMOFF wake capability
     pinMode(RTC_INT_PIN, INPUT_PULLUP);
+    
+    // Configure GPIO SENSE for wake-up from SYSTEM OFF mode
+    // This is essential - without SENSE configuration, SYSTEMOFF wake-up will not work
+    NRF_GPIO->PIN_CNF[RTC_INT_PIN] = 
+      (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+      (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
+      (GPIO_PIN_CNF_PULL_Pullup << GPIO_PIN_CNF_PULL_Pos) |
+      (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+      (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);  // Wake on LOW (RTC interrupt is active-low)
+    
     attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
     
     // === CRITICAL: Early Boot Voltage Check ===
@@ -84,7 +97,7 @@ void InheroMr2Board::begin() {
     // When INA228 Alert cuts power via TPS62840 EN, RAK loses all RAM (GPREGRET2=0x00)
     // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN
     
-    uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
+    uint8_t shutdown_reason = NRF_POWER->GPREGRET2;  // Read full register for Early Boot check
     
     // === High-Precision INA228 voltage measurement (24-bit ADC, ±0.1% accuracy) ===
     // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
@@ -114,20 +127,41 @@ void InheroMr2Board::begin() {
       MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Critical=%dmV (0%% SOC), UVLO=%dmV, Reason=0x%02X", 
                          vbat_mv, critical_threshold, uvlo_threshold, shutdown_reason);
       
-      // Case 1: Waking from Software-SHUTDOWN (GPREGRET2 set, RTC wake-up)
-      if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
+      // Case 1: Waking from Software-SHUTDOWN (mask out upper bits, only check SHUTDOWN_REASON)
+      if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
         MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
         
+        // Visual indication: 3x fast blue blink to show RTC wake-up
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_BLUE, HIGH);
+          delay(150);
+          digitalWrite(LED_BLUE, LOW);
+          delay(150);
+        }
+        
         if (vbat_mv < critical_threshold) {
-          MESH_DEBUG_PRINTLN("Voltage still in danger zone (%dmV < %dmV), going back to sleep for 1h", vbat_mv, critical_threshold);
-          delay(100);  // Let debug output complete
-          configureRTCWake(1);  // Wake up in 1 hour
+          MESH_DEBUG_PRINTLN("Voltage still in danger zone (%dmV < %dmV)", vbat_mv, critical_threshold);
+          MESH_DEBUG_PRINTLN("Will enter low-power mode after boot completes");
+          delay(100);
+          
+          // Do NOT send sleep command here - RadioLib not yet initialized!
+          // The voltageMonitorTask will handle sleep after full system init
+          // Just preserve the flags and continue boot
+          
+          // CRITICAL: Preserve GPREGRET2_IN_DANGER_ZONE flag!
+          // Only clear lower bits (SHUTDOWN_REASON) for clean state
+          NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
+          
+          // Configure RTC to wake in 1 minute, then shutdown
+          // voltageMonitorTask will send sleep command on next boot after init completes
+          configureRTCWake(1);
           sd_power_system_off();
           // Never returns
         }
         
         // Voltage recovered above critical threshold - THIS IS 0% SOC!
         MESH_DEBUG_PRINTLN("Voltage recovered to %dmV, resuming normal operation at 0%% SOC", vbat_mv);
+        // Clear ALL flags including Danger Zone - we're exiting!
         NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
         
         // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
@@ -135,20 +169,23 @@ void InheroMr2Board::begin() {
         // User will plug in USB-C, we accumulate all charged mAh to 100%
         boardConfig.startReverseLearning();
       }
-      // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2=0x00, TPS62840 was disabled by INA228)
+      // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2 may have Danger Zone flag from previous session)
       // This is the critical case to prevent motorboating!
       else if (vbat_mv < critical_threshold) {
         MESH_DEBUG_PRINTLN("ColdBoot in danger zone detected (%dmV < %dmV)", vbat_mv, critical_threshold);
         MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery at %dmV - voltage not stable yet", uvlo_threshold);
-        MESH_DEBUG_PRINTLN("Going to sleep for 1h to avoid motorboating");
+        MESH_DEBUG_PRINTLN("Going to sleep for 1min to avoid motorboating");
         
-        delay(100);  // Let debug output complete
+        delay(100);
+        
+        // Do NOT send sleep command here - would cause race condition with bootup
+        // voltageMonitorTask will handle sleep after full system initialization
         
         // Configure RTC wake-up before shutdown
-        configureRTCWake(1);  // Wake up in 1 hour
+        configureRTCWake(1);  // Wake up in 1 minute (TEST MODE)
         
-        // Store reason for next boot (this time GPREGRET2 will be valid after RTC wake)
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
+        // Store reason AND set Danger Zone flag (this was ColdBoot, no flag set yet)
+        NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
         
         sd_power_system_off();
         // Never returns
@@ -167,9 +204,8 @@ void InheroMr2Board::begin() {
   // Blue LED was used for boot sequence visualization
   // Red LED indicates missing components (if blinking)
 
-  pinMode(SX126X_POWER_EN, OUTPUT);
-  digitalWrite(SX126X_POWER_EN, HIGH);
-  delay(10); // give sx1262 some time to power up
+  // Danger Zone status was already checked earlier in begin()
+  // SX1262 sleep state is now managed synchronously on boot before RadioLib init
   
   // Start hardware watchdog (600s timeout)
   // Must be last - after all initializations are complete
@@ -798,57 +834,71 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
 /// @param hours Wake-up interval in hours (typically 1 = hourly checks)
+/// @note TEST MODE: Using 1 minute (60 seconds) for lab testing
 void InheroMr2Board::configureRTCWake(uint32_t hours) {
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %d hours", hours);
+  // TEST MODE: Override to 1 minute instead of hours
+  uint16_t countdown = 60;  // 1 minute for testing (normally: hours * 3600)
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 1 minute (TEST MODE)");
   
-  // Calculate countdown value
-  // Using 1Hz tick rate: countdown = hours * 3600 seconds
-  // Max countdown = 65535 seconds ≈ 18.2 hours
-  uint16_t countdown = (hours > 18) ? 65535 : (hours * 3600);
-  
-  // Write countdown value (LSB first, then MSB)
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_COUNTDOWN_LSB);
-  Wire.write(countdown & 0xFF);        // LSB
-  Wire.write((countdown >> 8) & 0xFF); // MSB
-  Wire.endTransmission();
-  
-  // Enable countdown timer (TE bit in CTRL1)
+  // === RTC Timer Configuration per Manual Section 4.8.2 ===
+  // Step 1: Stop Timer and clear flags
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x01);  // TE (Timer Enable) bit
+  Wire.write(0x00);  // TE=0, TD=00 (stop timer)
   Wire.endTransmission();
   
-  // Enable countdown interrupt (TIE bit in CTRL2)
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_CTRL2);
-  Wire.write(0x80);  // TIE (Timer Interrupt Enable) bit
+  Wire.write(0x00);  // TIE=0 (disable interrupt)
   Wire.endTransmission();
   
-  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%d ticks)", countdown);
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_REG_STATUS);
+  Wire.write(0x00);  // Clear TF flag
+  Wire.endTransmission();
+  
+  // Step 2: Set Timer Value (60 seconds)
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_REG_TIMER_VALUE_0);
+  Wire.write(countdown & 0xFF);        // Lower 8 bits
+  Wire.write((countdown >> 8) & 0x0F); // Upper 4 bits
+  Wire.endTransmission();
+  
+  // Step 3: Configure Timer (1 Hz clock, Single shot mode)
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_REG_CTRL1);
+  Wire.write(0x06);  // TE=1 (Enable), TD=10 (1 Hz), TRPT=0 (Single shot)
+  Wire.endTransmission();
+  
+  // Step 4: Enable Timer Interrupt
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_REG_CTRL2);
+  Wire.write(0x10);  // TIE=1 (Timer Interrupt Enable, bit 4)
+  Wire.endTransmission();
+  
+  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%d seconds at 1 Hz)", countdown);
 }
 
 /// @brief RTC interrupt handler - called when countdown timer expires (v0.2)
 void InheroMr2Board::rtcInterruptHandler() {
   // RTC countdown elapsed - device woke from SYSTEMOFF
-  // Clear Timer Flag (TF) bit to release INT pin
+  // Clear Timer Flag (TF) bit in STATUS register to release INT pin
   
-  // Read current CTRL2 register
   Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL2);
+  Wire.write(RV3028_REG_STATUS);
   Wire.endTransmission(false);
   Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
   
   if (Wire.available()) {
-    uint8_t ctrl2 = Wire.read();
+    uint8_t status = Wire.read();
     
     // Clear TF bit (bit 3) by writing 0 to it
-    ctrl2 &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
+    status &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
     
     // Write back to clear the flag and release INT pin
     Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(RV3028_REG_CTRL2);
-    Wire.write(ctrl2);
+    Wire.write(RV3028_REG_STATUS);
+    Wire.write(status);
     Wire.endTransmission();
   }
   

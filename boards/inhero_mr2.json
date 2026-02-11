@@ -60,8 +60,7 @@
     "protocols": [
       "jlink",
       "nrfjprog",
-      "nrfutil",
-      "stlink"
+      "nrfutil"
     ],
     "use_1200bps_touch": true,
     "require_upload_port": true,

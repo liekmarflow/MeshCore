@@ -256,7 +256,7 @@ private:
   
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
-  bool leds_enabled = true;  // Heartbeat and BQ stat LED control
+  static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
 
   bool setBatteryType(BatteryType type, bool reducedChargeVoltage);
 

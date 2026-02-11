@@ -56,17 +56,21 @@
 #define INA228_I2C_ADDR          0x40  // INA228 I2C address (A0=GND, A1=GND)
 // Note: INA228 ALERT pin controls TPS62840 EN directly (hardware UVLO), not connected to RAK4630
 
-// RV-3028-C7 RTC Register Addresses
-#define RV3028_REG_CTRL1         0x00  // Control 1 (TE bit)
-#define RV3028_REG_CTRL2         0x01  // Control 2 (TIE, TF bits)
-#define RV3028_REG_COUNTDOWN_LSB 0x09  // Countdown Timer LSB
-#define RV3028_REG_COUNTDOWN_MSB 0x0A  // Countdown Timer MSB
+// RV-3028-C7 RTC Register Addresses (Per Application Manual Section 3.2)
+#define RV3028_REG_STATUS        0x0E  // Status register (TF flag at bit 3)
+#define RV3028_REG_CTRL1         0x0F  // Control 1 (TE at bit 2, TD at bits 1:0)
+#define RV3028_REG_CTRL2         0x10  // Control 2 (TIE at bit 4)
+#define RV3028_REG_TIMER_VALUE_0 0x0A  // Timer Value 0 (lower 8 bits)
+#define RV3028_REG_TIMER_VALUE_1 0x0B  // Timer Value 1 (upper 4 bits)
 
-// Shutdown reason codes (stored in GPREGRET2)
+// Shutdown reason codes (stored in GPREGRET2 bits [1:0])
 #define SHUTDOWN_REASON_NONE          0x00
 #define SHUTDOWN_REASON_LOW_VOLTAGE   0x01
 #define SHUTDOWN_REASON_USER_REQUEST  0x02
 #define SHUTDOWN_REASON_THERMAL       0x03
+
+// Power management state flags (stored in GPREGRET2 bits [7:2])
+#define GPREGRET2_IN_DANGER_ZONE      0x04  // Bit 2: In Danger Zone (SX1262 disabled)
 
 class InheroMr2Board : public NRF52BoardDCDC {
 public:

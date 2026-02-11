@@ -33,6 +33,7 @@
 #include <task.h>
 #include <MeshCore.h>
 #include <nrf_wdt.h>
+#include <nrf_soc.h>  // For sd_power_system_off() and NRF_POWER
 
 // Forward declaration - rtc_clock is defined in target.cpp
 // Use base class to avoid including AutoDiscoverRTCClock header
@@ -63,6 +64,7 @@ TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::voltageMonitorTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
+bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -313,12 +315,16 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
       }
     }
     
-    digitalWrite(LED_BLUE, LOW);
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, LOW);
+    }
   }
 }
 
 void BoardConfigContainer::onBqInterrupt() {
-  digitalWrite(LED_BLUE, HIGH);
+  if (leds_enabled) {
+    digitalWrite(LED_BLUE, HIGH);
+  }
 
   if (solarEventSem == NULL) return; // Safety check
   
@@ -358,6 +364,13 @@ void BoardConfigContainer::stopBackgroundTasks() {
     vTaskDelete(heartbeatTaskHandle);
     heartbeatTaskHandle = NULL;
     MESH_DEBUG_PRINTLN("Heartbeat task stopped");
+  }
+  
+  // Delete voltage monitor task if running (v0.2)
+  if (voltageMonitorTaskHandle != NULL) {
+    vTaskDelete(voltageMonitorTaskHandle);
+    voltageMonitorTaskHandle = NULL;
+    MESH_DEBUG_PRINTLN("Voltage monitor task stopped");
   }
   
   // Clean up semaphore
@@ -2277,35 +2290,35 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
     prefs_bat.end();
   }
   
-  // Get chemistry-specific thresholds
+  // Get chemistry-specific critical threshold (Danger Zone boundary)
   uint16_t critical_mv;
-  uint16_t warning_mv;
-  uint16_t normal_mv;
   
   switch (battType) {
     case BatteryType::LTO_2S:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;      // 4200mV
-      warning_mv = critical_mv + 200;                        // 4400mV
-      normal_mv = 4600;                                      // 4600mV
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;      // 4200mV (0% SOC)
       break;
     case BatteryType::LIFEPO4_1S:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;  // 2900mV
-      warning_mv = critical_mv + 100;                        // 3000mV
-      normal_mv = 3200;                                      // 3200mV
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;  // 2900mV (0% SOC)
       break;
     case BatteryType::LIION_1S:
     default:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;    // 3400mV
-      warning_mv = critical_mv + 100;                        // 3500mV
-      normal_mv = 3600;                                      // 3600mV
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;    // 3400mV (0% SOC)
       break;
   }
   
-  MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV, Warning=%dmV, Normal=%dmV", 
-                     critical_mv, warning_mv, normal_mv);
+  MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
   
-  // Adaptive monitoring intervals
-  uint32_t checkInterval_ms = 60000;  // Start with 60s
+  // === CRITICAL: Initial voltage check within 30s after boot ===
+  // This handles BOTH first Danger Zone entry AND RTC wakes (after soft reset)
+  // Wait 10s for system to fully stabilize (RadioLib init, mesh init, etc.)
+  MESH_DEBUG_PRINTLN("PWRMGT: Waiting 10s for system stabilization before initial check");
+  delay(10000);
+  
+  // Two-stage monitoring:
+  // - Above Critical: Check every 6 hours (large batteries, slow discharge)
+  // - In Danger Zone: Check every 1 hour (critical region, frequent checks)
+  // TEST MODE: Using 1 minute intervals for lab testing
+  uint32_t checkInterval_ms = 60000;  // 1 minute for testing (normally 6 hours)
   
   while (true) {
     // Update SOC from Coulomb Counter
@@ -2320,26 +2333,223 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
       vbat_mv = ina228DriverInstance->readVoltage_mV();
     }
     
+    // Check if we're currently in Danger Zone (SX1262 disabled)
+    bool in_danger_zone = (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) != 0;
+    
+    // DEBUG: Show voltage check
+    MESH_DEBUG_PRINTLN("PWRMGT: Voltage check - VBAT=%dmV, Critical=%dmV, DangerZone=%d, GPREGRET2=0x%02X", 
+                       vbat_mv, critical_mv, in_danger_zone, NRF_POWER->GPREGRET2);
+    
     // Check voltage thresholds
     if (vbat_mv > 0) {
       if (vbat_mv < critical_mv) {
-        // Critical - initiate shutdown
-        MESH_DEBUG_PRINTLN("PWRMGT: Critical voltage %dmV - shutting down", vbat_mv);
+        // Below Critical threshold (0% SOC) - initiate shutdown
+        MESH_DEBUG_PRINTLN("PWRMGT: Danger Zone breach - voltage %dmV < %dmV - shutting down", vbat_mv, critical_mv);
         
-        // TODO: Call initiateShutdown from InheroMr2Board
-        // For now, just log
-        checkInterval_ms = 10000;  // 10s
-      } else if (vbat_mv < warning_mv) {
-        // Warning - check more frequently
-        checkInterval_ms = 10000;  // 10s
-      } else if (vbat_mv < normal_mv) {
-        // Near warning - moderate frequency
-        checkInterval_ms = 30000;  // 30s
+        if (!in_danger_zone) {
+          // First time entering Danger Zone - put SX1262 into Deep Sleep
+          // LED indication: Single LONG red (1 second) = Entering SX1262 Sleep Mode
+          digitalWrite(LED_RED, HIGH);
+          delay(1000);
+          digitalWrite(LED_RED, LOW);
+          delay(200);
+          
+          // === SX1262 Deep Sleep via SPI (no RadioLib needed) ===
+          // Command: 0x84 (SetSleep), Config: 0x00 (Cold start, lowest power ~1µA)
+          // Note: RAK4630 has no hardware power switch - P1.05 is antenna switch only!
+          
+          // Wait for BUSY to be LOW (SX1262 ready to accept command)
+          uint32_t busy_start = millis();
+          while (digitalRead(46) == HIGH && (millis() - busy_start) < 100) {
+            delayMicroseconds(10);
+          }
+          
+          SPI.begin();
+          pinMode(42, OUTPUT);  // P_LORA_NSS (SPI CS)
+          digitalWrite(42, LOW);
+          delayMicroseconds(10);
+          SPI.transfer(0x84);  // SetSleep command
+          SPI.transfer(0x00);  // Sleep config: Cold start, RTC disabled
+          delayMicroseconds(10);
+          digitalWrite(42, HIGH);
+          delay(10);  // Give SX1262 time to enter sleep
+          SPI.end();
+          
+          // Set Danger Zone flag (will persist across sleep/wake cycles)
+          NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
+        }
+        
+        // Visual indication: Blink both LEDs alternately 5 times
+        for (int i = 0; i < 5; i++) {
+          digitalWrite(LED_RED, HIGH);
+          digitalWrite(LED_BLUE, LOW);
+          delay(200);
+          digitalWrite(LED_RED, LOW);
+          digitalWrite(LED_BLUE, HIGH);
+          delay(200);
+        }
+        digitalWrite(LED_RED, LOW);
+        digitalWrite(LED_BLUE, LOW);
+        delay(500);
+        
+        // Ensure SX1262 is in Deep Sleep before shutdown
+        // Wait for BUSY=LOW with timeout
+        uint32_t busy_start = millis();
+        while (digitalRead(46) == HIGH && (millis() - busy_start) < 100) {
+          delayMicroseconds(10);
+        }
+        
+        SPI.begin();
+        pinMode(42, OUTPUT);
+        digitalWrite(42, LOW);
+        delayMicroseconds(10);
+        SPI.transfer(0x84);
+        SPI.transfer(0x00);
+        delayMicroseconds(10);
+        digitalWrite(42, HIGH);
+        delay(10);
+        SPI.end();
+        
+        // LED CODE 1: Quick red blink = SX1262 powered off
+        digitalWrite(LED_RED, HIGH);
+        delay(100);
+        digitalWrite(LED_RED, LOW);
+        delay(300);
+        
+        // Stop watchdog BEFORE RTC configuration
+        #ifndef DEBUG_MODE
+          NRF_WDT->TASKS_START = 0;
+        #endif
+        
+        // LED CODE 2: Quick blue blink = Watchdog stopped
+        digitalWrite(LED_BLUE, HIGH);
+        delay(100);
+        digitalWrite(LED_BLUE, LOW);
+        delay(300);
+        
+        // === RTC Timer Configuration per Manual Section 4.8.2 ===
+        // CRITICAL: Use correct register addresses!
+        // 0x0A = Timer Value 0 (NOT 0x09 which is Date Alarm!)
+        // 0x0B = Timer Value 1
+        // 0x0E = Status (TF flag at bit 3)
+        // 0x0F = Control 1 (TE at bit 2, TD at bits 1:0)
+        // 0x10 = Control 2 (TIE at bit 4)
+        
+        uint8_t rtc_result1 = 0, rtc_result2 = 0, rtc_result3 = 0, rtc_result4 = 0, rtc_result5 = 0;
+        
+        // Step 1: Stop Timer and clear TF flag (per manual recommendation)
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0F);  // CTRL1
+        Wire.write(0x00);  // TE=0, TD=00 (stop everything)
+        rtc_result1 = Wire.endTransmission();
+        
+        Wire.beginTransmission(0x52);
+        Wire.write(0x10);  // CTRL2
+        Wire.write(0x00);  // TIE=0 (disable interrupt)
+        rtc_result2 = Wire.endTransmission();
+        
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0E);  // STATUS register
+        Wire.write(0x00);  // Clear TF flag (bit 3) and all others
+        rtc_result3 = Wire.endTransmission();
+        
+        // Step 2: Set Timer Value (60 seconds)
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0A);  // CORRECT: Timer Value 0 register (NOT 0x09!)
+        Wire.write(60 & 0xFF);  // Lower 8 bits (60 = 0x3C)
+        Wire.write((60 >> 8) & 0x0F);  // Upper 4 bits (0)
+        rtc_result4 = Wire.endTransmission();
+        
+        // Step 3: Configure and Start Timer
+        // CTRL1: TD=10 (1 Hz), TE=1 (Enable), TRPT=0 (Single shot)
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0F);  // CTRL1
+        Wire.write(0x06);  // 0b00000110: TE=1, TD=10 (1 Hz)
+        rtc_result5 = Wire.endTransmission();
+        
+        // Step 4: Enable Timer Interrupt on INT pin
+        Wire.beginTransmission(0x52);
+        Wire.write(0x10);  // CTRL2
+        Wire.write(0x10);  // 0b00010000: TIE=1 (bit 4)
+        uint8_t rtc_result6 = Wire.endTransmission();
+        
+        // LED CODE 3: RTC configuration status
+        // Success (all I2C results == 0): 2x green blinks
+        // Failure (any I2C result != 0): 5x fast red blinks
+        if (rtc_result1 == 0 && rtc_result2 == 0 && rtc_result3 == 0 && 
+            rtc_result4 == 0 && rtc_result5 == 0 && rtc_result6 == 0) {
+          // RTC OK - 2x green (both LEDs)
+          for (int i = 0; i < 2; i++) {
+            digitalWrite(LED_RED, HIGH);
+            digitalWrite(LED_BLUE, HIGH);
+            delay(150);
+            digitalWrite(LED_RED, LOW);
+            digitalWrite(LED_BLUE, LOW);
+            delay(150);
+          }
+        } else {
+          // RTC FAILED - 5x fast red blinks
+          for (int i = 0; i < 5; i++) {
+            digitalWrite(LED_RED, HIGH);
+            delay(50);
+            digitalWrite(LED_RED, LOW);
+            delay(50);
+          }
+        }
+        delay(300);
+        
+        // Store shutdown reason for next boot (preserve Danger Zone flag)
+        NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
+        
+        // LED CODE 4: Final 3x slow red = Entering SYSTEMOFF NOW
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_RED, HIGH);
+          delay(300);
+          digitalWrite(LED_RED, LOW);
+          delay(300);
+        }
+        
+        // Enter SYSTEM OFF mode
+        uint32_t err_code = sd_power_system_off();
+        
+        // If we reach here, SoftDevice failed - try direct register
+        delay(100);
+        NRF_POWER->SYSTEMOFF = 1;
+        delay(100);
+        
+        // ERROR: SYSTEMOFF completely failed - continuous red LED
+        digitalWrite(LED_RED, HIGH);
+        while(1) { delay(1000); }
+        
       } else {
-        // Normal - slow monitoring
-        checkInterval_ms = 60000;  // 60s
+      // Voltage >= Critical threshold
+      if (in_danger_zone) {
+        // RECOVERY: Voltage rose above Critical - exit Danger Zone
+        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered to %dmV (Critical=%dmV)", vbat_mv, critical_mv);
+        MESH_DEBUG_PRINTLN("PWRMGT: Exiting Danger Zone - initiating system reset to re-enable SX1262");
+        
+        // Visual confirmation: 3x green-like blink (both LEDs)
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_RED, HIGH);
+          digitalWrite(LED_BLUE, HIGH);
+          delay(200);
+          digitalWrite(LED_RED, LOW);
+          digitalWrite(LED_BLUE, LOW);
+          delay(200);
+        }
+        
+        // Clear all flags (Danger Zone and Shutdown Reason)
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+        
+        delay(100);  // Let debug output complete
+        
+        // Perform software reset to cleanly re-initialize SX1262 and all systems
+        NVIC_SystemReset();
+        // Never returns
       }
+      // else: Normal operation - voltage OK, not in Danger Zone
     }
+  }
     
     vTaskDelay(pdMS_TO_TICKS(checkInterval_ms));
   }
