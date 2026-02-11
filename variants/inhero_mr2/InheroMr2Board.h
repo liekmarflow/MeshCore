@@ -53,7 +53,7 @@
 // Note: GPIO17 (WB_IO1) is used for RTC_INT, not available for GPS_1PPS
 #define RTC_INT_PIN              17  // GPIO17 (WB_IO1) - RTC Interrupt from RV-3028
 #define RTC_I2C_ADDR             0x52  // RV-3028-C7 I2C address
-#define INA228_I2C_ADDR          0x45  // INA228 I2C address (A0=GND, A1=GND)
+#define INA228_I2C_ADDR          0x40  // INA228 I2C address (A0=GND, A1=GND)
 // Note: INA228 ALERT pin controls TPS62840 EN directly (hardware UVLO), not connected to RAK4630
 
 // RV-3028-C7 RTC Register Addresses

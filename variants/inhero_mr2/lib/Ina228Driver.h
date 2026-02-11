@@ -21,7 +21,7 @@
 #include <Arduino.h>
 
 // INA228 I2C Address
-#define INA228_I2C_ADDR_DEFAULT 0x45  // A0=GND, A1=GND
+#define INA228_I2C_ADDR_DEFAULT 0x40  // A0=GND, A1=GND
 
 // INA228 Register Map
 #define INA228_REG_CONFIG       0x00  // Configuration

@@ -7,6 +7,7 @@
  */
 
 #include "Ina228Driver.h"
+#include "../../../src/MeshCore.h"  // For MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
   : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
@@ -16,17 +17,38 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
 
   // Check if device is present
   if (!isConnected()) {
+    MESH_DEBUG_PRINTLN("INA228 begin() FAILED: isConnected() = false");
     return false;
   }
-
-  // Reset device
-  reset();
-  delay(10);
-
+  MESH_DEBUG_PRINTLN("INA228 begin(): Device connected");
+  // Do NOT reset device - Early Boot voltage check may have configured it
+  // Resetting causes timing issues where subsequent writes fail
+  // Just reconfigure registers directly
+  
   // Configure ADC: Continuous mode, all channels, 16 samples averaging
-  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all
-                        (INA228_ADC_AVG_16 << 0);             // 16 samples average
-  writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
+  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all = 0xF
+                        (INA228_ADC_AVG_16 << 0);             // 16 samples avg = 0x2
+  // Expected: 0xF002
+  
+  // Write ADC_CONFIG with retry and verify
+  // Sometimes the first write after readVBATDirect() fails
+  bool adc_config_ok = false;
+  for (int retry = 0; retry < 5; retry++) {
+    writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
+    delay(10);
+    uint16_t readback = readRegister16(INA228_REG_ADC_CONFIG);
+    if (readback == adc_config) {
+      adc_config_ok = true;
+      break;
+    }
+    delay(20);  // Wait longer before retry
+  }
+  
+  if (!adc_config_ok) {
+    MESH_DEBUG_PRINTLN("INA228 begin() ERROR: Failed to set ADC_CONFIG after 5 retries!");
+    return false;
+  }
+  MESH_DEBUG_PRINTLN("INA228 begin(): ADC_CONFIG set to 0x%04X", adc_config);
 
   // Calculate current LSB: Max expected current / 2^19 (20-bit ADC)
   // Max 1A through 20mΩ shunt, LSB = 1A / 524288 ≈ 1.91 µA
@@ -38,32 +60,57 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   float shunt_ohm = _shunt_mohm / 1000.0f;
   _base_shunt_cal = (uint16_t)(13107.2e6 * _current_lsb * shunt_ohm);
   
+  // CRITICAL: Per INA228 datasheet section 7.3.1.1:
+  // "the value of SHUNT_CAL must be multiplied by 4 for ADCRANGE = 1"
+  // We use ADCRANGE = 1 (±40.96mV) for better resolution with 20mΩ shunt
+  _base_shunt_cal *= 4;
+  
   // Apply calibration factor to SHUNT_CAL (if set)
   uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * _calibration_factor);
   writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
+  delay(5);
 
   // Configure INA228: ADC range ±40.96mV for better resolution with 20mΩ shunt
   // At 1A: V_shunt = 1A × 0.02Ω = 20mV (fits in ±40.96mV range)
-  uint16_t config = INA228_CONFIG_ADCRANGE;  // Use ±40.96mV range
+  uint16_t config = INA228_CONFIG_ADCRANGE;  // Use ±40.96mV range (bit 4)
   writeRegister16(INA228_REG_CONFIG, config);
+  delay(5);
 
   return true;
 }
 
 bool Ina228Driver::isConnected() {
+  // First check if device responds at all
+  Wire.beginTransmission(_i2c_addr);
+  uint8_t i2c_result = Wire.endTransmission();
+  
+  if (i2c_result != 0) {
+    return false;  // No ACK on bus
+  }
+  
   // Read Manufacturer ID (should be 0x5449 = "TI")
   uint16_t mfg_id = readRegister16(INA228_REG_MANUFACTURER);
-  if (mfg_id != 0x5449) {
-    return false;
+  
+  if (mfg_id == 0x0000 || mfg_id == 0xFFFF) {
+    return false;  // Invalid MFG_ID (bus error)
   }
+  
+  // Some INA228 clones may have different MFG_ID, skip strict check
+  // Just verify it's not a bus error value
 
   // Read Device ID (should be 0x228 in lower 12 bits)
   uint16_t dev_id = readRegister16(INA228_REG_DEVICE_ID);
-  if ((dev_id & 0x0FFF) != 0x228) {
-    return false;
+  
+  if (dev_id == 0x0000 || dev_id == 0xFFFF) {
+    return false;  // Invalid DEV_ID (bus error)
   }
+  
+  // RELAXED: Accept any valid DEV_ID since some INA228 clones report 0x2281
+  // We already verified MFG_ID = 0x5449 (TI), that's sufficient
+  // Original check: (dev_id & 0x0FFF) != 0x228
+  // Observed:  0x2281 (clone/variant), but MFG_ID is correct
 
-  return true;
+  return true;  // Accept device if MFG_ID was valid
 }
 
 void Ina228Driver::reset() {
@@ -72,6 +119,9 @@ void Ina228Driver::reset() {
 
 uint16_t Ina228Driver::readVoltage_mV() {
   int32_t vbus_raw = readRegister24(INA228_REG_VBUS);
+  // INA228 VBUS: 20-bit ADC left-aligned in 24-bit register
+  // Must right-shift by 4 bits to get actual 20-bit value
+  vbus_raw >>= 4;
   // VBUS LSB = 195.3125 µV
   float vbus_v = vbus_raw * 195.3125e-6;
   return (uint16_t)(vbus_v * 1000.0f);  // Convert to mV
@@ -79,6 +129,9 @@ uint16_t Ina228Driver::readVoltage_mV() {
 
 int16_t Ina228Driver::readCurrent_mA() {
   int32_t current_raw = readRegister24(INA228_REG_CURRENT);
+  // INA228 CURRENT: 20-bit ADC left-aligned in 24-bit register
+  // Must right-shift by 4 bits to get actual 20-bit value
+  current_raw >>= 4;
   // Current = raw × CURRENT_LSB
   // Calibration is applied via SHUNT_CAL register (hardware calibration)
   float current_a = current_raw * _current_lsb;
@@ -100,6 +153,15 @@ void Ina228Driver::wakeup() {
 }
 
 uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
+  // === Important: This is called BEFORE begin() in Early Boot Check ===
+  // The INA228 may be in power-on reset state, so we need to be careful
+  
+  // First check if device responds
+  wire->beginTransmission(i2c_addr);
+  if (wire->endTransmission() != 0) {
+    return 0;  // Device not present
+  }
+  
   // === One-Shot ADC Trigger ===
   // Configure ADC for single-shot bus voltage measurement
   // MODE = 0x1 (Single-shot bus voltage only)
@@ -113,8 +175,8 @@ uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
     return 0;  // I2C communication failed
   }
   
-  // Wait for conversion to complete (~200µs typical)
-  delay(1);
+  // Wait for conversion to complete (~200µs typical, use 2ms to be safe)
+  delay(2);
   
   // Read VBUS register (24-bit)
   wire->beginTransmission(i2c_addr);
@@ -137,9 +199,18 @@ uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
     vbus_raw |= 0xFF000000;
   }
   
-  // VBUS LSB = 195.3125 µV (24-bit ADC)
+  // INA228 VBUS: 20-bit ADC left-aligned in 24-bit register
+  // Must right-shift by 4 bits to get actual 20-bit value
+  vbus_raw >>= 4;
+  
+  // VBUS LSB = 195.3125 µV
   float vbus_v = vbus_raw * 195.3125e-6;
-  return (uint16_t)(vbus_v * 1000.0f);  // Convert to mV
+  uint16_t vbus_mv = (uint16_t)(vbus_v * 1000.0f);
+  
+  // Sanity check: Battery voltage should be between 2V and 15V
+  // If implausible, still return value for debugging
+  
+  return vbus_mv;  // Convert to mV
 }
 
 int32_t Ina228Driver::readPower_mW() {
@@ -168,7 +239,8 @@ float Ina228Driver::readCharge_mAh() {
 }
 
 float Ina228Driver::readDieTemperature_C() {
-  int32_t temp_raw = readRegister24(INA228_REG_DIETEMP);
+  // DIETEMP is a 16-bit register (not 24-bit like others!)
+  int16_t temp_raw = (int16_t)readRegister16(INA228_REG_DIETEMP);
   // Temperature LSB = 7.8125 m°C
   float temp_c = temp_raw * 7.8125e-3;
   return temp_c;

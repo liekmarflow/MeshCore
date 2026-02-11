@@ -48,7 +48,7 @@ namespace {
 
 // Hardware drivers (v0.2 only)
 static BqDriver bq;
-static Ina228Driver ina228;
+static Ina228Driver ina228(0x40);  // A0=GND, A1=GND
 
 static SimplePreferences prefs;
 
@@ -181,7 +181,7 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
 
   if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING && !pgFlagSet) {
     MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
-    MESH_DEBUG_PRINT(vbusVoltage);
+    MESH_DEBUG_PRINT("%d", vbusVoltage);
     MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
 
     // Force input source detection by toggling HIZ
@@ -885,16 +885,56 @@ bool BoardConfigContainer::begin() {
   }
   
   // === MR2 Hardware (v0.2): INA228 Power Monitor with UVLO ===
-  if (ina228.begin(20.0f)) {  // 20mΩ shunt resistor
-    INA228_INITIALIZED = true;
-    ina228DriverInstance = &ina228;
-    MESH_DEBUG_PRINTLN("INA228 found @ 0x45");
+  // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
+  MESH_DEBUG_PRINTLN("=== INA228 Detection @ 0x40 ===");
+  delay(10);  // Let serial output flush
+  
+  // Visual indicator: Red LED on = INA228 detection in progress
+  digitalWrite(LED_RED, HIGH);
+  delay(50);
+  
+  // First test I2C communication
+  Wire.beginTransmission(0x40);
+  uint8_t i2c_result = Wire.endTransmission();
+  MESH_DEBUG_PRINTLN("INA228: I2C probe result = %d (0=OK)", i2c_result);
+  delay(10);
+  
+  if (i2c_result == 0) {
+    // Device responds, read ID registers
+    Wire.beginTransmission(0x40);
+    Wire.write(0x3E);  // Manufacturer ID register
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+    if (Wire.available() >= 2) {
+      uint16_t mfg_id = (Wire.read() << 8) | Wire.read();
+      MESH_DEBUG_PRINTLN("INA228: MFG_ID = 0x%04X (expect 0x5449)", mfg_id);
+      delay(10);
+    }
     
-    // Blue LED flash: INA228 initialized
-    digitalWrite(LED_BLUE, HIGH);
-    delay(150);
-    digitalWrite(LED_BLUE, LOW);
-    delay(100);
+    Wire.beginTransmission(0x40);
+    Wire.write(0x3F);  // Device ID register
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+    if (Wire.available() >= 2) {
+      uint16_t dev_id = (Wire.read() << 8) | Wire.read();
+      MESH_DEBUG_PRINTLN("INA228: DEV_ID = 0x%04X (expect 0x0228)", dev_id);
+      delay(10);
+    }
+    
+    // Try to initialize
+    if (ina228.begin(20.0f)) {  // 20mΩ shunt resistor
+      INA228_INITIALIZED = true;
+      ina228DriverInstance = &ina228;
+      
+      // Turn off red LED (INA228 detection complete)
+      digitalWrite(LED_RED, LOW);
+      delay(10);
+      
+      // Blue LED flash: INA228 initialized
+      digitalWrite(LED_BLUE, HIGH);
+      delay(150);
+      digitalWrite(LED_BLUE, LOW);
+      delay(100);
       
       // Load and apply current calibration factor
       float calib_factor = 1.0f;
@@ -904,6 +944,7 @@ bool BoardConfigContainer::begin() {
       } else {
         MESH_DEBUG_PRINTLN("INA228 using default calibration (1.0)");
       }
+      delay(10);
       
       // Load battery type to set chemistry-specific UVLO threshold
       BatteryType bat;
@@ -929,10 +970,16 @@ bool BoardConfigContainer::begin() {
       ina228.setUnderVoltageAlert(uvlo_mv);
       ina228.enableAlert(true, false, true);  // UVLO only, active-high
       MESH_DEBUG_PRINTLN("INA228 UVLO threshold: %dmV", uvlo_mv);
+      delay(10);
+    } else {
+      MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
+      INA228_INITIALIZED = false;
+    }
   } else {
-    MESH_DEBUG_PRINTLN("INA228 not found @ 0x45");
+    MESH_DEBUG_PRINTLN("✗ INA228 no I2C ACK @ 0x40");
     INA228_INITIALIZED = false;
   }
+  delay(10);
   
   // === RV-3028 RTC Initialization (v0.2) ===
   bool rtc_initialized = false;
@@ -1011,16 +1058,8 @@ bool BoardConfigContainer::begin() {
     }
   }
   
-  // Start Voltage Monitor Task (MR2 v0.2 feature)
-  if (voltageMonitorTaskHandle == NULL) {
-    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::voltageMonitorTask, "VoltMon", 2048, NULL, 2, &voltageMonitorTaskHandle);
-    if (taskCreated != pdPASS) {
-      MESH_DEBUG_PRINTLN("Failed to create Voltage Monitor task!");
-      // Non-critical, continue
-    } else {
-      MESH_DEBUG_PRINTLN("Voltage Monitor task started (v0.2)");
-    }
-  }
+  // NOTE: Voltage Monitor Task is started AFTER INA228 initialization (below)
+  // to avoid I2C bus conflicts during hardware setup
 
   attachInterrupt(digitalPinToInterrupt(BQ_INT_PIN), onBqInterrupt, FALLING);
 
@@ -1043,6 +1082,55 @@ bool BoardConfigContainer::begin() {
         vTaskDelay(pdMS_TO_TICKS(500));
       }
     }, "ErrorLED", 512, NULL, 1, NULL);
+  }
+  
+  // Start Voltage Monitor Task AFTER all hardware is initialized
+  // This prevents I2C bus conflicts during INA228 setup
+  if (voltageMonitorTaskHandle == NULL && INA228_INITIALIZED) {
+    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::voltageMonitorTask, "VoltMon", 2048, NULL, 2, &voltageMonitorTaskHandle);
+    if (taskCreated != pdPASS) {
+      MESH_DEBUG_PRINTLN("Failed to create Voltage Monitor task!");
+      // Non-critical, continue
+    } else {
+      MESH_DEBUG_PRINTLN("Voltage Monitor task started (v0.2)");
+    }
+  }
+  
+  // CRITICAL: Verify and fix ADC_CONFIG after all tasks are created
+  // The voltageMonitorTask may have preempted and overwritten ADC_CONFIG
+  if (INA228_INITIALIZED) {
+    delay(50);  // Let tasks settle
+    
+    Wire.beginTransmission(0x40);
+    Wire.write(0x01);  // ADC_CONFIG register
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+    uint16_t adc_cfg_check = 0;
+    if (Wire.available() >= 2) {
+      adc_cfg_check = (Wire.read() << 8) | Wire.read();
+    }
+    
+    if (adc_cfg_check != 0xF002) {
+      MESH_DEBUG_PRINTLN("⚠ INA228 ADC_CONFIG=0x%04X after task start - fixing...", adc_cfg_check);
+      
+      // Visual: Rapid red blinks = ADC_CONFIG corrupted by task race
+      for (int i = 0; i < 3; i++) {
+        digitalWrite(LED_RED, HIGH);
+        delay(100);
+        digitalWrite(LED_RED, LOW);
+        delay(100);
+      }
+      
+      // Force-write ADC_CONFIG again
+      Wire.beginTransmission(0x40);
+      Wire.write(0x01);
+      Wire.write(0xF0);
+      Wire.write(0x02);
+      Wire.endTransmission();
+      delay(10);
+      
+      MESH_DEBUG_PRINTLN("INA228 ADC_CONFIG restored to 0xF002");
+    }
   }
   
   // MR2 requires BQ25798 + INA228 (RTC is optional for basic operation)
@@ -1177,16 +1265,17 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   telemetry.system = bqData->system;
   telemetry.batterie.temperature = bqData->batterie.temperature;
   
-  // Override battery voltage/current with INA228 data (v0.2 hardware)
-  if (INA228_INITIALIZED && ina228DriverInstance != nullptr) {
+  // Battery voltage/current ALWAYS from INA228 (no fallback to BQ25798)
+  // MR2 v0.2 hardware uses INA228 for precise battery monitoring
+  if (ina228DriverInstance != nullptr) {
     telemetry.batterie.voltage = ina228DriverInstance->readVoltage_mV();
     telemetry.batterie.current = ina228DriverInstance->readCurrent_mA();
     telemetry.batterie.power = ((int32_t)telemetry.batterie.voltage * telemetry.batterie.current) / 1000;
   } else {
-    // Fallback to BQ25798 values if INA228 not available
-    telemetry.batterie.voltage = bqData->batterie.voltage;
-    telemetry.batterie.current = bqData->batterie.current;
-    telemetry.batterie.power = bqData->batterie.power;
+    // INA228 not initialized - return error values
+    telemetry.batterie.voltage = 0;
+    telemetry.batterie.current = 0;
+    telemetry.batterie.power = 0;
   }
   
   return &telemetry;
@@ -2174,13 +2263,49 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
                      capacity_mah, 
                      socStats.capacity_learned ? "learned" : (capacity_loaded ? "manual" : "default"));
   
+  // Load battery type from preferences to get correct voltage thresholds
+  BatteryType battType = DEFAULT_BATTERY_TYPE;
+  SimplePreferences prefs_bat;
+  if (prefs_bat.begin("inheromr2")) {
+    char buffer[10];
+    if (prefs_bat.getString("batType", buffer, sizeof(buffer), "") > 0) {
+      battType = getBatteryTypeFromCommandString(buffer);
+      if (battType == BAT_UNKNOWN) {
+        battType = DEFAULT_BATTERY_TYPE;
+      }
+    }
+    prefs_bat.end();
+  }
+  
+  // Get chemistry-specific thresholds
+  uint16_t critical_mv;
+  uint16_t warning_mv;
+  uint16_t normal_mv;
+  
+  switch (battType) {
+    case BatteryType::LTO_2S:
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;      // 4200mV
+      warning_mv = critical_mv + 200;                        // 4400mV
+      normal_mv = 4600;                                      // 4600mV
+      break;
+    case BatteryType::LIFEPO4_1S:
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;  // 2900mV
+      warning_mv = critical_mv + 100;                        // 3000mV
+      normal_mv = 3200;                                      // 3200mV
+      break;
+    case BatteryType::LIION_1S:
+    default:
+      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;    // 3400mV
+      warning_mv = critical_mv + 100;                        // 3500mV
+      normal_mv = 3600;                                      // 3600mV
+      break;
+  }
+  
+  MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV, Warning=%dmV, Normal=%dmV", 
+                     critical_mv, warning_mv, normal_mv);
+  
   // Adaptive monitoring intervals
   uint32_t checkInterval_ms = 60000;  // Start with 60s
-  
-  // Get thresholds
-  uint16_t critical_mv = 3400;  // Default, will be updated
-  uint16_t warning_mv = critical_mv + 100;
-  uint16_t normal_mv = 3600;
   
   while (true) {
     // Update SOC from Coulomb Counter

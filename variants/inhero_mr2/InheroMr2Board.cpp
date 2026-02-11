@@ -64,6 +64,7 @@ void InheroMr2Board::begin() {
 #endif
 
   Wire.begin();
+  delay(50);  // Give I2C bus time to stabilize
 
   // MR2 is v0.2 hardware only - no detection needed
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware v0.2 (INA228 + RTC)");
@@ -89,7 +90,19 @@ void InheroMr2Board::begin() {
     // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
     // Use static INA228 method with One-Shot ADC for fresh, accurate measurement
     // This is critical for wake/sleep decisions in danger zone
-    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire);
+    MESH_DEBUG_PRINTLN("Early Boot: Reading VBAT from INA228 @ 0x40...");
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+    MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
+    
+    // CRITICAL: readVBATDirect() sets ADC_CONFIG to 0x1000 (Single-Shot mode)
+    // We must restore it to 0xF002 (Continuous mode) for normal operation
+    Wire.beginTransmission(0x40);
+    Wire.write(0x01);  // ADC_CONFIG register
+    Wire.write(0xF0);  // MSB: Continuous all channels (0xF)
+    Wire.write(0x02);  // LSB: 16 samples averaging (0x2)
+    Wire.endTransmission();
+    delay(10);
+    MESH_DEBUG_PRINTLN("Early Boot: ADC_CONFIG restored to continuous mode");
     
     if (vbat_mv == 0) {
       MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
@@ -328,8 +341,18 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
-    snprintf(reply, maxlen, "B:%.2fV/%imA/%.0fC S:%.2fV/%imA Y:%.2fV",
-             telemetry->batterie.voltage / 1000.0f, telemetry->batterie.current,
+    
+    // Get high-precision current directly from INA228
+    float precise_current_ma = 0.0f;
+    Ina228Driver* ina = boardConfig.getIna228Driver();
+    if (ina != nullptr) {
+      precise_current_ma = (float)ina->readCurrent_mA();
+    } else {
+      precise_current_ma = (float)telemetry->batterie.current;
+    }
+    
+    snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC S:%.2fV/%imA Y:%.2fV",
+             telemetry->batterie.voltage / 1000.0f, precise_current_ma,
              telemetry->batterie.temperature,
              telemetry->solar.voltage / 1000.0f, telemetry->solar.current,
              telemetry->system.voltage / 1000.0f);
@@ -411,9 +434,165 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     bool enabled = boardConfig.getLEDsEnabled();
     snprintf(reply, maxlen, "LEDs: %s (Heartbeat + BQ Stat)", enabled ? "ON" : "OFF");
     return true;
+  } else if (strcmp(cmd, "i2cscan") == 0) {
+    // I2C bus scan - find all devices
+    char scanBuffer[200];
+    int pos = 0;
+    int devicesFound = 0;
+    
+    pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, "I2C: ");
+    
+    for (uint8_t addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        if (devicesFound > 0 && pos < sizeof(scanBuffer) - 10) {
+          pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, ", ");
+        }
+        if (pos < sizeof(scanBuffer) - 10) {
+          pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, "0x%02X", addr);
+        }
+        devicesFound++;
+      }
+    }
+    
+    if (devicesFound == 0) {
+      snprintf(reply, maxlen, "I2C: No devices found!");
+    } else {
+      snprintf(reply, maxlen, "%s (%d found)", scanBuffer, devicesFound);
+    }
+    return true;
+  } else if (strcmp(cmd, "inatest") == 0) {
+    // Detailed INA228 diagnostic test - Line 1: Device Info + Voltage
+    char line1[150];
+    char line2[150];
+    int pos = 0;
+    
+    // Test address 0x40
+    Wire.beginTransmission(0x40);
+    uint8_t ack = Wire.endTransmission();
+    pos += snprintf(line1 + pos, sizeof(line1) - pos, "ACK:%d ", ack);
+    
+    if (ack == 0) {
+      // Read MFG_ID
+      Wire.beginTransmission(0x40);
+      Wire.write(0x3E);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+      uint16_t mfg = 0;
+      if (Wire.available() >= 2) {
+        mfg = (Wire.read() << 8) | Wire.read();
+        pos += snprintf(line1 + pos, sizeof(line1) - pos, "MFG:0x%04X ", mfg);
+      }
+      
+      // Read DEV_ID
+      Wire.beginTransmission(0x40);
+      Wire.write(0x3F);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+      uint16_t dev = 0;
+      if (Wire.available() >= 2) {
+        dev = (Wire.read() << 8) | Wire.read();
+        pos += snprintf(line1 + pos, sizeof(line1) - pos, "DEV:0x%04X ", dev);
+      }
+      
+      // Read VBUS raw
+      Wire.beginTransmission(0x40);
+      Wire.write(0x05);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)3);
+      if (Wire.available() >= 3) {
+        uint8_t b0 = Wire.read();
+        uint8_t b1 = Wire.read();
+        uint8_t b2 = Wire.read();
+        int32_t raw = b0 << 16 | b1 << 8 | b2;
+        if (raw & 0x800000) raw |= 0xFF000000;
+        int32_t raw_shifted = raw >> 4;
+        float v_calc = raw_shifted * 195.3125e-6 * 1000.0f;
+        pos += snprintf(line1 + pos, sizeof(line1) - pos, "VBUS:%dmV", (int)v_calc);
+      }
+      
+      // Line 2: Current, ADC Config, SHUNT_CAL
+      int pos2 = 0;
+      
+      // Read CURRENT register (0x07)
+      Wire.beginTransmission(0x40);
+      Wire.write(0x07);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)3);
+      if (Wire.available() >= 3) {
+        uint8_t b0 = Wire.read();
+        uint8_t b1 = Wire.read();
+        uint8_t b2 = Wire.read();
+        int32_t raw = b0 << 16 | b1 << 8 | b2;
+        if (raw & 0x800000) raw |= 0xFF000000;
+        int32_t raw_shifted = raw >> 4;
+        // CURRENT_LSB = 1.91 µA for our config
+        float current_ma = raw_shifted * 1.91e-6 * 1000.0f;
+        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "I:0x%05X(%.3fmA) ", raw_shifted & 0xFFFFF, current_ma);
+      }
+      
+      // Read ADC_CONFIG (0x01)
+      Wire.beginTransmission(0x40);
+      Wire.write(0x01);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+      if (Wire.available() >= 2) {
+        uint16_t adc_cfg = (Wire.read() << 8) | Wire.read();
+        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "ADC:0x%04X ", adc_cfg);
+      }
+      
+      // Read SHUNT_CAL (0x02)
+      Wire.beginTransmission(0x40);
+      Wire.write(0x02);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+      if (Wire.available() >= 2) {
+        uint16_t shunt_cal = (Wire.read() << 8) | Wire.read();
+        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "CAL:0x%04X", shunt_cal);
+      }
+      
+      // Output both lines (newline between them for readability)
+      snprintf(reply, maxlen, "%s\n%s", line1, line2);
+    } else {
+      snprintf(reply, maxlen, "INA228 not detected (ACK=%d)", ack);
+    }
+    return true;
+  } else if (strcmp(cmd, "inafix") == 0) {
+    // Force-fix INA228 ADC_CONFIG register to continuous mode
+    // This is a diagnostic command to test if writes work
+    Wire.beginTransmission(0x40);
+    uint8_t ack = Wire.endTransmission();
+    
+    if (ack == 0) {
+      // Try to write ADC_CONFIG = 0xF002 (Continuous All + 16avg)
+      Wire.beginTransmission(0x40);
+      Wire.write(0x01);  // ADC_CONFIG register
+      Wire.write(0xF0);  // MSB
+      Wire.write(0x02);  // LSB
+      uint8_t write_result = Wire.endTransmission();
+      
+      delay(10);
+      
+      // Read back ADC_CONFIG
+      Wire.beginTransmission(0x40);
+      Wire.write(0x01);
+      Wire.endTransmission(false);
+      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+      uint16_t adc_readback = 0;
+      if (Wire.available() >= 2) {
+        adc_readback = (Wire.read() << 8) | Wire.read();
+      }
+      
+      snprintf(reply, maxlen, "Write:0xF002 result=%d Readback:0x%04X %s", 
+               write_result, adc_readback, 
+               (adc_readback == 0xF002) ? "OK" : "FAIL");
+    } else {
+      snprintf(reply, maxlen, "INA228 not detected (ACK=%d)", ack);
+    }
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn|leds>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn|leds|i2cscan|inatest|inafix>");
   return true;
 }
 
