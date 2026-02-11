@@ -159,7 +159,6 @@ const Telemetry* const BqDriver::getTelemetryData() {
       ((int32_t)telemetryData.batterie.voltage * telemetryData.batterie.current) / 1000;
   telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
 
-  telemetryData.system.voltage = getVSYS();
   this->stopIbatADC();
   return &telemetryData;
 }

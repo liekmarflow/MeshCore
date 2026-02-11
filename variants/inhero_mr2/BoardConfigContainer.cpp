@@ -1367,7 +1367,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setAutoDPinsDetection(false);
   bq.setMPPTenable(true);
 
-  bq.setMinSystemV(2.7);
+  bq.setMinSystemV(2.75);  // 2.75V = next valid step above 2.7V (250mV steps: 2.5, 2.75, 3.0...)
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
   return true;
@@ -2476,20 +2476,22 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
         Wire.write(0x00);  // Clear TF flag (bit 3) and all others
         rtc_result3 = Wire.endTransmission();
         
-        // Step 2: Set Timer Value (43200 seconds = 12 hours for production)
-        // RTC wakes system every 12 hours to check voltage in Danger Zone
-        // Long interval because each wake = expensive boot process (~50-150mAh)
+        // Step 2: Set Timer Value for 12-hour interval
+        // RTC Timer is 12-bit (0-4095 max). For 12 hours we need different clock source.
+        // TD=11 (1/60 Hz = 1 minute ticks) allows: 4095 minutes = 68.25 hours max
+        // For 12 hours = 720 minutes
+        uint16_t countdown = 720;  // 720 minutes = 12 hours
         Wire.beginTransmission(0x52);
         Wire.write(0x0A);  // Timer Value 0 register
-        Wire.write(43200 & 0xFF);  // Lower 8 bits (43200 = 0xA8C0)
-        Wire.write((43200 >> 8) & 0x0F);  // Upper 4 bits (0xA8)
+        Wire.write(countdown & 0xFF);        // Lower 8 bits (720 = 0x02D0)
+        Wire.write((countdown >> 8) & 0x0F); // Upper 4 bits (0x02)
         rtc_result4 = Wire.endTransmission();
         
         // Step 3: Configure and Start Timer
-        // CTRL1: TD=10 (1 Hz), TE=1 (Enable), TRPT=0 (Single shot)
+        // CTRL1: TD=11 (1/60 Hz = 1 minute), TE=1 (Enable), TRPT=0 (Single shot)
         Wire.beginTransmission(0x52);
         Wire.write(0x0F);  // CTRL1
-        Wire.write(0x06);  // 0b00000110: TE=1, TD=10 (1 Hz)
+        Wire.write(0x07);  // 0b00000111: TE=1, TD=11 (1/60 Hz = minute ticks)
         rtc_result5 = Wire.endTransmission();
         
         // Step 4: Enable Timer Interrupt on INT pin

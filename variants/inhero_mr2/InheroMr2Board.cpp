@@ -108,14 +108,14 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
     
     // CRITICAL: readVBATDirect() sets ADC_CONFIG to 0x1000 (Single-Shot mode)
-    // We must restore it to 0xF002 (Continuous mode) for normal operation
+    // We must restore it to 0xF003 (Continuous mode, 64 samples avg) for normal operation
     Wire.beginTransmission(0x40);
     Wire.write(0x01);  // ADC_CONFIG register
     Wire.write(0xF0);  // MSB: Continuous all channels (0xF)
-    Wire.write(0x02);  // LSB: 16 samples averaging (0x2)
-    Wire.endTransmission();
-    delay(10);
-    MESH_DEBUG_PRINTLN("Early Boot: ADC_CONFIG restored to continuous mode");
+    Wire.write(0x03);  // LSB: 64 samples averaging (0x3) - consistent with ina228.begin()
+    uint8_t i2c_result = Wire.endTransmission();
+    delay(50);  // Longer delay for I2C bus to stabilize before BQ init
+    MESH_DEBUG_PRINTLN("Early Boot: ADC_CONFIG restored to 0xF003 (result=%d)", i2c_result);
     
     if (vbat_mv == 0) {
       MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
@@ -387,11 +387,10 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       precise_current_ma = (float)telemetry->batterie.current;
     }
     
-    snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC S:%.2fV/%imA Y:%.2fV",
+    snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC S:%.2fV/%imA",
              telemetry->batterie.voltage / 1000.0f, precise_current_ma,
              telemetry->batterie.temperature,
-             telemetry->solar.voltage / 1000.0f, telemetry->solar.current,
-             telemetry->system.voltage / 1000.0f);
+             telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
     return true;
   } else if (strcmp(cmd, "soc") == 0) {
     // Battery State of Charge (v0.2 feature)
