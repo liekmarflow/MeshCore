@@ -346,22 +346,23 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     // Combined energy statistics: balance + MPPT
     const BatterySOCStats* socStats = boardConfig.getSOCStats();
     
-    // Balance info
-    int32_t today_net = socStats->today_solar_mwh - socStats->today_discharged_mwh;
+    // Balance info (mAh) - rolling windows (no midnight reset)
+    float last_24h_net = socStats->last_24h_net_mah;
     const char* status = socStats->living_on_battery ? "BAT" : "SOL";
-    int32_t avg3d = socStats->avg_daily_deficit_mwh;
+    float avg3d = socStats->avg_3day_daily_net_mah;
+    float avg7d = socStats->avg_7day_daily_net_mah;
     uint16_t ttl = boardConfig.getTTL_Hours();
     
     // MPPT info
     float mppt_pct = boardConfig.getMpptEnabledPercentage7Day();
     
-    // Compact format: Today/Avg3d Status MPPT% [TTL]
+    // Compact format: 24h/3d/7d Status MPPT% [TTL]
     if (ttl > 0) {
-      snprintf(reply, maxlen, "%+d/%+dmWh %s M:%.0f%% TTL:%dh", 
-               today_net, avg3d, status, mppt_pct, ttl);
+      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh %s M:%.0f%% TTL:%dh", 
+               last_24h_net, avg3d, avg7d, status, mppt_pct, ttl);
     } else {
-      snprintf(reply, maxlen, "%+d/%+dmWh %s M:%.0f%%",
-               today_net, avg3d, status, mppt_pct);
+      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh %s M:%.0f%%",
+               last_24h_net, avg3d, avg7d, status, mppt_pct);
     }
     return true;
   } else if (strcmp(cmd, "cinfo") == 0) {
@@ -454,20 +455,20 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     }
     return true;
   } else if (strcmp(cmd, "energy") == 0) {
-    // Read INA228 Energy Counter Register
+    // Read INA228 Charge Counter Register (already inverted in driver)
     Ina228Driver* ina = boardConfig.getIna228Driver();
     if (ina != nullptr) {
-      int32_t energy_mwh = ina->readEnergy_mWh();
+      float charge_mah = ina->readCharge_mAh();
       const BatterySOCStats* socStats = boardConfig.getSOCStats();
       
       if (socStats && socStats->soc_valid) {
-        // Show raw counter and baseline (for debugging SOC calculations)
-        int32_t net_energy = energy_mwh - socStats->ina228_baseline_mwh;
-        snprintf(reply, maxlen, "Energy: %dmWh (Base: %dmWh, Net: %+dmWh)", 
-                 energy_mwh, socStats->ina228_baseline_mwh, net_energy);
+        // Show charge and baseline (for debugging SOC calculations)
+        float net_charge = charge_mah - socStats->ina228_baseline_mah;
+        snprintf(reply, maxlen, "%.1fmAh (Base: %.1fmAh, Net: %+.1fmAh)", 
+                 charge_mah, socStats->ina228_baseline_mah, net_charge);
       } else {
-        // SOC not yet synced, only show raw counter
-        snprintf(reply, maxlen, "Energy: %dmWh (SOC not synced)", energy_mwh);
+        // SOC not yet synced, only show raw value
+        snprintf(reply, maxlen, "%.1fmAh (SOC not synced)", charge_mah);
       }
     } else {
       snprintf(reply, maxlen, "Err: INA228 not initialized");
@@ -601,9 +602,20 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Use 'on/1' or 'off/0'");
       return ret;
     }
+  } else if (strncmp(setCommand, "soc ", 4) == 0) {
+    // Manually set SOC percentage (e.g. after reboot with known SOC)
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[4]));
+    float soc_percent = atof(value);
+    
+    if (BoardConfigContainer::setSOCManually(soc_percent)) {
+      snprintf(ret, sizeof(ret), "SOC set to %.1f%%", soc_percent);
+    } else {
+      snprintf(ret, sizeof(ret), "Err: Invalid SOC (0-100) or INA228 not ready");
+    }
+    return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|life|frost|mppt|batcap|ibcal|bqreset|leds>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|bqreset|leds|soc>");
   return ret;
 }
 

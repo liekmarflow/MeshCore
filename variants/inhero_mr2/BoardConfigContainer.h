@@ -52,40 +52,42 @@ typedef struct {
   int32_t lastPower_mW;                    ///< Last measured power for energy calculation
 } MpptStatistics;
 
-// Battery SOC Tracking (v0.2) - mWh-based using INA228 Hardware Coulomb Counter
-#define DAILY_STATS_DAYS 7  // 7 days of daily statistics
+// Battery SOC Tracking (v0.2) - mAh-based using INA228 Hardware Coulomb Counter (CHARGE register)
+#define HOURLY_STATS_HOURS 168  // 7 days * 24 hours = 168 hours
+
+// Hourly battery statistics for rolling window
+typedef struct {
+  uint32_t timestamp;           ///< Unix timestamp (start of hour, seconds)
+  float charged_mah;            ///< Charge added this hour (mAh)
+  float discharged_mah;         ///< Charge removed this hour (mAh)
+  float solar_mah;              ///< Solar charge contribution this hour (mAh)
+} HourlyBatteryStats;
 
 typedef struct {
-  uint32_t timestamp;           ///< Unix timestamp (start of day, seconds)
-  int32_t charged_mwh;         ///< Energy charged this day (mWh)
-  int32_t discharged_mwh;      ///< Energy discharged this day (mWh)
-  int32_t solar_mwh;           ///< Solar energy contribution (mWh)
-  int32_t net_balance_mwh;     ///< Net balance (solar - discharged)
-} DailyBatteryStats;
-
-typedef struct {
-  // Battery configuration (user input in mAh, internally mWh)
-  float capacity_mah;          ///< User-configured capacity in mAh (for display)
-  float capacity_mwh;          ///< Total battery capacity in mWh (= capacity_mah × V_nominal)
+  // Battery configuration
+  float capacity_mah;          ///< Total battery capacity in mAh
   float nominal_voltage;       ///< Nominal voltage for current chemistry (V)
   
-  // SOC tracking using INA228 hardware counter
+  // SOC tracking using INA228 hardware counter (CHARGE register in mAh)
   float current_soc_percent;   ///< Current State of Charge in % (0-100)
   bool soc_valid;              ///< True after first "Charging Done" sync
-  int32_t ina228_baseline_mwh; ///< INA228 ENERGY reading at last 100% sync
+  float ina228_baseline_mah;   ///< INA228 CHARGE reading at last 100% sync (mAh)
   
-  // Daily statistics (7-day rolling buffer)
-  DailyBatteryStats days[DAILY_STATS_DAYS];
+  // Hourly statistics (168-hour rolling buffer for 7 days)
+  HourlyBatteryStats hours[HOURLY_STATS_HOURS];
   uint8_t currentIndex;
-  uint32_t lastUpdateTime;
+  uint32_t lastHourUpdateTime;  ///< Last hour boundary timestamp
   
-  // Current day accumulators (mWh-based)
-  int32_t today_charged_mwh;
-  int32_t today_discharged_mwh;
-  int32_t today_solar_mwh;
+  // Current hour accumulators (reset every hour)
+  float current_hour_charged_mah;
+  float current_hour_discharged_mah;
+  float current_hour_solar_mah;
+  float last_charge_reading_mah;  ///< Last INA228 CHARGE reading for delta calculation
   
-  // Forecast
-  int32_t avg_daily_deficit_mwh; ///< 3-day average deficit (negative = using battery)
+  // Rolling window statistics (calculated from hourly buffer)
+  float last_24h_net_mah;        ///< Net balance over last 24 hours
+  float avg_3day_daily_net_mah;  ///< Average daily net over last 3 days (72h)
+  float avg_7day_daily_net_mah;  ///< Average daily net over last 7 days (168h)
   uint16_t ttl_hours;            ///< Time To Live - hours until battery empty (0 = not calculated)
   bool living_on_battery;        ///< True if net deficit over last 24h
 } BatterySOCStats;
@@ -213,6 +215,7 @@ public:
   uint16_t getTTL_Hours() const;               ///< Get Time To Live in hours (0 = not calculated)
   bool isLivingOnBattery() const;              ///< True if net deficit over last 24h
   static void syncSOCToFull();                 ///< Sync SOC to 100% after "Charging Done" (resets INA228 baseline)
+  static bool setSOCManually(float soc_percent); ///< Manually set SOC to specific value (e.g. after reboot)
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
@@ -273,7 +276,8 @@ private:
   static void updateMpptStats();
   
   // Battery SOC helpers (v0.2)
-  static void updateDailyBalance();
+  static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
+  static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
   static void calculateTTL();
   static float estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type);
 };

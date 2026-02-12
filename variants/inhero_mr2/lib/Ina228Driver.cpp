@@ -258,10 +258,10 @@ float Ina228Driver::readCharge_mAh() {
   int64_t charge_raw = readRegister40(INA228_REG_CHARGE);
   // Charge LSB = CURRENT_LSB (in C = A·s)
   // Convert to Ah: / 3600
-  // NO inversion - matches energy register orientation
+  // INVERT: Hardware negative = charging, we want positive = charging (battery perspective)
   float charge_c = charge_raw * _current_lsb;
   float charge_ah = charge_c / 3600.0f;
-  return charge_ah * 1000.0f;  // Convert to mAh, NO inversion
+  return -charge_ah * 1000.0f;  // Convert to mAh, INVERTED for battery perspective
 }
 
 float Ina228Driver::readDieTemperature_C() {

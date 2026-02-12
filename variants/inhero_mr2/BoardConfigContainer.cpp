@@ -1672,17 +1672,14 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   float v_nominal = getNominalVoltage(batType);
   socStats.nominal_voltage = v_nominal;
   
-  // Convert to mWh for internal energy tracking
-  socStats.capacity_mwh = capacity_mah * v_nominal;
-  
   // Invalidate SOC until next "Charging Done" sync
   socStats.soc_valid = false;
   
   // Save to preferences (as integer mAh)
   prefs.putInt(BATTERY_CAPACITY_KEY, (uint16_t)capacity_mah);
   
-  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh (%.0f mWh @ %.1fV)", 
-                     capacity_mah, socStats.capacity_mwh, v_nominal);
+  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV", 
+                     capacity_mah, v_nominal);
   return true;
 }
 
@@ -1693,10 +1690,9 @@ void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize
   if (!socStats.soc_valid) {
     snprintf(buffer, bufferSize, "SOC:N/A (load bat fully to sync)");
   } else {
-    snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh(%.0fmWh)", 
+    snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh", 
              socStats.current_soc_percent, 
-             socStats.capacity_mah,
-             socStats.capacity_mwh);
+             socStats.capacity_mah);
   }
 }
 
@@ -1704,14 +1700,14 @@ void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize
 /// @param buffer Output buffer
 /// @param bufferSize Buffer size
 void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSize) const {
-  // Get today's stats (mWh)
-  int32_t today_net = socStats.today_solar_mwh - socStats.today_discharged_mwh;
+  // Last 24h net balance (mAh)
+  float last_24h_net = socStats.last_24h_net_mah;
   const char* status = socStats.living_on_battery ? "BATTERY" : "SOLAR";
   
-  snprintf(buffer, bufferSize, "Today:%+dmWh %s 3dAvg:%+dmWh", 
-           today_net,
+  snprintf(buffer, bufferSize, "24h:%+.1fmAh %s 3dAvg:%+.1fmAh", 
+           last_24h_net,
            status,
-           socStats.avg_daily_deficit_mwh);
+           socStats.avg_3day_daily_net_mah);
 }
 
 /// @brief Get Time To Live in hours
@@ -1737,13 +1733,54 @@ void BoardConfigContainer::syncSOCToFull() {
   ina228DriverInstance->resetCoulombCounter();
   
   // Set baseline to 0 (we just reset the counter)
-  socStats.ina228_baseline_mwh = 0;
+  socStats.ina228_baseline_mah = 0;
   
   // Mark as fully charged
   socStats.current_soc_percent = 100.0f;
   socStats.soc_valid = true;
   
   MESH_DEBUG_PRINTLN("SOC: Synced to 100%% (Charging Done) - INA228 baseline reset");
+}
+
+/// @brief Manually set SOC to specific percentage (e.g. after reboot with known SOC)
+/// @param soc_percent Desired SOC value (0-100)
+/// @return true if successful, false if invalid parameters
+bool BoardConfigContainer::setSOCManually(float soc_percent) {
+  if (!ina228DriverInstance) {
+    MESH_DEBUG_PRINTLN("SOC: Cannot set - INA228 not initialized");
+    return false;
+  }
+  
+  // Validate SOC range
+  if (soc_percent < 0.0f || soc_percent > 100.0f) {
+    MESH_DEBUG_PRINTLN("SOC: Invalid value %.1f%% (must be 0-100)", soc_percent);
+    return false;
+  }
+  
+  if (socStats.capacity_mah <= 0) {
+    MESH_DEBUG_PRINTLN("SOC: Cannot set - battery capacity unknown");
+    return false;
+  }
+  
+  // Read current CHARGE register value
+  float current_charge_mah = ina228DriverInstance->readCharge_mAh();
+  
+  // Calculate remaining capacity at desired SOC
+  float remaining_mah = (soc_percent / 100.0f) * socStats.capacity_mah;
+  
+  // Calculate baseline: charge_mah = baseline + net_charge
+  // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline)
+  // Therefore: baseline = charge - (remaining - capacity)
+  socStats.ina228_baseline_mah = current_charge_mah - (remaining_mah - socStats.capacity_mah);
+  
+  // Set SOC and mark as valid
+  socStats.current_soc_percent = soc_percent;
+  socStats.soc_valid = true;
+  
+  MESH_DEBUG_PRINTLN("SOC: Manually set to %.1f%% (CHARGE=%.1fmAh, Baseline=%.1fmAh)",
+                     soc_percent, current_charge_mah, socStats.ina228_baseline_mah);
+  
+  return true;
 }
 
 /// @brief Load battery capacity from preferences
@@ -1898,36 +1935,43 @@ uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
 }
 
 /// @brief Update battery SOC from INA228 Hardware Coulomb Counter (v0.2)
-/// @details Uses INA228 ENERGY register (mWh) for accurate DC/DC-compensated tracking
+/// @details Uses INA228 CHARGE register (mAh) for accurate charge tracking
 void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
     return;
   }
   
-  // Read INA228 Hardware-Coulomb-Counter (mWh)
-  int32_t energy_mwh = ina228DriverInstance->readEnergy_mWh();
+  // Read INA228 Hardware Coulomb Counter (mAh) - TWO'S COMPLEMENT, has correct sign!
+  // Positive = charging (into battery), Negative = discharging (from battery)
+  float charge_mah = ina228DriverInstance->readCharge_mAh();
   
-  // Update daily statistics (track charged/discharged energy in mWh)
+  // Update current hour statistics (track charged/discharged charge in mAh)
   // This runs ALWAYS, independent of SOC validity
-  static int32_t last_energy_mwh = 0;
+  static float last_charge_mah = 0.0f;
   static bool first_read = true;
   
   if (first_read) {
     // Initialize baseline on first read, don't count initial value as delta
-    last_energy_mwh = energy_mwh;
+    last_charge_mah = charge_mah;
+    socStats.last_charge_reading_mah = charge_mah;
     first_read = false;
   } else {
-    int32_t delta_mwh = energy_mwh - last_energy_mwh;
-    last_energy_mwh = energy_mwh;
+    float delta_mah = charge_mah - last_charge_mah;
+    last_charge_mah = charge_mah;
     
-    // Battery perspective: Positive delta = charging (counter rises), Negative delta = discharging (counter falls)
-    if (delta_mwh > 0) {
-      // Counter rising = Charging (energy added to battery)
-      socStats.today_charged_mwh += delta_mwh;
-      socStats.today_solar_mwh += delta_mwh;  // Assume solar (BQ tracks this)
-    } else if (delta_mwh < 0) {
-      // Counter falling = Discharging (energy removed from battery)
-      socStats.today_discharged_mwh += (-delta_mwh);
+    // Handle potential counter wrap or reset (ignore huge jumps > 10Ah)
+    if (delta_mah > 10000.0f || delta_mah < -10000.0f) {
+      MESH_DEBUG_PRINTLN("SOC: Large charge delta %.0fmAh - ignoring (counter reset?)", delta_mah);
+    } else {
+      // CHARGE register inverted in driver: positive delta = charging, negative delta = discharging
+      if (delta_mah > 0.0f) {
+        // Charging (positive delta)
+        socStats.current_hour_charged_mah += delta_mah;
+        socStats.current_hour_solar_mah += delta_mah;  // Assume solar (BQ tracks this)
+      } else if (delta_mah < 0.0f) {
+        // Discharging (negative delta)
+        socStats.current_hour_discharged_mah += (-delta_mah);
+      }
     }
   }
   
@@ -1950,16 +1994,16 @@ void BoardConfigContainer::updateBatterySOC() {
     return;  // Wait for first sync
   }
   
-  // Net energy since last baseline reset
-  // Sign convention: positive = charged (energy into battery), negative = discharged (energy from battery)
-  int32_t net_energy_mwh = energy_mwh - socStats.ina228_baseline_mwh;
+  // Net charge since last baseline reset (using CHARGE register in mAh)
+  // Driver inverted: positive = charged into battery, negative = discharged from battery
+  float net_charge_mah = charge_mah - socStats.ina228_baseline_mah;
   
-  // Remaining capacity = Initial capacity + net energy (positive=charged adds, negative=discharged subtracts)
-  float remaining_mwh = socStats.capacity_mwh + net_energy_mwh;
+  // Remaining capacity = Initial capacity + net charge (positive=charged adds, negative=discharged subtracts)
+  float remaining_mah = socStats.capacity_mah + net_charge_mah;
   
   // Calculate SOC percentage
-  if (socStats.capacity_mwh > 0) {
-    socStats.current_soc_percent = (remaining_mwh / socStats.capacity_mwh) * 100.0f;
+  if (socStats.capacity_mah > 0) {
+    socStats.current_soc_percent = (remaining_mah / socStats.capacity_mah) * 100.0f;
     
     // Clamp to 0-100%
     if (socStats.current_soc_percent > 100.0f) socStats.current_soc_percent = 100.0f;
@@ -1967,68 +2011,149 @@ void BoardConfigContainer::updateBatterySOC() {
   }
 }
 
-/// @brief Update daily balance statistics (mWh-based)
-void BoardConfigContainer::updateDailyBalance() {
+/// @brief Update daily balance statistics (mAh-based)
+/// @brief Update hourly battery statistics and advance rolling window
+void BoardConfigContainer::updateHourlyStats() {
   uint32_t currentTime = getRTCTime();
   
-  // Check if day has changed (86400 seconds = 1 day)
-  if (currentTime - socStats.lastUpdateTime >= 86400) {
-    // Move to next day
-    uint8_t nextIndex = (socStats.currentIndex + 1) % DAILY_STATS_DAYS;
-    
-    // Save today's stats (mWh)
-    DailyBatteryStats& today = socStats.days[socStats.currentIndex];
-    today.timestamp = socStats.lastUpdateTime;
-    today.charged_mwh = socStats.today_charged_mwh;
-    today.discharged_mwh = socStats.today_discharged_mwh;
-    today.solar_mwh = socStats.today_solar_mwh;
-    today.net_balance_mwh = socStats.today_solar_mwh - socStats.today_discharged_mwh;
-    
-    // Reset accumulators for new day
-    socStats.currentIndex = nextIndex;
-    socStats.today_charged_mwh = 0;
-    socStats.today_discharged_mwh = 0;
-    socStats.today_solar_mwh = 0;
-    socStats.lastUpdateTime = currentTime;
-    
-    // Calculate 3-day average deficit (mWh)
-    int32_t total_deficit = 0;
-    int32_t valid_days = 0;
-    for (int i = 0; i < 3 && i < DAILY_STATS_DAYS; i++) {
-      int idx = (socStats.currentIndex - 1 - i + DAILY_STATS_DAYS) % DAILY_STATS_DAYS;
-      if (socStats.days[idx].timestamp != 0) {
-        total_deficit += socStats.days[idx].net_balance_mwh;
-        valid_days++;
-      }
-    }
-    
-    if (valid_days > 0) {
-      socStats.avg_daily_deficit_mwh = total_deficit / valid_days;
-      socStats.living_on_battery = (socStats.avg_daily_deficit_mwh < 0);
-    }
-    
-    // Calculate TTL
-    calculateTTL();
+  // Calculate hour boundary (align to full hours)
+  uint32_t currentHour = (currentTime / 3600) * 3600;  // Truncate to hour boundary
+  
+  // Check if hour has changed
+  if (socStats.lastHourUpdateTime == 0) {
+    // First run - initialize
+    socStats.lastHourUpdateTime = currentHour;
+    MESH_DEBUG_PRINTLN("SOC: Hourly stats initialized at timestamp %u", currentHour);
+    return;
   }
+  
+  uint32_t lastHour = (socStats.lastHourUpdateTime / 3600) * 3600;
+  
+  if (currentHour > lastHour) {
+    // Hour boundary crossed - save current hour stats
+    MESH_DEBUG_PRINTLN("SOC: Hour changed (%u -> %u) - saving stats: C:%.1f D:%.1f S:%.1f mAh", 
+                       lastHour, currentHour,
+                       socStats.current_hour_charged_mah,
+                       socStats.current_hour_discharged_mah,
+                       socStats.current_hour_solar_mah);
+    
+    // Move to next hour slot in circular buffer
+    uint8_t nextIndex = (socStats.currentIndex + 1) % HOURLY_STATS_HOURS;
+    
+    // Save completed hour's stats
+    HourlyBatteryStats& completedHour = socStats.hours[socStats.currentIndex];
+    completedHour.timestamp = lastHour;
+    completedHour.charged_mah = socStats.current_hour_charged_mah;
+    completedHour.discharged_mah = socStats.current_hour_discharged_mah;
+    completedHour.solar_mah = socStats.current_hour_solar_mah;
+    
+    // Reset accumulators for new hour
+    socStats.currentIndex = nextIndex;
+    socStats.current_hour_charged_mah = 0.0f;
+    socStats.current_hour_discharged_mah = 0.0f;
+    socStats.current_hour_solar_mah = 0.0f;
+    socStats.lastHourUpdateTime = currentHour;
+    
+    // Recalculate rolling window statistics (24h and 3-day averages)
+    calculateRollingStats();
+  }
+}
+
+/// @brief Calculate 24h and 3-day rolling averages from hourly buffer
+void BoardConfigContainer::calculateRollingStats() {
+  // Calculate last 24 hours net balance
+  float sum_24h_charged = 0.0f;
+  float sum_24h_discharged = 0.0f;
+  float sum_24h_solar = 0.0f;
+  int valid_hours_24h = 0;
+  
+  // Sum up last 24 hours (most recent 24 entries)
+  for (int i = 0; i < 24 && i < HOURLY_STATS_HOURS; i++) {
+    int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
+    if (socStats.hours[idx].timestamp != 0) {
+      sum_24h_charged += socStats.hours[idx].charged_mah;
+      sum_24h_discharged += socStats.hours[idx].discharged_mah;
+      sum_24h_solar += socStats.hours[idx].solar_mah;
+      valid_hours_24h++;
+    }
+  }
+  
+  // Last 24h net: solar - discharged (positive = surplus, negative = deficit)
+  socStats.last_24h_net_mah = sum_24h_solar - sum_24h_discharged;
+  socStats.living_on_battery = (socStats.last_24h_net_mah < 0.0f);
+  
+  // Calculate 3-day average daily net (72 hours)
+  float sum_72h_charged = 0.0f;
+  float sum_72h_discharged = 0.0f;
+  float sum_72h_solar = 0.0f;
+  int valid_hours_72h = 0;
+  
+  for (int i = 0; i < 72 && i < HOURLY_STATS_HOURS; i++) {
+    int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
+    if (socStats.hours[idx].timestamp != 0) {
+      sum_72h_charged += socStats.hours[idx].charged_mah;
+      sum_72h_discharged += socStats.hours[idx].discharged_mah;
+      sum_72h_solar += socStats.hours[idx].solar_mah;
+      valid_hours_72h++;
+    }
+  }
+  
+  // Average daily net over 3 days (divide 72h sum by 3)
+  if (valid_hours_72h >= 24) {  // Need at least 24h of data
+    float net_72h = sum_72h_solar - sum_72h_discharged;
+    socStats.avg_3day_daily_net_mah = net_72h / 3.0f;  // Divide by 3 days
+  } else {
+    socStats.avg_3day_daily_net_mah = 0.0f;
+  }
+  
+  // Calculate 7-day average daily net (168 hours)
+  float sum_168h_charged = 0.0f;
+  float sum_168h_discharged = 0.0f;
+  float sum_168h_solar = 0.0f;
+  int valid_hours_168h = 0;
+  
+  for (int i = 0; i < 168 && i < HOURLY_STATS_HOURS; i++) {
+    int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
+    if (socStats.hours[idx].timestamp != 0) {
+      sum_168h_charged += socStats.hours[idx].charged_mah;
+      sum_168h_discharged += socStats.hours[idx].discharged_mah;
+      sum_168h_solar += socStats.hours[idx].solar_mah;
+      valid_hours_168h++;
+    }
+  }
+  
+  // Average daily net over 7 days (divide 168h sum by 7)
+  if (valid_hours_168h >= 24) {  // Need at least 24h of data
+    float net_168h = sum_168h_solar - sum_168h_discharged;
+    socStats.avg_7day_daily_net_mah = net_168h / 7.0f;  // Divide by 7 days
+  } else {
+    socStats.avg_7day_daily_net_mah = 0.0f;
+  }
+  
+  MESH_DEBUG_PRINTLN("SOC: Rolling stats - 24h net: %+.1fmAh, 3d avg: %+.1fmAh/day, 7d avg: %+.1fmAh/day",
+                     socStats.last_24h_net_mah, socStats.avg_3day_daily_net_mah, socStats.avg_7day_daily_net_mah);
+  
+  // Calculate TTL
+  calculateTTL();
 }
 
 /// @brief Calculate Time To Live (hours until battery empty)
 void BoardConfigContainer::calculateTTL() {
-  if (!socStats.living_on_battery || socStats.avg_daily_deficit_mwh >= 0) {
+  if (!socStats.living_on_battery || socStats.avg_3day_daily_net_mah >= 0) {
     socStats.ttl_hours = 0;  // Not draining or charging
     return;
   }
   
-  if (socStats.capacity_mwh <= 0) {
+  if (socStats.capacity_mah <= 0) {
     socStats.ttl_hours = 0;  // Capacity unknown
     return;
   }
   
-  // Current remaining capacity in mWh
-  float remaining_mwh = (socStats.current_soc_percent / 100.0f) * socStats.capacity_mwh;
+  // Current remaining capacity in mAh
+  float remaining_mah = (socStats.current_soc_percent / 100.0f) * socStats.capacity_mah;
   
   // Daily deficit (negative value)
-  float deficit_per_day = -socStats.avg_daily_deficit_mwh;
+  float deficit_per_day = -socStats.avg_3day_daily_net_mah;
   
   if (deficit_per_day <= 0) {
     socStats.ttl_hours = 0;
@@ -2036,13 +2161,13 @@ void BoardConfigContainer::calculateTTL() {
   }
   
   // Days until empty
-  float days_remaining = remaining_mwh / deficit_per_day;
+  float days_remaining = remaining_mah / deficit_per_day;
   
   // Convert to hours
   socStats.ttl_hours = (uint16_t)(days_remaining * 24.0f);
   
-  MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mWh remaining, -%.0f mWh/day)",
-                     days_remaining, remaining_mwh, deficit_per_day);
+  MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mAh remaining, -%.0f mAh/day)",
+                     days_remaining, remaining_mah, deficit_per_day);
 }
 
 /// @brief Estimate SOC from voltage (fallback method)
@@ -2100,16 +2225,24 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
   MESH_DEBUG_PRINTLN("SOC Update Task started - running every minute");
   
   const uint32_t UPDATE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
+  static uint8_t minute_counter = 0;  // Count minutes until hourly update
   
   while (true) {
     // Wait for 1 minute
     vTaskDelay(pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
     
-    // Update SOC from Coulomb Counter
+    // Update SOC from Coulomb Counter (runs every minute)
     updateBatterySOC();
     
-    // Update daily balance (checks if day changed)
-    updateDailyBalance();
+    // Increment minute counter
+    minute_counter++;
+    
+    // Every 60 minutes: Update hourly statistics
+    if (minute_counter >= 60) {
+      MESH_DEBUG_PRINTLN("SOC: 60 minutes elapsed - updating hourly stats");
+      updateHourlyStats();
+      minute_counter = 0;
+    }
   }
 }
 
@@ -2146,16 +2279,15 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   
   socStats.capacity_mah = capacity_mah;
   
-  // Convert to mWh using nominal voltage for battery chemistry
+  // Store nominal voltage for battery chemistry
   float nominalV = getNominalVoltage(battType);
-  socStats.capacity_mwh = capacity_mah * nominalV;
   socStats.nominal_voltage = nominalV;
   
   socStats.current_soc_percent = 50.0f;  // Initial estimate
-  socStats.lastUpdateTime = getRTCTime();
+  socStats.lastHourUpdateTime = getRTCTime();
   
-  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh (%.0f mWh @ %.1fV) %s", 
-                     capacity_mah, socStats.capacity_mwh, nominalV,
+  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh @ %.1fV %s", 
+                     capacity_mah, nominalV,
                      capacity_loaded ? "manual" : "default");
   
   // Get chemistry-specific critical threshold (Danger Zone boundary)
