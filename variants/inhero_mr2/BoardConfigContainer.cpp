@@ -1010,10 +1010,9 @@ bool BoardConfigContainer::begin() {
   
   // === MR2 Configuration (v0.2 only) ===
   prefs.begin(PREFS_NAMESPACE);
-  BatteryType bat;
-  FrostChargeBehaviour frost;
-  uint16_t maxChargeCurrent_mA;
-  bool reducedBattVoltage;
+  BatteryType bat = DEFAULT_BATTERY_TYPE;
+  FrostChargeBehaviour frost = DEFAULT_FROST_BEHAVIOUR;
+  uint16_t maxChargeCurrent_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
 
   if (!loadBatType(bat)) {
     prefs.putString(BATTKEY, getBatteryTypeCommandString(bat));
@@ -1024,12 +1023,9 @@ bool BoardConfigContainer::begin() {
   if (!loadMaxChrgI(maxChargeCurrent_mA)) {
     prefs.putInt(MAXCHARGECURRENTKEY, maxChargeCurrent_mA);
   }
-  if (!loadReduceChrgU(reducedBattVoltage)) {
-    prefs.putString(REDUCEDBATTVOLTAGE, reducedBattVoltage ? "1" : "0");
-  }
 
   this->configureBaseBQ();
-  this->configureChemistry(bat, reducedBattVoltage);
+  this->configureChemistry(bat);
   
   // MR2 (v0.2) doesn't use MCP4652 - only v0.1 hardware
   // this->configureMCP(bat);  // Commented out for MR2
@@ -1212,27 +1208,6 @@ bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
   return false;
 }
 
-/// @brief Loads reduced charge voltage setting from preferences
-/// @param reduce Reference to store loaded setting
-/// @return true if preference found, false if default used
-bool BoardConfigContainer::loadReduceChrgU(bool& reduce) const {
-  char buffer[10];
-
-  if (prefs.getString(REDUCEDBATTVOLTAGE, buffer, sizeof(buffer), "") > 0) {
-    if (buffer[0] != '\0') {
-      reduce = buffer[0] == '1' ? true : false;
-      return true;
-    } else {
-      reduce = DEFAULT_REDUCED_CHARGE_VOLTAGE;
-      return false;
-    }
-  }
-  
-  // No preference found - use default
-  reduce = DEFAULT_REDUCED_CHARGE_VOLTAGE;
-  return false;
-}
-
 /// @brief Loads MPPT enabled setting from preferences
 /// @param enabled Reference to store loaded setting
 /// @return true if preference found, false if default used
@@ -1317,7 +1292,6 @@ bool BoardConfigContainer::resetBQ() {
   BatteryType bat;
   FrostChargeBehaviour frost;
   uint16_t maxChargeCurrent_mA;
-  bool reducedBattVoltage;
   
   if (!loadBatType(bat)) {
     bat = BatteryType::LIION_1S;  // Default
@@ -1328,13 +1302,10 @@ bool BoardConfigContainer::resetBQ() {
   if (!loadMaxChrgI(maxChargeCurrent_mA)) {
     maxChargeCurrent_mA = 200;  // Default
   }
-  if (!loadReduceChrgU(reducedBattVoltage)) {
-    reducedBattVoltage = false;  // Default
-  }
   
   // Apply configuration
   configureBaseBQ();
-  configureChemistry(bat, reducedBattVoltage);
+  configureChemistry(bat);
   // MR2 doesn't use MCP4652 (v0.1 only)
   if (bat != BatteryType::LTO_2S) {
     setFrostChargeBehaviour(frost);
@@ -1375,9 +1346,8 @@ bool BoardConfigContainer::configureBaseBQ() {
 
 /// @brief Configures battery chemistry-specific parameters (cell count, charge voltage)
 /// @param type Battery chemistry type (LIION_1S, LIFEPO4_1S, LTO_2S)
-/// @param reduceMaxChrgU If true, uses reduced max voltage for extended life
 /// @return true if configuration successful
-bool BoardConfigContainer::configureChemistry(BatteryType type, bool reduceMaxChrgU) {
+bool BoardConfigContainer::configureChemistry(BatteryType type) {
   if (!BQ_INITIALIZED) {
     return false;
   }
@@ -1386,20 +1356,12 @@ bool BoardConfigContainer::configureChemistry(BatteryType type, bool reduceMaxCh
   case BoardConfigContainer::BatteryType::LIION_1S:
     bq.setCellCount(BQ25798_CELL_COUNT_1S);
     bq.setTsIgnore(false);
-    if (reduceMaxChrgU) {
-      bq.setChargeLimitV(LIION_1S_VOLTAGE_REDUCED);
-    } else {
-      bq.setChargeLimitV(LIION_1S_VOLTAGE_NORMAL);
-    }
+    bq.setChargeLimitV(LIION_1S_VOLTAGE);
     break;
   case BoardConfigContainer::BatteryType::LIFEPO4_1S:
     bq.setCellCount(BQ25798_CELL_COUNT_1S);
     bq.setTsIgnore(false);
-    if (reduceMaxChrgU) {
-      bq.setChargeLimitV(LIFEPO4_1S_VOLTAGE_REDUCED);
-    } else {
-      bq.setChargeLimitV(LIFEPO4_1S_VOLTAGE_NORMAL);
-    }
+    bq.setChargeLimitV(LIFEPO4_1S_VOLTAGE);
     break;
   case BoardConfigContainer::BatteryType::LTO_2S:
     bq.setCellCount(BQ25798_CELL_COUNT_2S);
@@ -1408,11 +1370,7 @@ bool BoardConfigContainer::configureChemistry(BatteryType type, bool reduceMaxCh
     // Even though TS_IGNORE disables temperature monitoring, ensure JEITA registers don't interfere
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);  // Cold region - no current reduction
     bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);  // Warm region - no current reduction
-    if (reduceMaxChrgU) {
-      bq.setChargeLimitV(LTO_2S_VOLTAGE_REDUCED);
-    } else {
-      bq.setChargeLimitV(LTO_2S_VOLTAGE_NORMAL);
-    }
+    bq.setChargeLimitV(LTO_2S_VOLTAGE);
   }
 
   return true;
@@ -1444,14 +1402,6 @@ BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeB
   } else {
     return NO_CHARGE;
   }
-}
-
-/// @brief Gets reduced charge voltage setting from preferences
-/// @return true if reduced voltage enabled, false otherwise
-bool BoardConfigContainer::getReduceChargeVoltage() const {
-  bool reduce = false;
-  loadReduceChrgU(reduce);
-  return reduce;
 }
 
 /// @brief Gets maximum charge current from preferences
@@ -1497,13 +1447,12 @@ float BoardConfigContainer::getMaxChargeVoltage() const {
   return bq.getChargeLimitV();
 };
 
-/// @brief Sets battery type and reconfigures BQ and MCP accordingly
+/// @brief Sets battery type and reconfigures BQ accordingly
 /// @param type Battery chemistry type
-/// @param reducedChargeVoltage Enable reduced voltage for extended life
 /// @return true if all configurations successful
-bool BoardConfigContainer::setBatteryType(BatteryType type, bool reducedChargeVoltage) {
+bool BoardConfigContainer::setBatteryType(BatteryType type) {
   bool bqBaseConfigured = this->configureBaseBQ();
-  bool bqConfigured = this->configureChemistry(type, reducedChargeVoltage);
+  bool bqConfigured = this->configureChemistry(type);
   
   // === CRITICAL: Update INA228 UVLO threshold when battery type changes ===
   if (ina228DriverInstance) {
@@ -1530,6 +1479,16 @@ bool BoardConfigContainer::setBatteryType(BatteryType type, bool reducedChargeVo
   }
   
   // MR2 (v0.2) doesn't use MCP4652
+  
+  // Store battery type in preferences
+  prefs.putString(BATTKEY, getBatteryTypeCommandString(type));
+  
+  // Safety: When switching to Li-Ion or LiFePO4, reset frost charge to NO_CHARGE
+  // These chemistries should not be charged at low temperatures
+  if (type == BatteryType::LIION_1S || type == BatteryType::LIFEPO4_1S) {
+    setFrostChargeBehaviour(FrostChargeBehaviour::NO_CHARGE);
+  }
+  
   return bqBaseConfigured && bqConfigured;
 }
 
@@ -1560,32 +1519,6 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
 bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
   prefs.putInt(MAXCHARGECURRENTKEY, maxChrgI);
   return bq.setChargeLimitA(maxChrgI / 1000.0f);
-}
-
-/// @brief Sets battery type with current reduced voltage setting
-/// @param type Battery chemistry type
-/// @return true if successful
-bool BoardConfigContainer::setBatteryType(BatteryType type) {
-  bool reduce = false;
-  loadReduceChrgU(reduce);
-  setBatteryType(type, reduce);
-  prefs.putString(BATTKEY, getBatteryTypeCommandString(type));
-  
-  // Safety: When switching to Li-Ion or LiFePO4, reset frost charge to NO_CHARGE
-  // These chemistries should not be charged at low temperatures
-  if (type == BatteryType::LIION_1S || type == BatteryType::LIFEPO4_1S) {
-    setFrostChargeBehaviour(FrostChargeBehaviour::NO_CHARGE);
-  }
-}
-
-/// @brief Sets reduced charge voltage mode
-/// @param reduce true to enable reduced voltage
-/// @return true if successful
-bool BoardConfigContainer::setReducedChargeVoltage(bool reduce) {
-  BatteryType type = LIFEPO4_1S;
-  loadBatType(type);
-  setBatteryType(type, reduce);
-  prefs.putString(REDUCEDBATTVOLTAGE, reduce ? "1" : "0");
 }
 
 /// @brief Calculates 7-day moving average of MPPT enabled percentage

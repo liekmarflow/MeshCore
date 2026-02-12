@@ -76,9 +76,6 @@ board.frost     # Get frost charge behavior
                 # Output: 0% | 20% | 40% | 100%
                 # LTO batteries: N/A (JEITA disabled)
 
-board.life      # Get reduced voltage setting
-                # Output: 1 (enabled) | 0 (disabled)
-
 board.imax      # Get max charge current
                 # Output: <current>mA (e.g., 200mA)
 
@@ -167,9 +164,6 @@ set board.bat <type>           # Set battery type
 set board.frost <behavior>     # Set frost charge behavior
                                # Options: 0% | 20% | 40% | 100%
                                # N/A for LTO batteries
-
-set board.life <1|0>           # Enable/disable reduced charge voltage
-                               # 1 = enabled, 0 = disabled
 
 set board.imax <current>       # Set max charge current in mA
                                # Range: 10-1000mA

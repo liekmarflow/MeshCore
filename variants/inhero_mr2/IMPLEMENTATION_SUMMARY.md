@@ -577,9 +577,6 @@ set board.mppt <0|1>    # Enable/disable MPPT
 set board.frost <mode>  # Set frost charge behavior
                         # Options: 0% | 20% | 40% | 100%
                         # Code: InheroMr2Board.cpp - setCustomSetter()
-
-set board.life <0|1>    # Enable/disable reduced charge voltage
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
 ```
 
 ---

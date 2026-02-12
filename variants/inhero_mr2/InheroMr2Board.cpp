@@ -340,9 +340,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
           BoardConfigContainer::getFrostChargeBehaviourCommandString(boardConfig.getFrostChargeBehaviour()));
     }
     return true;
-  } else if (strcmp(cmd, "life") == 0) {
-    snprintf(reply, maxlen, "%s", boardConfig.getReduceChargeVoltage() ? "1" : "0");
-    return true;
   } else if (strcmp(cmd, "imax") == 0) {
     snprintf(reply, maxlen, "%s", boardConfig.getChargeCurrentAsStr());
     return true;
@@ -669,25 +666,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Try one of: %s",
                BoardConfigContainer::getAvailableFrostChargeBehaviourOptions());
       return ret;
-    }
-  } else if (strncmp(setCommand, "life ", 5) == 0) {
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
-    // Convert to lowercase for case-insensitive comparison
-    char lowerValue[20];
-    strncpy(lowerValue, value, sizeof(lowerValue) - 1);
-    lowerValue[sizeof(lowerValue) - 1] = '\0';
-    for (char* p = lowerValue; *p; ++p) *p = tolower(*p);
-    
-    if (strcmp(lowerValue, "true") == 0 || strcmp(lowerValue, "1") == 0) {
-      boardConfig.setReducedChargeVoltage(true);
-      snprintf(ret, sizeof(ret), "Charge cutoff voltage changed to %.2fV", boardConfig.getMaxChargeVoltage());
-      return ret;
-    } else if (strcmp(lowerValue, "false") == 0 || strcmp(lowerValue, "0") == 0) {
-      boardConfig.setReducedChargeVoltage(false);
-      snprintf(ret, sizeof(ret), "Charge cutoff voltage changed to %.2fV", boardConfig.getMaxChargeVoltage());
-      return ret;
-    } else {
-      return "Err: Try true|false or 1|0";
     }
   } else if (strncmp(setCommand, "imax ", 5) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));

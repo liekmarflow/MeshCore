@@ -104,13 +104,10 @@ public:
     BatteryType type;
   } BatteryMapping;
 
-  // Charge voltage limits for different battery types
-  static constexpr float LIION_1S_VOLTAGE_NORMAL = 4.2f;
-  static constexpr float LIION_1S_VOLTAGE_REDUCED = 4.05f;
-  static constexpr float LIFEPO4_1S_VOLTAGE_NORMAL = 3.6f;
-  static constexpr float LIFEPO4_1S_VOLTAGE_REDUCED = 3.45f;
-  static constexpr float LTO_2S_VOLTAGE_NORMAL = 5.6f;
-  static constexpr float LTO_2S_VOLTAGE_REDUCED = 5.4f;
+  // Charge voltage limits for different battery types (battery-friendly defaults)
+  static constexpr float LIION_1S_VOLTAGE = 4.1f;      // ~90-95% capacity, extended lifetime
+  static constexpr float LIFEPO4_1S_VOLTAGE = 3.5f;    // ~95% capacity, optimal for longevity
+  static constexpr float LTO_2S_VOLTAGE = 5.4f;        // 2.7V/cell, conservative for LTO
 
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
                                                        { "lifepo1s", LIFEPO4_1S },
@@ -141,7 +138,6 @@ public:
   static constexpr BatteryType DEFAULT_BATTERY_TYPE = LIION_1S;
   static constexpr FrostChargeBehaviour DEFAULT_FROST_BEHAVIOUR = NO_CHARGE;
   static constexpr uint16_t DEFAULT_MAX_CHARGE_CURRENT_MA = 200;
-  static constexpr bool DEFAULT_REDUCED_CHARGE_VOLTAGE = false;
   static constexpr bool DEFAULT_MPPT_ENABLED = false;
 
   static BatteryType getBatteryTypeFromCommandString(const char* cmdStr);
@@ -175,14 +171,11 @@ public:
   static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
 
   bool setBatteryType(BatteryType type);
-  bool setReducedChargeVoltage(bool reduce);
 
   BatteryType getBatteryType() const;
 
   bool setFrostChargeBehaviour(FrostChargeBehaviour behaviour);
   FrostChargeBehaviour getFrostChargeBehaviour() const;
-
-  bool getReduceChargeVoltage() const;
 
   bool setMaxChargeCurrent_mA(uint16_t maxChrgI);
   uint16_t getMaxChargeCurrent_mA() const;
@@ -258,17 +251,14 @@ private:
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
 
-  bool setBatteryType(BatteryType type, bool reducedChargeVoltage);
-
   bool configureBaseBQ();
-  bool configureChemistry(BatteryType type, bool reduceMaxChrgU);
+  bool configureChemistry(BatteryType type);
   // configureMCP() removed - v0.1 only, MR2 doesn't have MCP4652
   bool configureSolarOnlyInterrupts();
   const char* PREFS_NAMESPACE = "inheromr2";
   char* BATTKEY = "batType";
   char* FROSTKEY = "frost";
   char* MAXCHARGECURRENTKEY = "maxChrg";
-  char* REDUCEDBATTVOLTAGE = "reduce";
   char* MPPTENABLEKEY = "mpptEn";
   char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
   char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
@@ -276,7 +266,6 @@ private:
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
-  bool loadReduceChrgU(bool& reduce) const;
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   bool loadIna228CalibrationFactor(float& factor) const; // v0.2
   
