@@ -1630,6 +1630,13 @@ float BoardConfigContainer::getBatteryCapacity() const {
   return socStats.capacity_mah;
 }
 
+/// @brief Check if battery capacity was explicitly set via CLI
+/// @return true if capacity was set in preferences, false if using default
+bool BoardConfigContainer::isBatteryCapacitySet() const {
+  String path = String("/") + PREFS_NAMESPACE + "/" + BATTERY_CAPACITY_KEY + ".txt";
+  return InternalFS.exists(path.c_str());
+}
+
 /// @brief Set battery capacity manually via CLI (converts to mWh internally)
 /// @param capacity_mah Capacity in mAh (user input)
 /// @return true if successful

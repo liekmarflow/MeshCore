@@ -434,9 +434,19 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     bool enabled = boardConfig.getLEDsEnabled();
     snprintf(reply, maxlen, "LEDs: %s (Heartbeat + BQ Stat)", enabled ? "ON" : "OFF");
     return true;
+  } else if (strcmp(cmd, "batcap") == 0) {
+    // Get battery capacity in mAh - show if default or explicitly set
+    float capacity_mah = boardConfig.getBatteryCapacity();
+    bool explicitly_set = boardConfig.isBatteryCapacitySet();
+    if (explicitly_set) {
+      snprintf(reply, maxlen, "%.0f mAh (set)", capacity_mah);
+    } else {
+      snprintf(reply, maxlen, "%.0f mAh (default)", capacity_mah);
+    }
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap>");
   return true;
 }
 
