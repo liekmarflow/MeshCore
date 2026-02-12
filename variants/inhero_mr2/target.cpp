@@ -8,7 +8,7 @@ InheroMr2Board board;
 RADIO_CLASS radio = new Module(P_LORA_NSS, P_LORA_DIO_1, P_LORA_RESET, P_LORA_BUSY, SPI);
 WRAPPER_CLASS radio_driver(radio, board);
 VolatileRTCClock fallback_clock;
-AutoDiscoverRTCClock rtc_clock(fallback_clock);
+GuardedRTCClock rtc_clock(fallback_clock);
 
 #ifndef PIN_USER_BTN
   #define PIN_USER_BTN (-1)

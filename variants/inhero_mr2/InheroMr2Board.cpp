@@ -25,6 +25,7 @@
 // Includes
 #include "InheroMr2Board.h"
 #include "BoardConfigContainer.h"
+#include "target.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
@@ -33,6 +34,7 @@
 // Static declarations
 static BLEDfu bledfu;
 static BoardConfigContainer boardConfig;
+volatile bool InheroMr2Board::rtc_irq_pending = false;
 
 // Static callback functions
 static void connect_callback(uint16_t conn_handle) {
@@ -211,6 +213,26 @@ void InheroMr2Board::tick() {
   // Feed watchdog to prevent system reset
   // This ensures the main loop is running properly
   BoardConfigContainer::feedWatchdog();
+
+  if (rtc_irq_pending) {
+    rtc_irq_pending = false;
+
+    // Clear TF here (not in ISR) to avoid I2C bus collisions with core RTC access.
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_STATUS);
+    Wire.endTransmission(false);
+    Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
+
+    if (Wire.available()) {
+      uint8_t status = Wire.read();
+      status &= ~(1 << 3);  // Clear TF bit (bit 3)
+
+      Wire.beginTransmission(RTC_I2C_ADDR);
+      Wire.write(RV3028_REG_STATUS);
+      Wire.write(status);
+      Wire.endTransmission();
+    }
+  }
 }
 
 uint16_t InheroMr2Board::getBattMilliVolts() {
@@ -688,6 +710,9 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
 /// @param hours Wake-up interval in hours (12 = Danger Zone checks)
 void InheroMr2Board::configureRTCWake(uint32_t hours) {
+#if defined(INHERO_MR2)
+  rtc_clock.setLocked(true);
+#endif
 #if TESTING_MODE
   // Testing Mode: 60 seconds for fast lab testing
   uint16_t countdown = 60;
@@ -736,32 +761,17 @@ void InheroMr2Board::configureRTCWake(uint32_t hours) {
   Wire.endTransmission();
   
   MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%d seconds at 1 Hz)", countdown);
+
+#if defined(INHERO_MR2)
+  rtc_clock.setLocked(false);
+#endif
 }
 
 /// @brief RTC interrupt handler - called when countdown timer expires (v0.2)
 void InheroMr2Board::rtcInterruptHandler() {
   // RTC countdown elapsed - device woke from SYSTEMOFF
-  // Clear Timer Flag (TF) bit in STATUS register to release INT pin
-  
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_STATUS);
-  Wire.endTransmission(false);
-  Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
-  
-  if (Wire.available()) {
-    uint8_t status = Wire.read();
-    
-    // Clear TF bit (bit 3) by writing 0 to it
-    status &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
-    
-    // Write back to clear the flag and release INT pin
-    Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(RV3028_REG_STATUS);
-    Wire.write(status);
-    Wire.endTransmission();
-  }
-  
-  // Note: Main logic for voltage/charge check happens in begin()
+  // Defer I2C work to the main loop to avoid ISR I2C collisions.
+  rtc_irq_pending = true;
 }
 
 // ===== Helper Functions =====
