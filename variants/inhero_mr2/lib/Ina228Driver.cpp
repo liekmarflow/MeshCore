@@ -288,9 +288,10 @@ bool Ina228Driver::readAll(Ina228BatteryData* data) {
 }
 
 void Ina228Driver::resetCoulombCounter() {
-  // Reading energy/charge registers clears them
-  readRegister40(INA228_REG_ENERGY);
-  readRegister40(INA228_REG_CHARGE);
+  // Use CONFIG.RSTACC to clear ENERGY/CHARGE accumulators (see datasheet)
+  uint16_t config = readRegister16(INA228_REG_CONFIG);
+  config |= (1 << 14);  // RSTACC
+  writeRegister16(INA228_REG_CONFIG, config);
 }
 
 bool Ina228Driver::setUnderVoltageAlert(uint16_t voltage_mv) {

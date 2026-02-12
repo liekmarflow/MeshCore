@@ -203,6 +203,10 @@ set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
                                # Boot-LEDs (3 blaue Blinks) immer aktiv
+
+set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
+                               # Bereich: 0-100
+                               # Hinweis: INA228 muss initialisiert sein
 ```
 
 ## Diagnose & Fehlersuche

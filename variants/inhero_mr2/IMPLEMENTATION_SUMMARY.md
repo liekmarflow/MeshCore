@@ -628,6 +628,10 @@ set board.leds <on|off>     # Enable/disable heartbeat + BQ stat LED
                             # Options: on/1 | off/0
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
+set board.soc <percent>     # Manually set SOC percentage
+                            # Range: 0-100 (INA228 must be ready)
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
+
 set board.bqreset           # Reset BQ25798 and reload config
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 ```
