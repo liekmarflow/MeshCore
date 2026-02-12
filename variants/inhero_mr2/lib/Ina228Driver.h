@@ -49,12 +49,24 @@
 #define INA228_CONFIG_RST       (1 << 15)  // Reset bit
 #define INA228_CONFIG_ADCRANGE  (1 << 4)   // ADC Range (0=±163.84mV, 1=±40.96mV)
 
-// ADC Configuration
+// ADC Configuration - Mode
 #define INA228_ADC_MODE_CONT_ALL  0x0F  // Continuous conversion, all channels
+
+// ADC Configuration - Averaging
 #define INA228_ADC_AVG_1          0x00  // No averaging
 #define INA228_ADC_AVG_4          0x01  // 4 samples average
 #define INA228_ADC_AVG_16         0x02  // 16 samples average
 #define INA228_ADC_AVG_64         0x03  // 64 samples average
+
+// ADC Configuration - Conversion Time (VBUSCT, VSHCT, VTCT)
+#define INA228_ADC_CT_50us        0x00  // 50 µs
+#define INA228_ADC_CT_84us        0x01  // 84 µs
+#define INA228_ADC_CT_150us       0x02  // 150 µs
+#define INA228_ADC_CT_280us       0x03  // 280 µs
+#define INA228_ADC_CT_540us       0x04  // 540 µs
+#define INA228_ADC_CT_1052us      0x05  // 1052 µs (default)
+#define INA228_ADC_CT_2074us      0x06  // 2074 µs
+#define INA228_ADC_CT_4120us      0x07  // 4120 µs (maximum accuracy)
 
 // Alert Configuration
 #define INA228_DIAG_ALRT_ALATCH   (1 << 15)  // Alert Latch Enable

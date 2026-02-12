@@ -1121,7 +1121,7 @@ bool BoardConfigContainer::begin() {
       adc_cfg_check = (Wire.read() << 8) | Wire.read();
     }
     
-    if (adc_cfg_check != 0xF002) {
+    if (adc_cfg_check != 0xFFCA) {
       MESH_DEBUG_PRINTLN("⚠ INA228 ADC_CONFIG=0x%04X after task start - fixing...", adc_cfg_check);
       
       // Visual: Rapid red blinks = ADC_CONFIG corrupted by task race
@@ -1135,12 +1135,12 @@ bool BoardConfigContainer::begin() {
       // Force-write ADC_CONFIG again
       Wire.beginTransmission(0x40);
       Wire.write(0x01);
-      Wire.write(0xF0);
-      Wire.write(0x02);
+      Wire.write(0xFF);
+      Wire.write(0xCA);  // 0xFFCA: Long conv times + 16 avg
       Wire.endTransmission();
       delay(10);
       
-      MESH_DEBUG_PRINTLN("INA228 ADC_CONFIG restored to 0xF002");
+      MESH_DEBUG_PRINTLN("INA228 ADC_CONFIG restored to 0xFFCA");
     }
   }
   

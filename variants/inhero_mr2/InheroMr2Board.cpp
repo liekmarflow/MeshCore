@@ -599,11 +599,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     uint8_t ack = Wire.endTransmission();
     
     if (ack == 0) {
-      // Try to write ADC_CONFIG = 0xF002 (Continuous All + 16avg)
+      // Try to write ADC_CONFIG = 0xFFCA (Continuous All + long conv times + 16avg)
       Wire.beginTransmission(0x40);
       Wire.write(0x01);  // ADC_CONFIG register
-      Wire.write(0xF0);  // MSB
-      Wire.write(0x02);  // LSB
+      Wire.write(0xFF);  // MSB
+      Wire.write(0xCA);  // LSB
       uint8_t write_result = Wire.endTransmission();
       
       delay(10);
@@ -618,9 +618,9 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
         adc_readback = (Wire.read() << 8) | Wire.read();
       }
       
-      snprintf(reply, maxlen, "Write:0xF002 result=%d Readback:0x%04X %s", 
+      snprintf(reply, maxlen, "Write:0xFFCA result=%d Readback:0x%04X %s", 
                write_result, adc_readback, 
-               (adc_readback == 0xF002) ? "OK" : "FAIL");
+               (adc_readback == 0xFFCA) ? "OK" : "FAIL");
     } else {
       snprintf(reply, maxlen, "INA228 not detected (ACK=%d)", ack);
     }

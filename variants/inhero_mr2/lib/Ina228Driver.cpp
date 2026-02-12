@@ -25,11 +25,16 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   // Resetting causes timing issues where subsequent writes fail
   // Just reconfigure registers directly
   
-  // Configure ADC: Continuous mode, all channels, 64 samples averaging
-  // AVG_64 filters TX voltage peaks (prevents false UVLO triggers during transmit)
-  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all = 0xF
-                        (INA228_ADC_AVG_64 << 0);             // 64 samples avg = 0x3
-  // Expected: 0xF003
+  // Configure ADC: Continuous mode, all channels, long conversion times, 64 samples averaging
+  // - Long conversion times (VSHCT=4120µs, VBUSCT=2074µs) reduce noise for accurate SOC tracking
+  // - AVG_64 filters TX voltage peaks (prevents false UVLO triggers during transmit)
+  // - Trade-off: ~264ms per measurement (excellent accuracy, acceptable for 1h SOC updates)
+  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // MODE: Continuous all = 0xF
+                        (INA228_ADC_CT_2074us << 9)      |  // VBUSCT: 2074µs for voltage accuracy
+                        (INA228_ADC_CT_4120us << 6)      |  // VSHCT: 4120µs for current/SOC accuracy
+                        (INA228_ADC_CT_540us << 3)       |  // VTCT: 540µs (temp less critical)
+                        (INA228_ADC_AVG_64 << 0);           // AVG: 64 samples
+  // Expected: 0xFFCB (was 0xF003 without conversion time config)
   
   // Write ADC_CONFIG with retry and verify
   // Sometimes the first write after readVBATDirect() fails
