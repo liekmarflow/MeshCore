@@ -152,9 +152,9 @@ void InheroMr2Board::begin() {
           // Only clear lower bits (SHUTDOWN_REASON) for clean state
           NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
           
-          // Configure RTC to wake in 1 minute, then shutdown
+          // Configure RTC wake-up (60s testing / 12h production)
           // voltageMonitorTask will send sleep command on next boot after init completes
-          configureRTCWake(1);
+          configureRTCWake(12);
           sd_power_system_off();
           // Never returns
         }
@@ -176,8 +176,8 @@ void InheroMr2Board::begin() {
         // Do NOT send sleep command here - would cause race condition with bootup
         // voltageMonitorTask will handle sleep after full system initialization
         
-        // Configure RTC wake-up before shutdown
-        configureRTCWake(1);  // Wake up in 1 minute (TEST MODE)
+        // Configure RTC wake-up before shutdown (60s testing / 12h production)
+        configureRTCWake(12);
         
         // Store reason AND set Danger Zone flag (this was ColdBoot, no flag set yet)
         NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
@@ -606,8 +606,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // For now, stopBackgroundTasks() should flush pending writes
     delay(100);  // Allow I/O to complete
     
-    // 3. Configure RTC to wake us up in 1 hour
-    configureRTCWake(1);
+    // 3. Configure RTC to wake us up (60s testing / 12h production)
+    configureRTCWake(12);
   }
   
   // 4. Store shutdown reason for next boot
@@ -622,12 +622,18 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 }
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
-/// @param hours Wake-up interval in hours (typically 1 = hourly checks)
-/// @note TEST MODE: Using 1 minute (60 seconds) for lab testing
+/// @param hours Wake-up interval in hours (12 = Danger Zone checks)
 void InheroMr2Board::configureRTCWake(uint32_t hours) {
-  // TEST MODE: Override to 1 minute instead of hours
-  uint16_t countdown = 60;  // 1 minute for testing (normally: hours * 3600)
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 1 minute (TEST MODE)");
+#if TESTING_MODE
+  // Testing Mode: 60 seconds for fast lab testing
+  uint16_t countdown = 60;
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 60 seconds (TESTING MODE)");
+#else
+  // Production Mode: Use actual hours parameter
+  if (hours > 18) hours = 18;  // Hardware limit: 65535 seconds
+  uint16_t countdown = hours * 3600;
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %d hours (%d seconds)", hours, countdown);
+#endif
   
   // === RTC Timer Configuration per Manual Section 4.8.2 ===
   // Step 1: Stop Timer and clear flags

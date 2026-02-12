@@ -78,7 +78,7 @@ static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid so
 //   → Or complete battery voltage collapse (INA loses power)
 // This is intentional: Forces battery replacement/external charging for extreme deep discharge
 static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 3900;      // 3.9V - LTO 2S (300mV below software 4.2V)
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2700;  // 2.7V - LiFePO4 1S (200mV below software 2.9V)
+static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2500;  // 2.5V - LiFePO4 1S (400mV below software 2.9V)
 static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3100;    // 3.1V - Li-Ion 1S (300mV below software 3.4V)
 
 // Battery voltage critical thresholds (in millivolts) - Danger zone boundary, 0% SOC, software shutdown
@@ -940,10 +940,16 @@ bool BoardConfigContainer::begin() {
       //       Will be updated to chemistry-specific value later via setBatteryType() after filesystem loads
       // Latch mode: Alert stays LOW permanently (INA228 powered by battery, not 3.3V rail)
       // Recovery: Requires PHYSICAL battery disconnect to reset INA228 registers
+#if TESTING_MODE
+      // TESTING MODE: UVLO Alert DISABLED (ammeter in series causes voltage drop)
+      ina228.enableAlert(false, false, false);  // UVLO disabled for lab testing
+      MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (TESTING_MODE - ammeter in series)");
+#else
       uint16_t uvlo_mv = 2700;  // Safe default = lowest threshold (LiFePO4)
       ina228.setUnderVoltageAlert(uvlo_mv);
       ina228.enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
       MESH_DEBUG_PRINTLN("INA228 UVLO: %dmV (Alert active-LOW, LATCHED - will update after FS loads)", uvlo_mv);
+#endif
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
       INA228_INITIALIZED = false;
@@ -1434,9 +1440,15 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
     
     
     // INA228 UVLO Alert: Update threshold for new battery chemistry
+#if TESTING_MODE
+    // TESTING MODE: UVLO Alert DISABLED (ammeter in series causes voltage drop)
+    ina228DriverInstance->enableAlert(false, false, false);  // UVLO disabled for lab testing
+    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (TESTING_MODE - ammeter in series)");
+#else
     ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
     ina228DriverInstance->enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
     MESH_DEBUG_PRINTLN("INA228 UVLO updated to %dmV for battery type %d (LATCHED)", uvlo_mv, (int)type);
+#endif
     delay(10);
   }
   
@@ -2112,11 +2124,18 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   MESH_DEBUG_PRINTLN("PWRMGT: Waiting 10s for system stabilization before initial check");
   delay(10000);
   
-  // Two-stage monitoring optimized for power efficiency:
-  // - Normal Mode: Check every 1 hour (system running, minimal cost)
-  // - Danger Zone: Check every 12 hours (SYSTEMOFF wake = expensive boot, minimize frequency)
-  const uint32_t NORMAL_CHECK_INTERVAL_MS = 1UL * 60UL * 60UL * 1000UL;  // 1 hour
-  const uint32_t DANGER_CHECK_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;  // 12 hours
+  // Two-stage monitoring with TESTING_MODE support:
+  // Testing Mode: 60s normal, 60s danger zone (fast lab testing)
+  // Production Mode: 1h normal, 12h danger zone (power optimized)
+#if TESTING_MODE
+  const uint32_t NORMAL_CHECK_INTERVAL_MS = 60UL * 1000UL;  // 60 seconds (testing)
+  const uint32_t DANGER_CHECK_INTERVAL_MS = 60UL * 1000UL;  // 60 seconds (testing)
+  MESH_DEBUG_PRINTLN("Voltage Monitor: TESTING MODE - 60s intervals");
+#else
+  const uint32_t NORMAL_CHECK_INTERVAL_MS = 1UL * 60UL * 60UL * 1000UL;  // 1 hour (production)
+  const uint32_t DANGER_CHECK_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;  // 12 hours (production)
+  MESH_DEBUG_PRINTLN("Voltage Monitor: PRODUCTION MODE - 1h/12h intervals");
+#endif
   
   while (true) {
     // Update SOC from Coulomb Counter
@@ -2251,10 +2270,24 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
         Wire.write(0x00);  // Clear TF flag (bit 3) and all others
         rtc_result3 = Wire.endTransmission();
         
-        // Step 2: Set Timer Value for 12-hour interval
-        // RTC Timer is 12-bit (0-4095 max). For 12 hours we need different clock source.
-        // TD=11 (1/60 Hz = 1 minute ticks) allows: 4095 minutes = 68.25 hours max
-        // For 12 hours = 720 minutes
+#if TESTING_MODE
+        // TESTING MODE: 60 seconds with 1 Hz clock (TD=10)
+        uint16_t countdown = 60;  // 60 seconds
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0A);  // Timer Value 0 register
+        Wire.write(countdown & 0xFF);
+        Wire.write((countdown >> 8) & 0x0F);
+        rtc_result4 = Wire.endTransmission();
+        
+        // Configure Timer: TD=10 (1 Hz = second ticks), TE=1 (Enable), TRPT=0 (Single shot)
+        Wire.beginTransmission(0x52);
+        Wire.write(0x0F);  // CTRL1
+        Wire.write(0x06);  // 0b00000110: TE=1, TD=10 (1 Hz)
+        rtc_result5 = Wire.endTransmission();
+        
+        MESH_DEBUG_PRINTLN("RTC: TESTING MODE - 60 seconds wake-up");
+#else
+        // PRODUCTION MODE: 12 hours = 720 minutes with 1/60 Hz clock (TD=11)
         uint16_t countdown = 720;  // 720 minutes = 12 hours
         Wire.beginTransmission(0x52);
         Wire.write(0x0A);  // Timer Value 0 register
@@ -2262,12 +2295,14 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
         Wire.write((countdown >> 8) & 0x0F); // Upper 4 bits (0x02)
         rtc_result4 = Wire.endTransmission();
         
-        // Step 3: Configure and Start Timer
-        // CTRL1: TD=11 (1/60 Hz = 1 minute), TE=1 (Enable), TRPT=0 (Single shot)
+        // Configure Timer: TD=11 (1/60 Hz = minute ticks), TE=1 (Enable), TRPT=0 (Single shot)
         Wire.beginTransmission(0x52);
         Wire.write(0x0F);  // CTRL1
         Wire.write(0x07);  // 0b00000111: TE=1, TD=11 (1/60 Hz = minute ticks)
         rtc_result5 = Wire.endTransmission();
+        
+        MESH_DEBUG_PRINTLN("RTC: PRODUCTION MODE - 12 hours wake-up");
+#endif
         
         // Step 4: Enable Timer Interrupt on INT pin
         Wire.beginTransmission(0x52);

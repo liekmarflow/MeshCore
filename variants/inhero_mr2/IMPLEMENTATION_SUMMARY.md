@@ -45,12 +45,16 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ### Monitoring-Intervalle
 
+**Configuration:** Controlled by `TESTING_MODE` flag in `InheroMr2Board.h` (Line 33)
+- **Production Mode** (`TESTING_MODE = false`): 1h normal / 12h danger zone
+- **Testing Mode** (`TESTING_MODE = true`): 60s for both (rapid lab validation)
+
 **Two-Stage Strategy (Power-Optimized):**
 
-| System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
-|--------------|------------------|----------|----------------|----------|
-| **Running (Normal)** | ≥ 3.4V | **1 hour** | ~1µAh | System already awake, INA228 I²C read minimal cost |
-| **SYSTEMOFF (Danger Zone)** | < 3.4V | **12 hours** | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
+| System State | Voltage (Li-Ion) | Interval (Production) | Interval (Testing) | Cost per Check | Rationale |
+|--------------|------------------|----------------------|-------------------|----------------|----------|
+| **Running (Normal)** | ≥ 3.4V | **1 hour** | 60 seconds | ~1µAh | System already awake, INA228 I²C read minimal cost |
+| **SYSTEMOFF (Danger Zone)** | < 3.4V | **12 hours** | 60 seconds | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
 
 **Key Insight:** Normal mode checks are essentially free (system running anyway), but Danger Zone wake-ups cost significant energy due to full boot sequence. 12h interval in Danger Zone maximizes battery preservation.
 

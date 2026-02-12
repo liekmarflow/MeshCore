@@ -28,6 +28,10 @@
 #include <MeshCore.h>
 #include <helpers/NRF52Board.h>
 
+// Power Management Mode Configuration
+// Set to true for lab testing (fast intervals), false for production deployment
+#define TESTING_MODE false  // true = 60s intervals, false = 1h normal / 12h danger zone
+
 // LoRa radio module pins for Inhero MR-2
 #define P_LORA_DIO_1             47
 #define P_LORA_NSS               42

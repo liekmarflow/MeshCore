@@ -24,6 +24,11 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 
 ## Power Management Features (v0.2)
 
+### Testing vs Production Mode
+The firmware supports two operational modes controlled by `TESTING_MODE` flag in [InheroMr2Board.h](InheroMr2Board.h#L33):
+- **Testing Mode** (`TESTING_MODE = true`): 60-second intervals for rapid lab testing
+- **Production Mode** (`TESTING_MODE = false`): Optimized intervals for deployment
+
 ### 2-Level Protection System
 1. **Software Voltage Monitoring** - Two-stage strategy:
    - **Normal Mode**: 1 hour checks (system running, minimal cost)
