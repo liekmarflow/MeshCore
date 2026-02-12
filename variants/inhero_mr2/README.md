@@ -1,19 +1,42 @@
 # Inhero MR-2 (Hardware v0.2)
 
+## Inhaltsverzeichnis
+
+- [Übersicht](#übersicht)
+- [Aktuelle Feature-Matrix](#aktuelle-feature-matrix)
+- [Hardware-Unterschiede zu MR-1](#hardware-unterschiede-zu-mr-1)
+- [Energieverwaltungsfunktionen (v0.2)](#energieverwaltungsfunktionen-v02)
+- [Firmware-Build](#firmware-build)
+- [CLI-Befehle](#cli-befehle)
+- [Diagnose & Fehlersuche](#diagnose--fehlersuche)
+- [Siehe auch](#siehe-auch)
+
 ## Übersicht
 
 Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Power-Management.
 
-**Hardware Version:** v0.2  
-**Key Features:**
+**Hardware-Version:** v0.2  
+**Hauptmerkmale:**
 - INA228 Power Monitor mit Coulomb Counter
 - RV-3028-C7 RTC für Wake-up Management
 - TPS62840 Buck Converter mit Hardware-UVLO
 - BQ25798 Battery Charger mit MPPT
 
+## Aktuelle Feature-Matrix
+
+| Funktion | Status | Hinweis |
+|---------|--------|---------|
+| Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
+| Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
+| RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
+| SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
+| MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
+| Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
+| Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
+
 ## Hardware-Unterschiede zu MR-1
 
-| Feature | MR-1 (v0.1) | MR-2 (v0.2) |
+| Funktion | MR-1 (v0.1) | MR-2 (v0.2) |
 |---------|-------------|-------------|
 | Power Monitor | MCP4652 (Analog) | INA228 (Digital, I2C) |
 | UVLO Protection | TP2120 (Hardware only) | INA228 Alert + Software |
@@ -22,169 +45,170 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Wake-up | Nein | Ja (RTC Timer) |
 | Battery SOC | Voltage-based | Coulomb Counting + Voltage |
 
-## Power Management Features (v0.2)
+## Energieverwaltungsfunktionen (v0.2)
 
-### Testing vs Production Mode
-The firmware supports two operational modes controlled by `TESTING_MODE` flag in [InheroMr2Board.h](InheroMr2Board.h#L33):
-- **Testing Mode** (`TESTING_MODE = true`): 60-second intervals for rapid lab testing
-- **Production Mode** (`TESTING_MODE = false`): Optimized intervals for deployment
+### Test- vs. Produktionsmodus
+Die Firmware unterstützt zwei Betriebsmodi, gesteuert über das Flag `TESTING_MODE` in [InheroMr2Board.h](InheroMr2Board.h#L33):
+- **Testmodus** (`TESTING_MODE = true`): 60-Sekunden-Intervalle für schnelle Labortests
+- **Produktionsmodus** (`TESTING_MODE = false`): Optimierte Intervalle für den realen Einsatz
 
-### 2-Level Protection System
-1. **Software Voltage Monitoring** - Two-stage strategy:
-   - **Normal Mode**: 1 hour checks (system running, minimal cost)
-   - **Danger Zone**: 12 hour RTC wake-ups (SYSTEMOFF, expensive boot)
-2. **Hardware UVLO** - INA228 Alert → TPS62840 EN (absolute protection at hardware level)
+### 2-stufiges Schutzsystem
+1. **Software-Spannungsüberwachung** - zweistufige Strategie:
+    - **Normalmodus**: 1-Stunden-Checks (System läuft bereits, minimale Kosten)
+    - **Danger Zone**: 12-Stunden-RTC-Wakeups (SYSTEMOFF, teurer Bootvorgang)
+2. **Hardware-UVLO** - INA228 Alert → TPS62840 EN (absoluter Schutz auf Hardware-Ebene)
 
-**Key Insight:** Normal checks cost ~1µAh (INA228 I²C read), Danger Zone wake costs ~50-150mAh (full system boot). Strategy optimizes for maximum battery life.
+**Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~50-150mAh (vollständiger Systemstart). Die Strategie maximiert die Batterielaufzeit.
 
-### Voltage Thresholds (Li-Ion 1S)
-- **Hardware Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-sample averaging filters TX peaks)
-- **Critical Threshold (0% SOC):** 3.4V (Danger zone boundary, software shutdown)
-- **Hysteresis:** 300mV prevents motorboating and provides safety margin for voltage dips
+### Spannungsschwellen (Li-Ion 1S)
+- **Hardware-Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-Sample-Averaging filtert TX-Spitzen)
+- **Kritische Schwelle (0% SOC):** 3.4V (Danger-Zone-Grenze, Software-Shutdown)
+- **Hysterese:** 300mV verhindert Motorboating und schafft Sicherheitsreserve bei Spannungseinbrüchen
 
-### Coulomb Counter & Auto-Learning 🆕
-- **Real-time SOC tracking** via INA228 (±0.1% accuracy)
-- **20mΩ shunt resistor** (1A max current)
-- **Dual-method auto-learning** capacity calibration:
-  * **Method 1:** Full discharge cycle (100% → 10% danger zone, ~29 days @ 13mA)
-  * **Method 2:** USB-C charging from danger zone (0% → 100%, ~hours)
-- **Learning gate:** Auto-learning only starts if capacity not yet learned
-- **Filesystem persistence:** Learned capacity retained across reboots
-- **Manual override:** `set board.batcap` or `board.relearn` to re-enable learning
-- **7-day energy balance** analysis for TTL forecasting
+### Coulomb Counter & Auto-Learning (veraltet)
+- **Echtzeit-SOC-Tracking** via INA228 (±0.1% Genauigkeit)
+- **20mΩ Shunt-Widerstand** (1A max Strom)
+- **Auto-Learning-Status:** veraltet / aktuell nicht aktiv in dieser Firmware
+- **Zwei-Methoden-Auto-Learning** zur Kapazitätskalibrierung (historisches Konzept):
+   * **Methode 1:** Voller Entladezyklus (100% → 10% Danger Zone, ~29 Tage @ 13mA)
+   * **Methode 2:** USB-C-Ladung aus der Danger Zone (0% → 100%, ~Stunden)
+- **Learning gate / persistence:** dokumentiert, aber derzeit nicht aktiv
+- **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
+- **7-Tage-Energiebilanz** für TTL-Prognosen
 
-### Solar Power Management 🆕
-- **Stuck PGOOD Detection:** Automatically detects slow sunrise conditions where PGOOD gets stuck and triggers input qualification via HIZ toggle (5-minute cooldown to prevent excessive toggling)
-- **MPPT Recovery:** Re-enables MPPT when PowerGood=1 with 60-second cooldown to prevent interrupt loops between solar logic and BQ25798 interrupts
-- **Interrupt Clearing:** Always clears BQ25798 interrupt flags (CHARGER_STATUS_0 register 0x1B) to ensure continued operation and prevent interrupt lockup
-- **Fault Monitoring:** Diagnostic commands expose FAULT_STATUS registers (0x20, 0x21) for detailed error analysis including VBAT_OVP, VBUS_OVP, and thermal conditions
-- **VREG Display:** Shows actual configured battery regulation voltage in diagnostics for voltage threshold verification
+### Solar-Energieverwaltung 🆕
+- **Stuck-PGOOD-Erkennung:** Erkennt automatisch langsame Sonnenaufgänge mit hängendem PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown gegen übermäßiges Toggeln)
+- **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 mit 60-Sekunden-Cooldown, um Interrupt-Loops zwischen Solarlogik und BQ25798-Interrupts zu vermeiden
+- **Interrupt-Clearing:** Löscht stets BQ25798-Interrupt-Flags (CHARGER_STATUS_0 Register 0x1B), damit der Betrieb stabil bleibt und kein Interrupt-Lockup entsteht
+- **Fehlerüberwachung:** Diagnosebefehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Analyse inkl. VBAT_OVP, VBUS_OVP und Temperaturbedingungen
+- **VREG-Anzeige:** Zeigt die tatsächlich konfigurierte Battery-Regulation-Spannung in der Diagnose zur Schwellenwert-Prüfung
 
-## Firmware Build
+## Firmware-Build
 
 ```bash
 platformio run -e Inhero_MR2_repeater
 ```
 
-## CLI Commands
+## CLI-Befehle
 
-### Get Commands
+### Get-Befehle
 ```bash
-board.bat       # Get current battery type
-                # Output: liion1s | lifepo1s | lto2s
+board.bat       # Aktuellen Batterietyp abfragen
+                # Ausgabe: liion1s | lifepo1s | lto2s
 
-board.hwver     # Get hardware version
-                # Output: v0.2 (INA228+RTC)
-                # Note: MR2 is always v0.2 hardware
+board.hwver     # Hardware-Version abfragen
+                # Ausgabe: v0.2 (INA228+RTC)
+                # Hinweis: MR2 ist immer v0.2-Hardware
 
-board.frost     # Get frost charge behavior
-                # Output: 0% | 20% | 40% | 100%
+board.frost     # Frost-Ladeverhalten abfragen
+                # Ausgabe: 0% | 20% | 40% | 100%
                 # LTO batteries: N/A (JEITA disabled)
 
-board.imax      # Get max charge current
-                # Output: <current>mA (e.g., 200mA)
+board.imax      # Maximalen Ladestrom abfragen
+                # Ausgabe: <current>mA (z.B. 200mA)
 
-board.mppt      # Get MPPT status
-                # Output: MPPT=1 (enabled) | MPPT=0 (disabled)
+board.mppt      # MPPT-Status abfragen
+                # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
 
-board.telem     # Get real-time telemetry with SOC 🆕
-                # Output: B:<V>V/<I>mA/<T>C SOC:<percent>% S:<V>V/<I>mA
-                # Example: B:3.85V/125.432mA/22.3C SOC:68.5% S:5.12V/245mA
-                # If SOC not synced: B:3.85V/125.432mA/22.3C SOC:N/A S:5.12V/245mA
-                # Components:
+board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
+                # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<I>mA
+                # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/245mA
+                # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/245mA
+                # Komponenten:
                 # - B: Battery (Voltage/Current/Temperature/SOC)
                 # - S: Solar (Voltage/Current)
 
-board.stats     # Get energy statistics (balance + MPPT) 🆕
-                # Output: <today>/<avg3d>mWh <SOL|BAT> M:<mppt>% [TTL:<hours>h]
-                # Example: +1250/+450mWh SOL M:85%
-                # Example: -300/-450mWh BAT M:45% TTL:72h
-                # Components:
-                # - +1250: Today's net balance (solar - consumption) in mWh
-                # - +450: 3-day average balance in mWh  
+board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
+                # Ausgabe: <24h>/<3d>/<7d>mAh <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
+                # Beispiel: +125.0/+45.0/+38.0mAh SOL M:85%
+                # Beispiel: -30.0/-45.0/-40.0mAh BAT M:45% TTL:72h
+                # Komponenten:
+                # - +125.0: Last 24h net balance (charge - discharge) in mAh
+                # - +45.0: 3-day average net balance in mAh
+                # - +38.0: 7-day average net balance in mAh
                 # - SOL: Running on solar (self-sufficient)
                 # - BAT: Living on battery (deficit mode)
                 # - M:85%: MPPT enabled percentage (7-day average)
                 # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode)
 
-board.cinfo     # Get charger info (BQ25798 status)
-                # Output: <state> + flags
+board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
+                # Ausgabe: <state> + flags
                 # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
-board.diag      # Get detailed BQ25798 diagnostics 
-                # Output: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | voltages | temps | registers | VOC config
-                # Example: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
+board.diag      # Detaillierte BQ25798-Diagnose abfragen
+                # Ausgabe: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | Spannungen | Temperaturen | Register | VOC-Konfig
+                # Beispiel: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
                 #          Vbus:6.22V Vbat:3.35V Ibat:0mA Temp:31C | 
                 #          TS: OK | R0F:0x23 R15:0xAB | VOC:87.5%/300ms/2min
                 # Key diagnostics for debugging charging issues:
                 # - PG: Power Good status (1=good, 0=no power)
                 # - CE: Charge Enable (1=enabled, 0=disabled)
                 # - HIZ: High Impedance mode (0=normal, 1=input disabled)
-                # - MPPT: Maximum Power Point Tracking (1=active, 0=inactive)
+                # - MPPT: Maximum Power Point Tracking (1=aktiv, 0=inaktiv)
                 # - CHG: Charge state (!CHG|TRKL|PRE|CC|CV|TOP|DONE)
                 # - VBUS: Input source type (NoIn|SDP|CDP|DCP|UnkAdp|NStd|NotQual|DirPwr)
-                # - VINDPM: Voltage input DPM active (1=limiting, 0=ok)
-                # - IINDPM: Current input DPM active (1=limiting, 0=ok)
+                # - VINDPM: Eingangs-Spannungs-DPM aktiv (1=limitierend, 0=ok)
+                # - IINDPM: Eingangs-Strom-DPM aktiv (1=limitierend, 0=ok)
                 # - VOC: MPPT VOC configuration (percentage/delay/rate)
 
 board.togglehiz # Force input detection via HIZ cycle 🆕
-                # Output: HIZ cycle <was set|forced>: VBUS=<V>V PG=<status>
+                # Ausgabe: HIZ-Zyklus <war gesetzt|erzwungen>: VBUS=<V>V PG=<status>
                 # Same logic as automatic task in checkAndFixPgoodStuck()
                 # If HIZ=1: Clears HIZ → input qualification
                 # If HIZ=0: Set HIZ briefly, then clear → triggers input detection
                 # Always ends with HIZ=0
                 # Useful for manually triggering stuck PGOOD recovery
 
-board.conf      # Get all configuration values
-                # Output: B:<bat> F:<frost> M:<mppt> I:<imax> Vco:<voltage>
+board.conf      # Alle Konfigurationswerte abfragen
+                # Ausgabe: B:<bat> F:<frost> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-board.ibcal     # Get INA228 calibration factor (v0.2 feature)
-                # Output: INA228 calibration: <factor> (1.0=default)
+board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
+                # Ausgabe: INA228 calibration: <factor> (1.0=default)
                 # Used to correct current measurement errors
 
-board.leds      # Get LED enable state (v0.2 feature)
-                # Output: "LEDs: ON (Heartbeat + BQ Stat)" or "LEDs: OFF (Heartbeat + BQ Stat)"
+board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
+                # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
                 # Shows whether heartbeat LED and BQ25798 stat LED are enabled
 ```
 
-### Set Commands
+### Set-Befehle
 ```bash
-set board.bat <type>           # Set battery type
+set board.bat <type>           # Batterietyp setzen
                                # Options: lto2s | lifepo1s | liion1s
 
-set board.frost <behavior>     # Set frost charge behavior
+set board.frost <behavior>     # Frost-Ladeverhalten setzen
                                # Options: 0% | 20% | 40% | 100%
                                # N/A for LTO batteries
 
-set board.imax <current>       # Set max charge current in mA
+set board.imax <current>       # Maximalen Ladestrom in mA setzen
                                # Range: 10-1000mA
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
 
-set board.batcap <capacity>    # Set battery capacity in mAh (v0.2 feature)
+set board.batcap <capacity>    # Batteriekapazität in mAh setzen (v0.2-Feature)
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
 
-set board.ibcal <current_mA>   # Calibrate INA228 current sensor (v0.2 feature)
+set board.ibcal <current_mA>   # INA228-Stromsensor kalibrieren (v0.2-Feature)
                                # Range: -2000 to +2000 mA
                                # Measures actual current, calculates correction factor
-                               # Example: set board.ibcal 100.5
-                               # Output: INA228 calibrated: factor=0.9850
+                               # Beispiel: set board.ibcal 100.5
+                               # Ausgabe: INA228 calibrated: factor=0.9850
 
-set board.bqreset              # Reset BQ25798 and reload config from FS
+set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS neu laden
                                # Performs software reset and reconfigures
                                # all settings from stored preferences
 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
-                               # Boot LEDs (3 blue flashes) always active
+                               # Boot-LEDs (3 blaue Blinks) immer aktiv
 ```
 
-## Diagnostics & Debugging
+## Diagnose & Fehlersuche
 
-### BQ25798 Register Verification
-Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register gegen das Datasheet:
+### BQ25798-Registerverifikation
+Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register gegen das Datenblatt:
 
 **Wichtige Register:**
 - **0x0F (CHARGER_CONTROL_0)**: EN_HIZ (Bit 2), EN_CHG (Bit 5)
@@ -201,18 +225,18 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 2. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
    - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1 (60s Cooldown)
 
-### INA228 Current Calibration (v0.2)
+### INA228-Stromkalibrierung (v0.2)
 Bei Messdifferenzen zwischen INA228 und Referenzmessgerät:
 ```bash
 # Messe echten Strom mit DMM während konstantem Load: 100.5mA
 # INA228 zeigt: 102.3mA
 # Kalibriere mit tatsächlichem Wert:
 set board.ibcal 100.5
-# Output: INA228 calibrated: factor=0.9824
+# Ausgabe: INA228 calibrated: factor=0.9824
 
 # Prüfe Ergebnis:
 board.ibcal
-# Output: INA228 calibration: 0.9824 (1.0=default)
+# Ausgabe: INA228 calibration: 0.9824 (1.0=default)
 ```
 
 **Kalibrationsprozess:**
@@ -225,5 +249,5 @@ board.ibcal
 ## Siehe auch
 
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
-- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Battery capacity auto-learning (future feature)
-- [../inhero_mr1/README.md](../inhero_mr1/README.md) - Legacy v0.1 Hardware
+- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Veraltet: historisches Auto-Learning-Konzept
+- [../inhero_mr1/README.md](../inhero_mr1/README.md) - Legacy-Hardware v0.1

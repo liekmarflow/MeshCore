@@ -1,9 +1,23 @@
-# Inhero MR-2 Power Management - Implementierungs-Dokumentation
+# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation
 
-> ✅ **STATUS: VOLLSTÄNDIG IMPLEMENTIERT** ✅
+## Inhaltsverzeichnis
+
+- [Überblick](#überblick)
+- [Hardware-Architektur](#hardware-architektur)
+- [1. Software-Monitoring (Adaptiv)](#1-software-monitoring-adaptiv)
+- [2. Coulomb Counter & SOC (Ladezustand)](#2-coulomb-counter--soc-ladezustand)
+- [3. Tägliche Energiebilanz](#3-tägliche-energiebilanz)
+- [4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung](#4-solar-energieverwaltung--interrupt-loop-vermeidung)
+- [5. Time-To-Live (TTL)-Prognose](#5-time-to-live-ttl-prognose)
+- [6. RTC-Wakeup-Management](#6-rtc-wakeup-management)
+- [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
+- [Siehe auch](#siehe-auch)
+
+> ✅ **STATUS: IMPLEMENTIERT (laufend gepflegt)** ✅
 > 
-> Diese Dokumentation beschreibt die vollständige Power-Management-Implementierung für das Inhero MR-2 Board.
+> Diese Dokumentation beschreibt die vollständige Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
 > Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
+> Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
 > 
 > Datum: 4. Februar 2026
 > Version: 2.1 (Implementiert und dokumentiert)
@@ -13,14 +27,26 @@
 
 ## Überblick
 
-Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Energy Balance** für optimalen Filesystem-Schutz, Energie-Effizienz und Batterie-Monitoring:
+Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche Energiebilanz** für optimalen Filesystem-Schutz, Energie-Effizienz und Batterie-Monitoring:
 
-1. **Software Voltage Monitoring** (Adaptive Task) - Dangerzone Detection
-2. **RTC Wake-up Management** (RV-3028-C7) - Periodic Recovery Checks
-3. **Hardware UVLO** (INA228 Alert → TPS62840 EN) - Ultimate Protection
-4. **Coulomb Counter** (INA228) - Real-time SOC Tracking
-5. **Daily Energy Balance** (7-day rolling) - Solar vs. Battery Analysis
-6. **INA228 Shutdown Mode** - Power saving during SYSTEMOFF (~1µA)
+1. **Software-Spannungsüberwachung** (adaptive Task) - Danger-Zone-Erkennung
+2. **RTC-Wakeup-Management** (RV-3028-C7) - periodische Recovery-Checks
+3. **Hardware-UVLO** (INA228 Alert → TPS62840 EN) - ultimative Schutzebene
+4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
+5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
+6. **INA228 Shutdown-Modus** - Stromsparen während SYSTEMOFF (~1µA)
+
+### Aktuelle Feature-Matrix
+
+| Funktion | Status | Hinweis |
+|---------|--------|---------|
+| Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
+| Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
+| RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
+| SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
+| MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
+| Auto-Learning (Method 1/2) | Deprecated | Aktuell nicht umgesetzt/aktiv |
+| Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
 
 ---
 
@@ -28,9 +54,9 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
-|------------|----------|-----|-----|---------||
-| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ shunt, 1A max, Coulomb Counter |
-| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown timer, wake-up |
+|------------|----------|-----|-----|---------|
+| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ Shunt, 1A max, Coulomb Counter |
+| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC |
 | **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
 
@@ -45,9 +71,9 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ### Monitoring-Intervalle
 
-**Configuration:** Controlled by `TESTING_MODE` flag in `InheroMr2Board.h` (Line 33)
-- **Production Mode** (`TESTING_MODE = false`): 1h normal / 12h danger zone
-- **Testing Mode** (`TESTING_MODE = true`): 60s for both (rapid lab validation)
+**Konfiguration:** Gesteuert über das Flag `TESTING_MODE` in `InheroMr2Board.h`
+- **Produktionsmodus** (`TESTING_MODE = false`): 1h normal / 12h Danger Zone
+- **Testmodus** (`TESTING_MODE = true`): 60s für beide Fälle (schnelle Labovalidierung)
 
 **Two-Stage Strategy (Power-Optimized):**
 
@@ -56,9 +82,9 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 | **Running (Normal)** | ≥ 3.4V | **1 hour** | 60 seconds | ~1µAh | System already awake, INA228 I²C read minimal cost |
 | **SYSTEMOFF (Danger Zone)** | < 3.4V | **12 hours** | 60 seconds | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
 
-**Key Insight:** Normal mode checks are essentially free (system running anyway), but Danger Zone wake-ups cost significant energy due to full boot sequence. 12h interval in Danger Zone maximizes battery preservation.
+**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin), aber Danger-Zone-Wakeups kosten durch den vollständigen Bootvorgang deutlich Energie. Das 12h-Intervall in der Danger Zone maximiert den Batterieerhalt.
 
-**Active System Sub-Intervals** (when voltage drops while running):
+**Aktive System-Teilintervalle** (wenn die Spannung im laufenden Betrieb absinkt):
 - WARNING (3.35-3.4V): 30s checks
 - CRITICAL (< 3.35V): 10s checks
 - **Action at < 3.4V**: `initiateShutdown()` → SYSTEMOFF + RTC timer 12h
@@ -82,7 +108,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **Daily Ene
 
 ---
 
-## 2. Coulomb Counter & SOC (State of Charge)
+## 2. Coulomb Counter & SOC (Ladezustand)
 
 ### INA228 Integration
 - **Driver**: `lib/Ina228Driver.cpp` (255 Zeilen, vollständig implementiert)
@@ -105,7 +131,7 @@ SOC_delta = charge_delta_mah / capacity_mah × 100%
 SOC_new = SOC_old + SOC_delta
 ```
 
-**Auto-Learning** (vorbereitet, nicht aktiv):
+**Auto-Learning** (deprecated, nicht aktiv):
 - Code vorhanden in Zeile 1369-1388
 - Trigger: BQ25798 "Charge Done" + Entladung bis Dangerzone
 - Berechnet: capacity = accumulated_discharge_mah
@@ -130,7 +156,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
    - Schreibt sofort in LittleFS
    - Aktualisiert `batteryStats.capacity_mah`
    
-2. **Auto-Learning** (vorbereitet, nicht aktiv):
+2. **Auto-Learning** (deprecated, nicht aktiv):
    - Trigger: BQ25798 "Charge Done" → Entladung bis Dangerzone
    - Berechnet neue Kapazität aus Coulomb Counter
    - Speichert automatisch via `saveBatteryCapacity()`
@@ -149,7 +175,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 
 ---
 
-## 3. Daily Energy Balance
+## 3. Tägliche Energiebilanz
 
 ### Tracking (7-Day Rolling Window)
 **Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp` Zeile 1420-1489
@@ -184,7 +210,7 @@ avg_deficit = (day0 + day1 + day2).net_balance / 3
 
 ---
 
-## 4. Solar Power Management & Interrupt Loop Prevention
+## 4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung
 
 ### Problem: Interrupt Loop zwischen MPPT und BQ25798
 
@@ -305,7 +331,7 @@ Interrupt Event:
 
 ---
 
-## 5. Time To Live (TTL) Forecast
+## 5. Time-To-Live (TTL)-Prognose
 
 ### Berechnung
 **Methode**: `calculateTTL()` in `BoardConfigContainer.cpp` Zeile 1543-1572
@@ -324,24 +350,24 @@ TTL_hours = remaining_capacity_mah / |daily_deficit_mah| × 24
 - 3-day avg: -100 mAh/day
 - TTL: 1200 / 100 × 24 = 288 Stunden = 12 Tage
 
-**CLI-Ausgabe**: `board.balance`
+**CLI-Ausgabe**: `board.stats`
 ```
-Today:+150mAh SOLAR 3dAvg:+120mAh
++150.0/+120.0/+90.0mAh SOL M:85%
 ```
 oder
 ```
-Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h
+-80.0/-100.0/-110.0mAh BAT M:45% TTL:288h
 ```
 
 ---
 
-## 6. RTC Wake-up Management
+## 6. RTC-Wakeup-Management
 
 ### RV-3028-C7 Integration
 **Pin**: GPIO17 (WB_IO1) → RTC INT
 **Init**: `InheroMr2Board::begin()` Zeile 459+
 - `attachInterrupt(RTC_INT_PIN, rtcInterruptHandler, FALLING)`
-- Check `GPREGRET2` für wake-up reason
+- Prüft `GPREGRET2` für den Wake-up-Grund
 
 ### Countdown-Timer Konfiguration
 **Methode**: `configureRTCWake()` in `InheroMr2Board.cpp` Zeile 704-737
@@ -367,7 +393,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 
 ---
 
-## 7. Power Management Flow
+## 7. Energieverwaltungsablauf
 
 ### Shutdown-Sequenz
 **Methode**: `initiateShutdown()` in `InheroMr2Board.cpp` Zeile 667-702
@@ -407,7 +433,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
    // Never returns
    ```
 
-### Wake-up Check (Anti-Motorboating)
+### Wake-up-Check (Anti-Motorboating)
 **Methode**: `InheroMr2Board::begin()` Zeile 459+
 
 Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung für Wake-up-Entscheidungen.
@@ -470,7 +496,7 @@ uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 | LiFePO4 1S | 2700mV (INA228 Alert) | 2900mV | 200mV | 64-sample avg (TX peaks) |
 | LTO 2S | 3900mV (INA228 Alert) | 4200mV | 300mV | 64-sample avg (TX peaks) |
 
-**Motorboating-Prevention-Flow** (Li-Ion example):
+**Motorboating-Präventionsablauf** (Li-Ion-Beispiel):
 1. Hardware UVLO @ 3.1V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
 2. Solar lädt auf 3.15V → TPS62840 EN=HIGH (50mV Hysterese)
 3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
@@ -502,13 +528,13 @@ switch (batteryType) {
 }
 
 ina228.setUnderVoltageAlert(uvlo_mv);
-ina228.enableAlert(true, false, true);  // UVLO only, active-high
+ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
 ```
 
 **INA228 Alert Register** (Ina228Driver.cpp Zeile 200-219):
 - BUVL (Bus Under-Voltage Limit): `voltage_mv / 195.3125µV`
 - DIAG_ALRT: Enable BUSUL bit (bit 3)
-- APOL (Alert Polarity): Active-HIGH (TPS EN = HIGH normal)
+- APOL (Alert Polarity): Active-HIGH (TPS EN = HIGH im Normalfall)
 
 **Hardware-Verhalten**:
 - VBAT < UVLO → ALERT=LOW → TPS62840 EN=LOW → RAK stromlos (0µA)
@@ -557,7 +583,7 @@ board.togglehiz # Manual HIZ cycle for input detection
                 # Always ends with HIZ=0
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 
-board.conf      # All configuration
+board.conf      # Gesamte Konfiguration
                 # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 
@@ -613,7 +639,7 @@ set board.bqreset           # Reset BQ25798 and reload config
 ### Hauptimplementierung
 | Datei | Zeilen | Beschreibung |
 |-------|--------|--------------|
-| **InheroMr2Board.h** | 116 | Board-Klasse, Power Management Definitionen |
+| **InheroMr2Board.h** | 116 | Board-Klasse, Energieverwaltungsdefinitionen |
 | **InheroMr2Board.cpp** | 761 | Board-Init, Shutdown, RTC, CLI-Commands |
 | **BoardConfigContainer.h** | 276 | Battery Management, SOC, Daily Balance Structures |
 | **BoardConfigContainer.cpp** | ~2300 | BQ25798, INA228, MPPT, SOC, Daily Balance, Tasks |
@@ -625,7 +651,7 @@ set board.bqreset           # Reset BQ25798 and reload config
 ### Schlüssel-Methoden
 | Methode | Datei | Zeile | Funktion |
 |---------|-------|-------|----------|
-| `begin()` | InheroMr2Board.cpp | 459+ | Board-Initialisierung, Wake-up Check |
+| `begin()` | InheroMr2Board.cpp | 459+ | Board-Initialisierung, Wake-up-Check |
 | `initiateShutdown()` | InheroMr2Board.cpp | 667-702 | 5-Step Shutdown Sequenz |
 | `configureRTCWake()` | InheroMr2Board.cpp | 704-737 | RTC Countdown Timer |
 | `rtcInterruptHandler()` | InheroMr2Board.cpp | 739-761 | RTC INT Flag Clear (Read-Modify-Write) |
@@ -833,7 +859,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - Countdown 1h test → Wake from SYSTEMOFF
 - INT flag clearing → Pin releases to HIGH
 
-### Phase 6: Power Management End-to-End (TODO)
+### Phase 6: Energieverwaltung End-to-End (TODO)
 - Simulate low voltage (3.3V Li-Ion)
 - Verify shutdown sequence (all 5 steps)
 - Verify INA228 enters shutdown mode
@@ -882,7 +908,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ## Future Enhancements
 
 ### Short-term
-- [ ] Auto-Learning Capacity aktivieren (BQ25798 CHARGE_DONE detection)
+- [ ] Deprecated: Auto-Learning reaktivieren/neu implementieren (BQ25798 CHARGE_DONE detection)
 - [ ] Load Shedding implementieren (TX power reduction, BLE disable)
 - [ ] CLI-Command: `pwrmgt.test shutdown` für Testing
 - [ ] CLI-Command: `pwrmgt.rtc status` für RTC diagnostics
@@ -918,7 +944,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ### Related Documentation
 - [README.md](README.md) - User-facing documentation (DE)
-- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Battery capacity auto-learning details
+- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Deprecated: Battery capacity auto-learning details
 
 ---
 
@@ -934,11 +960,11 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ### v2.0 - 31. Januar 2026 (Implementiert)
 - ✅ INA228 Driver vollständig implementiert (255 Zeilen)
 - ✅ Coulomb Counter mit SOC-Berechnung
-- ✅ Daily Energy Balance (7-day rolling)
+- ✅ Tägliche Energiebilanz (7-Tage rolling)
 - ✅ TTL Forecast Algorithmus
 - ✅ RTC Wake-up Management
 - ✅ INA228 Shutdown Mode
-- ✅ Power Management Flow (5 Schritte)
+- ✅ Energieverwaltungsablauf (5 Schritte)
 - ✅ CLI Commands (hwver, soc, balance, batcap, diag)
 - ✅ Voltage Monitor Task (adaptive)
 - ✅ Hardware UVLO (INA228 → TPS EN)

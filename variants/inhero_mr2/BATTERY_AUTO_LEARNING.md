@@ -1,24 +1,28 @@
-# Battery Capacity Auto-Learning System (Inhero MR-2 v0.2)
+# Auto-Learning-System für Batteriekapazität (Inhero MR-2 v0.2) [VERALTET]
+
+> ⚠️ **Veraltet:** Auto-Learning ist im aktuellen Firmware-Stand nicht aktiv umgesetzt.
+> Dieses Dokument ist eine historische/konzeptionelle Referenz.
+> Je nach Firmware-Stand sind nicht alle hier genannten CLI-Kommandos direkt verfügbar.
 
 ## Übersicht
 
-Das MR-2 v0.2 Board enthält ein intelligentes Auto-Learning System zur automatischen Kalibrierung der Batteriekapazität. Dies ist besonders wichtig für:
+Das MR-2 v0.2 Board enthielt ein Auto-Learning-Konzept zur automatischen Kalibrierung der Batteriekapazität. Dies ist besonders wichtig für:
 
 - **LiFePO4 Batterien**: Flache Entladekurve @ 3.2-3.3V macht Spannungsmessung unzuverlässig
 - **Unbekannte Batterien**: Kapazität muss nicht manuell konfiguriert werden
 - **Batterie-Alterung**: System erkennt Kapazitätsverlust automatisch
 
-## Hardware-Voraussetzungen
+## Hardwarevoraussetzungen
 
 - **INA228 Power Monitor** - 24-bit ADC mit ±0.1% Genauigkeit
-- **20mΩ Shunt Resistor** - Präzise Strommessung (0.5W, ±1%)
-- **BQ25798 Charger** - CHARGE_DONE Status für 100% SOC Detection
-- **RV-3028-C7 RTC** - Wake-up Management während Shutdown
-- **LittleFS Filesystem** - Persistente Speicherung von Kapazität und Learning-Status
+- **20mΩ Shunt-Widerstand** - präzise Strommessung (0.5W, ±1%)
+- **BQ25798 Charger** - CHARGE_DONE-Status für 100% SOC-Erkennung
+- **RV-3028-C7 RTC** - Wake-up-Management während Shutdown
+- **LittleFS-Dateisystem** - persistente Speicherung von Kapazität und Learning-Status
 
 ## Lernmethoden
 
-### Method 1: Full-Cycle Learning (100% → 0%)
+### Methode 1: Vollzyklus-Learning (100% → 0%)
 
 #### Funktionsweise
 1. **Start-Trigger:** BQ25798 meldet `CHARGE_DONE` (Batterie voll geladen)
@@ -57,7 +61,7 @@ if (learning_active && vbat_mv <= danger_threshold) {
 }
 ```
 
-### Method 2: Reverse Learning (0% → 100%)
+### Methode 2: Reverse-Learning (0% → 100%)
 
 #### Funktionsweise
 1. **Start-Trigger:** Wake-up aus Danger Zone mit erhöhter Spannung
@@ -103,12 +107,12 @@ if (reverse_learning_active && charging_status == CHARGE_DONE) {
 }
 ```
 
-## Learning Gate (Anti-Restart Mechanismus)
+## Learning-Gate (Anti-Restart-Mechanismus)
 
 ### Problem
 Ohne Learning Gate würde das System bei jedem Boot ein neues Learning starten, auch wenn bereits eine gültige Kapazität gelernt wurde.
 
-### Lösung: `capacity_learned` Flag
+### Lösung: `capacity_learned`-Flag
 
 #### Filesystem-Persistenz
 ```cpp
@@ -131,8 +135,8 @@ if (prefs.begin("inheromr2")) {
 
 #### Verhaltenstabelle
 
-| Zustand | `capacity_learned` | Method 1 Start | Method 2 Start |
-|---------|-------------------|----------------|----------------|
+| Zustand | `capacity_learned` | Methode 1 Start | Methode 2 Start |
+|---------|-------------------|-----------------|-----------------|
 | Erste Inbetriebnahme | `false` | ✅ Bei CHARGE_DONE | ✅ Bei Wake-up |
 | Nach Learning | `true` | ❌ Blockiert | ❌ Blockiert |
 | Nach Reboot | `true` (persistent) | ❌ Blockiert | ❌ Blockiert |
@@ -164,62 +168,62 @@ void resetLearning() {
 }
 ```
 
-## CLI Workflow & Best Practices
+## CLI-Workflow & bewährte Praktiken
 
-### Neue Installation (Method 1)
+### Neue Installation (Methode 1)
 ```bash
 # 1. Status prüfen
 board.learning
-# Output: Learning IDLE Cap:2000mAh(manual/default)
+# Ausgabe: Learning IDLE Cap:2000mAh(manual/default)
 
 # 2. Batterie voll laden (USB-C oder Solar)
 # System wartet auf CHARGE_DONE...
 
 # 3. Learning startet automatisch
 board.learning
-# Output: M1 ACTIVE (100%→0%, 120 mAh) Cap:2000mAh(manual)
+# Ausgabe: M1 ACTIVE (100%→0%, 120 mAh) Cap:2000mAh(manual)
 
 # 4. Nach ~29 Tagen (10Ah @ 13mA)
 board.learning
-# Output: Learning IDLE Cap:9850mAh(learned)
+# Ausgabe: Learning IDLE Cap:9850mAh(learned)
 ```
 
-### Schnelles Learning (Method 2)
+### Schnelles Learning (Methode 2)
 ```bash
 # 1. Batterie komplett entladen (Danger Zone erreichen)
 # Gerät schaltet sich ab → RTC Wake-up nach 1h
 
 # 2. Wenn Spannung erholt → Reverse Learning startet
 board.learning
-# Output: M2 ACTIVE (0%→100%, 120 mAh) Cap:2000mAh(manual)
+# Ausgabe: M2 ACTIVE (0%→100%, 120 mAh) Cap:2000mAh(manual)
 
 # 3. USB-C einstecken → Batterie wird geladen
 # Nach ~8 Stunden (10Ah @ 1.2A Ladestrom)
 
 # 4. Bei CHARGE_DONE
 board.learning
-# Output: Learning IDLE Cap:9820mAh(learned)
+# Ausgabe: Learning IDLE Cap:9820mAh(learned)
 ```
 
 ### Batterie-Austausch
 ```bash
 # 1. Alte Kapazität löschen
 board.relearn
-# Output: Learning reset - auto-learning enabled
+# Ausgabe: Learning reset - auto-learning enabled
 
 # 2. Status prüfen
 board.learning
-# Output: Learning IDLE Cap:9820mAh(manual/default)
+# Ausgabe: Learning IDLE Cap:9820mAh(manual/default)
 
 # 3. Warten auf nächsten Learning-Trigger
-# Entweder CHARGE_DONE (Method 1) oder Wake-up (Method 2)
+# Entweder CHARGE_DONE (Methode 1) oder Wake-up (Methode 2)
 ```
 
 ### Manuelle Kapazität (Learning überspringen)
 ```bash
 # Wenn Kapazität bekannt ist, kann Learning übersprungen werden
 set board.batcap 10000
-# Output: Battery capacity set to 10000 mAh
+# Ausgabe: Battery capacity set to 10000 mAh
 # ⚠️ Setzt capacity_learned=false → Auto-Learning aktiviert!
 
 # ⚠️ Problem: Learning würde wieder starten
@@ -231,7 +235,7 @@ set board.batcap 10000
 
 ### Genauigkeit
 - **INA228 ADC:** 24-bit, ±0.1% Genauigkeit
-- **Shunt Resistor:** 20mΩ ±1% (0.5W)
+- **Shunt-Widerstand:** 20mΩ ±1% (0.5W)
 - **Temperaturkompensation:** ±50ppm/°C
 - **Typische Messabweichung:** <2% bei 20°C
 
@@ -240,14 +244,14 @@ set board.batcap 10000
 - **SYSTEMOFF:** 1-5µA (RTC Wake-up)
 - **Learning-Overhead:** ~100µA (INA228 Coulomb Counter)
 
-### Voltage Thresholds (Beispiel: Li-Ion 1S)
+### Spannungsschwellen (Beispiel: Li-Ion 1S)
 - **Hardware UVLO:** 3.1V (INA228 Alert → TPS62840 EN, absolute cutoff)
 - **Critical Threshold:** 3.4V (0% SOC, danger zone boundary, software shutdown)  
 - **Hysteresis:** 300mV (prevents motorboating, provides margin for TX voltage dips)
 - **ADC Averaging:** 64 samples (filters ~100ms TX peaks, prevents false UVLO triggers)
 - **Full Charge:** 4.2V (CHARGE_DONE, 100% SOC)
 
-### Filesystem Layout
+### Dateisystem-Layout
 ```
 /inheromr2/
   ├── batCap.txt         # uint16_t capacity in mAh
@@ -267,7 +271,7 @@ board.learning
 # Output: Learning IDLE Cap:2000mAh(learned)
 ```
 
-**Ursache:** `capacity_learned=true` blockiert Auto-Start
+**Ursache:** `capacity_learned=true` blockiert den Auto-Start
 
 **Lösung:**
 ```bash
@@ -279,7 +283,7 @@ board.learning
 
 ### Learning stoppt vorzeitig
 
-#### Method 1 stoppt bei 50% SOC
+#### Methode 1 stoppt bei 50% SOC
 **Ursache:** Voltage-Threshold zu hoch gesetzt
 
 **Debug:**
@@ -290,7 +294,7 @@ board.diag
 
 **Lösung:** Voltage-Thresholds in `BoardConfigContainer.h` anpassen
 
-#### Method 2 startet nicht nach Wake-up
+#### Methode 2 startet nicht nach Wake-up
 **Ursache:** GPREGRET2 nicht gesetzt oder RTC Wake-up fehlgeschlagen
 
 **Debug:**

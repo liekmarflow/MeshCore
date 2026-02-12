@@ -215,6 +215,9 @@ void InheroMr2Board::tick() {
 
 uint16_t InheroMr2Board::getBattMilliVolts() {
   const Telemetry* telemetry = boardConfig.getTelemetryData();
+  if (!telemetry) {
+    return 0;
+  }
 
   return telemetry->batterie.voltage;
 }
@@ -269,8 +272,8 @@ bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
   uint8_t mac_addr[6];
   memset(mac_addr, 0, sizeof(mac_addr));
   Bluefruit.getAddr(mac_addr);
-  sprintf(reply, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
-          mac_addr[2], mac_addr[1], mac_addr[0]);
+  snprintf(reply, 64, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
+           mac_addr[2], mac_addr[1], mac_addr[0]);
 
   return true;
 }
@@ -345,6 +348,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   } else if (strcmp(cmd, "stats") == 0) {
     // Combined energy statistics: balance + MPPT
     const BatterySOCStats* socStats = boardConfig.getSOCStats();
+    if (!socStats) {
+      float mppt_pct = boardConfig.getMpptEnabledPercentage7Day();
+      snprintf(reply, maxlen, "N/A M:%.0f%%", mppt_pct);
+      return true;
+    }
     
     // Balance info (mAh) - rolling windows (no midnight reset)
     float last_24h_net = socStats->last_24h_net_mah;
@@ -384,6 +392,10 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
+    if (!telemetry) {
+      snprintf(reply, maxlen, "Err: Telemetry unavailable");
+      return true;
+    }
     
     // Get high-precision current directly from INA228
     float precise_current_ma = 0.0f;
@@ -428,11 +440,12 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       frostBehaviour = BoardConfigContainer::getFrostChargeBehaviourCommandString(boardConfig.getFrostChargeBehaviour());
     }
     float chargeVoltage = boardConfig.getMaxChargeVoltage();
+    float voltage0Soc = getVoltageCriticalThreshold() / 1000.0f;
     const char* imax = boardConfig.getChargeCurrentAsStr();
     bool mpptEnabled = boardConfig.getMPPTEnabled();
     
-    snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f",
-             batType, frostBehaviour, mpptEnabled ? "1" : "0", imax, chargeVoltage);
+    snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f V0:%.2f",
+             batType, frostBehaviour, mpptEnabled ? "1" : "0", imax, chargeVoltage, voltage0Soc);
     return true;
   } else if (strcmp(cmd, "ibcal") == 0) {
     // Get current INA228 calibration factor
@@ -476,7 +489,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap|energy>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap|energy>");
   return true;
 }
 
@@ -825,5 +838,5 @@ uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
     cursor += (2 + data_len);
   }
 
-  return max_channel + 1;
+  return (max_channel < 200) ? 200 : max_channel + 1;
 }
