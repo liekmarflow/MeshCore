@@ -194,8 +194,7 @@ public:
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
-  void toggleHizAndCheck(char* buffer, uint32_t bufferSize); ///< Manual HIZ toggle with status report
-  void clearHiz(char* buffer, uint32_t bufferSize); ///< Force clear HIZ mode (bypass PGOOD check)
+  void toggleHizAndCheck(char* buffer, uint32_t bufferSize); ///< Manual HIZ cycle to force input detection (always ends HIZ=0)
   void getDetailedDiagnostics(char* buffer, uint32_t bufferSize); ///< Get detailed BQ25798 diagnostics for debugging
   
   // MPPT Statistics methods

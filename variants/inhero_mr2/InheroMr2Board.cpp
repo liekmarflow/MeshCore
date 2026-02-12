@@ -356,15 +356,9 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
   } else if (strcmp(cmd, "togglehiz") == 0) {
-    // Manual HIZ toggle for debugging stuck PGOOD
+    // Manual HIZ cycle to force input detection (like automatic task)
     char hizBuffer[100];
     boardConfig.toggleHizAndCheck(hizBuffer, sizeof(hizBuffer));
-    snprintf(reply, maxlen, "%s", hizBuffer);
-    return true;
-  } else if (strcmp(cmd, "clearhiz") == 0) {
-    // Force clear HIZ mode
-    char hizBuffer[100];
-    boardConfig.clearHiz(hizBuffer, sizeof(hizBuffer));
     snprintf(reply, maxlen, "%s", hizBuffer);
     return true;
   } else if (strcmp(cmd, "telem") == 0) {
@@ -417,13 +411,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f",
              batType, frostBehaviour, mpptEnabled ? "1" : "0", imax, chargeVoltage);
     return true;
-  } else if (strcmp(cmd, "wdtstatus") == 0) {
-    #ifndef DEBUG_MODE
-      snprintf(reply, maxlen, "WDT: enabled (600s timeout)");
-    #else
-      snprintf(reply, maxlen, "WDT: disabled (DEBUG_MODE)");
-    #endif
-    return true;
   } else if (strcmp(cmd, "ibcal") == 0) {
     // Get current INA228 calibration factor
     float factor = boardConfig.getIna228CalibrationFactor();
@@ -434,165 +421,9 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     bool enabled = boardConfig.getLEDsEnabled();
     snprintf(reply, maxlen, "LEDs: %s (Heartbeat + BQ Stat)", enabled ? "ON" : "OFF");
     return true;
-  } else if (strcmp(cmd, "i2cscan") == 0) {
-    // I2C bus scan - find all devices
-    char scanBuffer[200];
-    int pos = 0;
-    int devicesFound = 0;
-    
-    pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, "I2C: ");
-    
-    for (uint8_t addr = 1; addr < 127; addr++) {
-      Wire.beginTransmission(addr);
-      if (Wire.endTransmission() == 0) {
-        if (devicesFound > 0 && pos < sizeof(scanBuffer) - 10) {
-          pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, ", ");
-        }
-        if (pos < sizeof(scanBuffer) - 10) {
-          pos += snprintf(scanBuffer + pos, sizeof(scanBuffer) - pos, "0x%02X", addr);
-        }
-        devicesFound++;
-      }
-    }
-    
-    if (devicesFound == 0) {
-      snprintf(reply, maxlen, "I2C: No devices found!");
-    } else {
-      snprintf(reply, maxlen, "%s (%d found)", scanBuffer, devicesFound);
-    }
-    return true;
-  } else if (strcmp(cmd, "inatest") == 0) {
-    // Detailed INA228 diagnostic test - Line 1: Device Info + Voltage
-    char line1[150];
-    char line2[150];
-    int pos = 0;
-    
-    // Test address 0x40
-    Wire.beginTransmission(0x40);
-    uint8_t ack = Wire.endTransmission();
-    pos += snprintf(line1 + pos, sizeof(line1) - pos, "ACK:%d ", ack);
-    
-    if (ack == 0) {
-      // Read MFG_ID
-      Wire.beginTransmission(0x40);
-      Wire.write(0x3E);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-      uint16_t mfg = 0;
-      if (Wire.available() >= 2) {
-        mfg = (Wire.read() << 8) | Wire.read();
-        pos += snprintf(line1 + pos, sizeof(line1) - pos, "MFG:0x%04X ", mfg);
-      }
-      
-      // Read DEV_ID
-      Wire.beginTransmission(0x40);
-      Wire.write(0x3F);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-      uint16_t dev = 0;
-      if (Wire.available() >= 2) {
-        dev = (Wire.read() << 8) | Wire.read();
-        pos += snprintf(line1 + pos, sizeof(line1) - pos, "DEV:0x%04X ", dev);
-      }
-      
-      // Read VBUS raw
-      Wire.beginTransmission(0x40);
-      Wire.write(0x05);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)3);
-      if (Wire.available() >= 3) {
-        uint8_t b0 = Wire.read();
-        uint8_t b1 = Wire.read();
-        uint8_t b2 = Wire.read();
-        int32_t raw = b0 << 16 | b1 << 8 | b2;
-        if (raw & 0x800000) raw |= 0xFF000000;
-        int32_t raw_shifted = raw >> 4;
-        float v_calc = raw_shifted * 195.3125e-6 * 1000.0f;
-        pos += snprintf(line1 + pos, sizeof(line1) - pos, "VBUS:%dmV", (int)v_calc);
-      }
-      
-      // Line 2: Current, ADC Config, SHUNT_CAL
-      int pos2 = 0;
-      
-      // Read CURRENT register (0x07)
-      Wire.beginTransmission(0x40);
-      Wire.write(0x07);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)3);
-      if (Wire.available() >= 3) {
-        uint8_t b0 = Wire.read();
-        uint8_t b1 = Wire.read();
-        uint8_t b2 = Wire.read();
-        int32_t raw = b0 << 16 | b1 << 8 | b2;
-        if (raw & 0x800000) raw |= 0xFF000000;
-        int32_t raw_shifted = raw >> 4;
-        // CURRENT_LSB = 1.91 µA for our config
-        float current_ma = raw_shifted * 1.91e-6 * 1000.0f;
-        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "I:0x%05X(%.3fmA) ", raw_shifted & 0xFFFFF, current_ma);
-      }
-      
-      // Read ADC_CONFIG (0x01)
-      Wire.beginTransmission(0x40);
-      Wire.write(0x01);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-      if (Wire.available() >= 2) {
-        uint16_t adc_cfg = (Wire.read() << 8) | Wire.read();
-        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "ADC:0x%04X ", adc_cfg);
-      }
-      
-      // Read SHUNT_CAL (0x02)
-      Wire.beginTransmission(0x40);
-      Wire.write(0x02);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-      if (Wire.available() >= 2) {
-        uint16_t shunt_cal = (Wire.read() << 8) | Wire.read();
-        pos2 += snprintf(line2 + pos2, sizeof(line2) - pos2, "CAL:0x%04X", shunt_cal);
-      }
-      
-      // Output both lines (newline between them for readability)
-      snprintf(reply, maxlen, "%s\n%s", line1, line2);
-    } else {
-      snprintf(reply, maxlen, "INA228 not detected (ACK=%d)", ack);
-    }
-    return true;
-  } else if (strcmp(cmd, "inafix") == 0) {
-    // Force-fix INA228 ADC_CONFIG register to continuous mode
-    // This is a diagnostic command to test if writes work
-    Wire.beginTransmission(0x40);
-    uint8_t ack = Wire.endTransmission();
-    
-    if (ack == 0) {
-      // Try to write ADC_CONFIG = 0xFFCA (Continuous All + long conv times + 16avg)
-      Wire.beginTransmission(0x40);
-      Wire.write(0x01);  // ADC_CONFIG register
-      Wire.write(0xFF);  // MSB
-      Wire.write(0xCA);  // LSB
-      uint8_t write_result = Wire.endTransmission();
-      
-      delay(10);
-      
-      // Read back ADC_CONFIG
-      Wire.beginTransmission(0x40);
-      Wire.write(0x01);
-      Wire.endTransmission(false);
-      Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-      uint16_t adc_readback = 0;
-      if (Wire.available() >= 2) {
-        adc_readback = (Wire.read() << 8) | Wire.read();
-      }
-      
-      snprintf(reply, maxlen, "Write:0xFFCA result=%d Readback:0x%04X %s", 
-               write_result, adc_readback, 
-               (adc_readback == 0xFFCA) ? "OK" : "FAIL");
-    } else {
-      snprintf(reply, maxlen, "INA228 not detected (ACK=%d)", ack);
-    }
-    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|soc|balance|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|leds|i2cscan|inatest|inafix>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|soc|balance|cinfo|diag|togglehiz|mppt|mpps|conf|ibcal|leds>");
   return true;
 }
 

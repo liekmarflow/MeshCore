@@ -665,44 +665,6 @@ void BoardConfigContainer::toggleHizAndCheck(char* buffer, uint32_t bufferSize) 
   snprintf(buffer, bufferSize, "HIZ toggled: VBUS=%.1fV PG=%s", vbusVoltage / 1000.0f, result);
 }
 
-/// @brief Force clear HIZ mode without checking PGOOD (bypass stuck detection)
-/// @param buffer Destination buffer for status string
-/// @param bufferSize Size of destination buffer
-void BoardConfigContainer::clearHiz(char* buffer, uint32_t bufferSize) {
-  if (!buffer || bufferSize == 0) {
-    return;
-  }
-
-  memset(buffer, 0, bufferSize);
-
-  if (!BQ_INITIALIZED || !bqDriverInstance) {
-    snprintf(buffer, bufferSize, "BQ25798 not initialized");
-    return;
-  }
-
-  // Read current HIZ state (Register 0x0F Bit 2)
-  uint8_t reg0F = bqDriverInstance->readReg(0x0F);
-  bool hizBefore = (reg0F & 0x04) != 0;
-
-  if (hizBefore) {
-    // Force clear HIZ
-    bqDriverInstance->writeReg(0x0F, reg0F & ~0x04);
-    delay(100);
-
-    // Verify HIZ cleared
-    reg0F = bqDriverInstance->readReg(0x0F);
-    bool hizAfter = (reg0F & 0x04) != 0;
-    bool success = !hizAfter;
-
-    const Telemetry* telem = getTelemetryData();
-    float vbusVoltage = telem ? telem->solar.voltage : 0;
-
-    snprintf(buffer, bufferSize, "HIZ cleared: VBUS=%.1fV PG=%s", vbusVoltage / 1000.0f, success ? "OK" : "FAIL");
-  } else {
-    snprintf(buffer, bufferSize, "HIZ was already clear (HIZ=0)");
-  }
-}
-
 /// @brief Get detailed BQ25798 diagnostics for debugging PG / !CHG issues
 /// @param buffer Destination buffer for diagnostics string
 /// @param bufferSize Size of destination buffer
