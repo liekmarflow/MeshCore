@@ -1635,34 +1635,54 @@ float BoardConfigContainer::getStateOfCharge() const {
   return socStats.current_soc_percent;
 }
 
-/// @brief Get battery capacity in mAh
-/// @return Battery capacity (learned or configured)
-float BoardConfigContainer::getBatteryCapacity() const {
-  return socStats.battery_capacity_mah;
+/// @brief Get nominal voltage for battery chemistry type
+/// @param type Battery chemistry type
+/// @return Nominal voltage in V (used for mAh → mWh conversion)
+float BoardConfigContainer::getNominalVoltage(BatteryType type) {
+  switch (type) {
+    case BatteryType::LTO_2S:
+      return LTO_2S_NOMINAL;        // 5.0V (2.5V/cell)
+    case BatteryType::LIFEPO4_1S:
+      return LIFEPO4_1S_NOMINAL;    // 3.2V
+    case BatteryType::LIION_1S:
+    default:
+      return LIION_1S_NOMINAL;      // 3.7V
+  }
 }
 
-/// @brief Set battery capacity manually via CLI
-/// @param capacity_mah Capacity in mAh
+/// @brief Get battery capacity in mAh
+/// @return Battery capacity (user-configured)
+float BoardConfigContainer::getBatteryCapacity() const {
+  return socStats.capacity_mah;
+}
+
+/// @brief Set battery capacity manually via CLI (converts to mWh internally)
+/// @param capacity_mah Capacity in mAh (user input)
 /// @return true if successful
 bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   if (capacity_mah < 100.0f || capacity_mah > 100000.0f) {
     return false;  // Sanity check
   }
   
-  socStats.battery_capacity_mah = capacity_mah;
-  socStats.capacity_learned = false;  // Manual override
+  // Store user-configured capacity in mAh
+  socStats.capacity_mah = capacity_mah;
+  
+  // Get nominal voltage for current chemistry
+  BatteryType batType = getBatteryType();
+  float v_nominal = getNominalVoltage(batType);
+  socStats.nominal_voltage = v_nominal;
+  
+  // Convert to mWh for internal energy tracking
+  socStats.capacity_mwh = capacity_mah * v_nominal;
+  
+  // Invalidate SOC until next "Charging Done" sync
+  socStats.soc_valid = false;
   
   // Save to preferences (as integer mAh)
   prefs.putInt(BATTERY_CAPACITY_KEY, (uint16_t)capacity_mah);
-  prefs.putString("cap_learned", "0");  // Reset learned flag
   
-  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh", capacity_mah);
-  return true;
-}
-
-bool BoardConfigContainer::setCapacityLearned(bool learned) {
-  socStats.capacity_learned = learned;
-  prefs.putString("cap_learned", learned ? "1" : "0");
+  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh (%.0f mWh @ %.1fV)", 
+                     capacity_mah, socStats.capacity_mwh, v_nominal);
   return true;
 }
 
@@ -1670,25 +1690,28 @@ bool BoardConfigContainer::setCapacityLearned(bool learned) {
 /// @param buffer Output buffer
 /// @param bufferSize Buffer size
 void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize) const {
-  const char* capacity_source = socStats.capacity_learned ? "learned" : "config";
-  snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh(%s)", 
-           socStats.current_soc_percent, 
-           socStats.battery_capacity_mah,
-           capacity_source);
+  if (!socStats.soc_valid) {
+    snprintf(buffer, bufferSize, "SOC:N/A (load bat fully to sync)");
+  } else {
+    snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh(%.0fmWh)", 
+             socStats.current_soc_percent, 
+             socStats.capacity_mah,
+             socStats.capacity_mwh);
+  }
 }
 
-/// @brief Get formatted daily balance string
+/// @brief Get formatted daily balance string (mWh-based)
 /// @param buffer Output buffer
 /// @param bufferSize Buffer size
 void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSize) const {
-  // Get today's stats
-  int32_t today_net = socStats.today_solar_mah - socStats.today_discharge_mah;
+  // Get today's stats (mWh)
+  int32_t today_net = socStats.today_solar_mwh - socStats.today_discharged_mwh;
   const char* status = socStats.living_on_battery ? "BATTERY" : "SOLAR";
   
-  snprintf(buffer, bufferSize, "Today:%+dmAh %s 3dAvg:%+.0fmAh", 
+  snprintf(buffer, bufferSize, "Today:%+dmWh %s 3dAvg:%+dmWh", 
            today_net,
            status,
-           socStats.avg_daily_deficit_mah);
+           socStats.avg_daily_deficit_mwh);
 }
 
 /// @brief Get Time To Live in hours
@@ -1703,45 +1726,24 @@ bool BoardConfigContainer::isLivingOnBattery() const {
   return socStats.living_on_battery;
 }
 
-/// @brief Check if battery capacity was auto-learned
-/// @return true if capacity was learned from full charge/discharge cycle
-bool BoardConfigContainer::isCapacityLearned() const {
-  return socStats.capacity_learned;
-}
-
-/// @brief Check if auto-learning is currently active
-/// @return true if currently accumulating discharge data
-bool BoardConfigContainer::isLearningActive() const {
-  return socStats.learning_active;
-}
-
-/// @brief Get accumulated mAh during learning cycle
-/// @return Accumulated discharge in mAh (0 if not learning)
-float BoardConfigContainer::getLearningAccumulatedMah() const {
-  return socStats.learning_accumulated_mah;
-}
-
-void BoardConfigContainer::startReverseLearning() {
-  // Method 2: Start reverse learning (0% → 100%)
-  // Called by InheroMr2Board::begin() when device wakes from LOW_VOLTAGE shutdown
-  // and voltage is above critical_threshold (= exited danger zone = 0% SOC)
-  // Only auto-start if capacity not already learned (user can force via CLI "relearn")
-  
-  if (!socStats.reverse_learning_active && !socStats.capacity_learned) {
-    socStats.reverse_learning_active = true;
-    socStats.reverse_learning_accumulated_mah = 0.0f;
-    socStats.current_soc_percent = 0.0f;
-    
-    MESH_DEBUG_PRINTLN("Reverse Learning: STARTED at 0%% SOC (wake from danger zone)");
+/// @brief Sync SOC to 100% after "Charging Done" event from BQ25798
+/// @details Resets INA228 Coulomb Counter baseline and marks SOC as valid
+void BoardConfigContainer::syncSOCToFull() {
+  if (!ina228DriverInstance) {
+    return;
   }
-}
-
-void BoardConfigContainer::resetLearning() {
-  // Reset capacity_learned flag to re-enable automatic learning
-  // This allows user to manually trigger a new learning cycle via CLI
-  socStats.capacity_learned = false;
   
-  MESH_DEBUG_PRINTLN("Learning reset: Auto-learning will start at next opportunity");
+  // Reset INA228 Coulomb Counter (clears ENERGY and CHARGE registers)
+  ina228DriverInstance->resetCoulombCounter();
+  
+  // Set baseline to 0 (we just reset the counter)
+  socStats.ina228_baseline_mwh = 0;
+  
+  // Mark as fully charged
+  socStats.current_soc_percent = 100.0f;
+  socStats.soc_valid = true;
+  
+  MESH_DEBUG_PRINTLN("SOC: Synced to 100%% (Charging Done) - INA228 baseline reset");
 }
 
 /// @brief Load battery capacity from preferences
@@ -1895,181 +1897,69 @@ uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
   }
 }
 
-/// @brief Update battery SOC from INA228 Coulomb Counter (MR2 v0.2)
+/// @brief Update battery SOC from INA228 Hardware Coulomb Counter (v0.2)
+/// @details Uses INA228 ENERGY register (mWh) for accurate DC/DC-compensated tracking
 void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
     return;
   }
   
-  Ina228BatteryData data;
-  if (!ina228DriverInstance->readAll(&data)) {
-    return;
+  // SOC is only valid after first "Charging Done" sync via syncSOCToFull()
+  if (!socStats.soc_valid) {
+    // Check if BQ reports charging done → auto-sync
+    if (bqDriverInstance) {
+      bq25798_charging_status status = bqDriverInstance->getChargingStatus();
+      if (status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
+        MESH_DEBUG_PRINTLN("SOC: First \"Charging Done\" detected - syncing to 100%%");
+        syncSOCToFull();
+      }
+    }
+    return;  // Wait for first sync
   }
   
-  // Update today's accumulators
-  float charge_delta_mah = data.charge_mah - socStats.learning_accumulated_mah;
-  socStats.learning_accumulated_mah = data.charge_mah;
+  // Read INA228 Hardware-Coulomb-Counter (mWh)
+  int32_t energy_mwh = ina228DriverInstance->readEnergy_mWh();
   
-  if (charge_delta_mah > 0) {
-    // Charging
-    socStats.today_charge_mah += (int32_t)charge_delta_mah;
-    socStats.today_solar_mah += (int32_t)charge_delta_mah;
-  } else {
-    // Discharging
-    socStats.today_discharge_mah += (int32_t)(-charge_delta_mah);
-  }
+  // Net energy since last baseline reset (negative = discharged, positive = charged)
+  int32_t net_energy_mwh = energy_mwh - socStats.ina228_baseline_mwh;
   
-  // Update SOC
-  if (socStats.battery_capacity_mah > 0) {
-    // Coulomb-counting based SOC
-    float soc_delta = (charge_delta_mah / socStats.battery_capacity_mah) * 100.0f;
-    socStats.current_soc_percent += soc_delta;
+  // Remaining capacity = Full capacity - consumed energy
+  float remaining_mwh = socStats.capacity_mwh - net_energy_mwh;
+  
+  // Calculate SOC percentage
+  if (socStats.capacity_mwh > 0) {
+    socStats.current_soc_percent = (remaining_mwh / socStats.capacity_mwh) * 100.0f;
     
     // Clamp to 0-100%
     if (socStats.current_soc_percent > 100.0f) socStats.current_soc_percent = 100.0f;
     if (socStats.current_soc_percent < 0.0f) socStats.current_soc_percent = 0.0f;
-  } else {
-    // Fallback: Voltage-based SOC estimation
-    BatteryType type;
-    if (bqDriverInstance) {
-      // Get battery type from config
-      BoardConfigContainer temp;
-      temp.loadBatType(type);
-      socStats.current_soc_percent = estimateSOCFromVoltage(data.voltage_mv, type);
+  }
+  
+  // Update daily statistics (track charged/discharged energy in mWh)
+  static int32_t last_energy_mwh = 0;
+  int32_t delta_mwh = energy_mwh - last_energy_mwh;
+  last_energy_mwh = energy_mwh;
+  
+  if (delta_mwh > 0) {
+    // Charging
+    socStats.today_charged_mwh += delta_mwh;
+    socStats.today_solar_mwh += delta_mwh;  // Assume solar (BQ tracks this)
+  } else if (delta_mwh < 0) {
+    // Discharging
+    socStats.today_discharged_mwh += (-delta_mwh);
+  }
+  
+  // Auto-sync if BQ25798 reports "Charging Done"
+  if (bqDriverInstance) {
+    bq25798_charging_status status = bqDriverInstance->getChargingStatus();
+    if (status == BQ25798_CHARGER_STATE_DONE_CHARGING && socStats.current_soc_percent < 99.0f) {
+      MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" detected - re-syncing to 100%%");
+      syncSOCToFull();
     }
-  }
-  
-  // === Auto-learning capacity from charge cycles ===
-  if (!bqDriverInstance) {
-    return;  // Need BQ25798 for charge state detection
-  }
-  
-  bq25798_charging_status charging_status = bqDriverInstance->getChargingStatus();
-  
-  // Get current battery type for voltage threshold
-  BatteryType currentBatType;
-  BoardConfigContainer temp;
-  if (!temp.loadBatType(currentBatType)) {
-    currentBatType = BatteryType::LIION_1S;  // Default fallback
-  }
-  
-  // === METHOD 1: Full Discharge Learning (slow, accurate) ===
-  // Best for batteries with high discharge current
-  
-  // State 1: Detect "Charge Done" → Start full cycle learning
-  // Only auto-start if capacity not already learned (user can force via CLI "relearn")
-  if (charging_status == BQ25798_CHARGER_STATE_DONE_CHARGING && 
-      !socStats.learning_active && !socStats.reverse_learning_active &&
-      !socStats.capacity_learned) {
-    // Battery is fully charged - start learning
-    socStats.learning_active = true;
-    socStats.learning_start_soc = 100.0f;
-    socStats.learning_accumulated_mah = 0.0f;
-    
-    MESH_DEBUG_PRINTLN("Full-Cycle Learning: Started (Battery at 100%%)");
-  }
-  
-  // State 2: Accumulate discharge during learning
-  if (socStats.learning_active && charge_delta_mah < 0) {
-    socStats.learning_accumulated_mah += (-charge_delta_mah);
-  }
-  
-  // State 3: Battery reached danger zone → Calculate capacity
-  uint16_t danger_threshold = getVoltageCriticalThreshold(currentBatType);
-  if (socStats.learning_active && data.voltage_mv <= danger_threshold) {
-    float measured_capacity = socStats.learning_accumulated_mah / 0.9f;  // 90% DoD
-    
-    if (measured_capacity >= 500.0f && measured_capacity <= 50000.0f) {
-      socStats.battery_capacity_mah = measured_capacity;
-      socStats.capacity_learned = true;
-      
-      BoardConfigContainer saveContainer;
-      saveContainer.setBatteryCapacity(measured_capacity);
-      
-      MESH_DEBUG_PRINTLN("Full-Cycle Learning: Complete! Cap=%.0f mAh (%.0f mAh discharge)", 
-                         measured_capacity, socStats.learning_accumulated_mah);
-    } else {
-      MESH_DEBUG_PRINTLN("Full-Cycle Learning: Failed - unreasonable (%.0f mAh)", measured_capacity);
-    }
-    
-    socStats.learning_active = false;
-    socStats.learning_accumulated_mah = 0.0f;
-  }
-  
-  // State 4: Learning interrupted by charging → Reset
-  if (socStats.learning_active && charge_delta_mah > 0 && 
-      charging_status != BQ25798_CHARGER_STATE_NOT_CHARGING) {
-    MESH_DEBUG_PRINTLN("Full-Cycle Learning: Interrupted by charging (%.0f mAh)", 
-                       socStats.learning_accumulated_mah);
-    socStats.learning_active = false;
-    socStats.learning_accumulated_mah = 0.0f;
-  }
-  
-  // === METHOD 2: Reverse Learning (0% → 100% via USB-C charging) ===
-  // Fast learning method when user charges from danger zone to full
-  // Advantages:
-  // - Much faster than Method 1 (hours vs weeks)
-  // - USB-C charging provides stable conditions (no solar fluctuations)
-  // - Boot consumption negligible (30s × 5mA ≈ 0.04mAh vs 10000mAh)
-  // - Precise 0% starting point (critical_threshold = exited danger zone = 0% SOC)
-  //
-  // Trigger: InheroMr2Board::begin() detects LOW_VOLTAGE wake with voltage >= critical_threshold
-  // This is called via startReverseLearning() from begin()
-  
-  // State 1: Accumulate charge during reverse learning
-  if (socStats.reverse_learning_active && charge_delta_mah > 0) {
-    socStats.reverse_learning_accumulated_mah += charge_delta_mah;
-    
-    // Debug output every 500 mAh
-    static uint16_t last_debug_mah = 0;
-    uint16_t current_debug_mah = (uint16_t)(socStats.reverse_learning_accumulated_mah / 500.0f);
-    if (current_debug_mah > last_debug_mah) {
-      MESH_DEBUG_PRINTLN("Reverse Learning: %.0f mAh charged so far", 
-                         socStats.reverse_learning_accumulated_mah);
-      last_debug_mah = current_debug_mah;
-    }
-  }
-  
-  // State 2: Charging complete (100% reached) → Calculate capacity
-  if (socStats.reverse_learning_active && 
-      charging_status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
-    
-    float measured_capacity = socStats.reverse_learning_accumulated_mah;
-    
-    // Sanity check: Reasonable capacity range (500mAh to 50Ah)
-    if (measured_capacity >= 500.0f && measured_capacity <= 50000.0f) {
-      socStats.battery_capacity_mah = measured_capacity;
-      socStats.capacity_learned = true;
-      socStats.current_soc_percent = 100.0f;
-      
-      // Persist to filesystem
-      BoardConfigContainer saveContainer;
-      saveContainer.setBatteryCapacity(measured_capacity);
-      saveContainer.setCapacityLearned(true);  // Persist learned flag
-      
-      MESH_DEBUG_PRINTLN("Reverse Learning: COMPLETE! Capacity=%.0f mAh (0%% → 100%%)", 
-                         measured_capacity);
-    } else {
-      MESH_DEBUG_PRINTLN("Reverse Learning: FAILED - unreasonable capacity %.0f mAh", 
-                         measured_capacity);
-    }
-    
-    // Reset learning state
-    socStats.reverse_learning_active = false;
-    socStats.reverse_learning_accumulated_mah = 0.0f;
-  }
-  
-  // State 3: Learning interrupted by discharge → Reset
-  // If battery starts discharging during learning, something went wrong
-  if (socStats.reverse_learning_active && charge_delta_mah < 0) {
-    MESH_DEBUG_PRINTLN("Reverse Learning: Interrupted by discharge (%.0f mAh accumulated)", 
-                       socStats.reverse_learning_accumulated_mah);
-    socStats.reverse_learning_active = false;
-    socStats.reverse_learning_accumulated_mah = 0.0f;
   }
 }
 
-/// @brief Update daily balance statistics
+/// @brief Update daily balance statistics (mWh-based)
 void BoardConfigContainer::updateDailyBalance() {
   uint32_t currentTime = getRTCTime();
   
@@ -2078,35 +1968,35 @@ void BoardConfigContainer::updateDailyBalance() {
     // Move to next day
     uint8_t nextIndex = (socStats.currentIndex + 1) % DAILY_STATS_DAYS;
     
-    // Save today's stats
+    // Save today's stats (mWh)
     DailyBatteryStats& today = socStats.days[socStats.currentIndex];
     today.timestamp = socStats.lastUpdateTime;
-    today.charge_mah = socStats.today_charge_mah;
-    today.discharge_mah = socStats.today_discharge_mah;
-    today.solar_charge_mah = socStats.today_solar_mah;
-    today.net_balance_mah = socStats.today_solar_mah - socStats.today_discharge_mah;
+    today.charged_mwh = socStats.today_charged_mwh;
+    today.discharged_mwh = socStats.today_discharged_mwh;
+    today.solar_mwh = socStats.today_solar_mwh;
+    today.net_balance_mwh = socStats.today_solar_mwh - socStats.today_discharged_mwh;
     
     // Reset accumulators for new day
     socStats.currentIndex = nextIndex;
-    socStats.today_charge_mah = 0;
-    socStats.today_discharge_mah = 0;
-    socStats.today_solar_mah = 0;
+    socStats.today_charged_mwh = 0;
+    socStats.today_discharged_mwh = 0;
+    socStats.today_solar_mwh = 0;
     socStats.lastUpdateTime = currentTime;
     
-    // Calculate 3-day average deficit
+    // Calculate 3-day average deficit (mWh)
     int32_t total_deficit = 0;
     int32_t valid_days = 0;
     for (int i = 0; i < 3 && i < DAILY_STATS_DAYS; i++) {
       int idx = (socStats.currentIndex - 1 - i + DAILY_STATS_DAYS) % DAILY_STATS_DAYS;
       if (socStats.days[idx].timestamp != 0) {
-        total_deficit += socStats.days[idx].net_balance_mah;
+        total_deficit += socStats.days[idx].net_balance_mwh;
         valid_days++;
       }
     }
     
     if (valid_days > 0) {
-      socStats.avg_daily_deficit_mah = (float)total_deficit / valid_days;
-      socStats.living_on_battery = (socStats.avg_daily_deficit_mah < 0);
+      socStats.avg_daily_deficit_mwh = total_deficit / valid_days;
+      socStats.living_on_battery = (socStats.avg_daily_deficit_mwh < 0);
     }
     
     // Calculate TTL
@@ -2116,21 +2006,21 @@ void BoardConfigContainer::updateDailyBalance() {
 
 /// @brief Calculate Time To Live (hours until battery empty)
 void BoardConfigContainer::calculateTTL() {
-  if (!socStats.living_on_battery || socStats.avg_daily_deficit_mah >= 0) {
+  if (!socStats.living_on_battery || socStats.avg_daily_deficit_mwh >= 0) {
     socStats.ttl_hours = 0;  // Not draining or charging
     return;
   }
   
-  if (socStats.battery_capacity_mah <= 0) {
+  if (socStats.capacity_mwh <= 0) {
     socStats.ttl_hours = 0;  // Capacity unknown
     return;
   }
   
-  // Current remaining capacity in mAh
-  float remaining_mah = (socStats.current_soc_percent / 100.0f) * socStats.battery_capacity_mah;
+  // Current remaining capacity in mWh
+  float remaining_mwh = (socStats.current_soc_percent / 100.0f) * socStats.capacity_mwh;
   
   // Daily deficit (negative value)
-  float deficit_per_day = -socStats.avg_daily_deficit_mah;
+  float deficit_per_day = -socStats.avg_daily_deficit_mwh;
   
   if (deficit_per_day <= 0) {
     socStats.ttl_hours = 0;
@@ -2138,13 +2028,13 @@ void BoardConfigContainer::calculateTTL() {
   }
   
   // Days until empty
-  float days_remaining = remaining_mah / deficit_per_day;
+  float days_remaining = remaining_mwh / deficit_per_day;
   
   // Convert to hours
   socStats.ttl_hours = (uint16_t)(days_remaining * 24.0f);
   
-  MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mAh remaining, -%.0f mAh/day)",
-                     days_remaining, remaining_mah, deficit_per_day);
+  MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mWh remaining, -%.0f mWh/day)",
+                     days_remaining, remaining_mwh, deficit_per_day);
 }
 
 /// @brief Estimate SOC from voltage (fallback method)
@@ -2208,30 +2098,6 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
     capacity_mah = 2000.0f;  // Default
   }
   
-  socStats.battery_capacity_mah = capacity_mah;
-  
-  // Load capacity_learned flag from filesystem
-  if (capacity_loaded) {
-    SimplePreferences prefs;
-    if (prefs.begin("inheromr2")) {  // Static function - use literal
-      char buffer[8];
-      prefs.getString("cap_learned", buffer, sizeof(buffer), "0");
-      socStats.capacity_learned = (strcmp(buffer, "1") == 0);
-      prefs.end();
-    } else {
-      socStats.capacity_learned = false;
-    }
-  } else {
-    socStats.capacity_learned = false;
-  }
-  
-  socStats.current_soc_percent = 50.0f;  // Initial estimate
-  socStats.lastUpdateTime = getRTCTime();
-  
-  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh (%s)", 
-                     capacity_mah, 
-                     socStats.capacity_learned ? "learned" : (capacity_loaded ? "manual" : "default"));
-  
   // Load battery type from preferences to get correct voltage thresholds
   BatteryType battType = DEFAULT_BATTERY_TYPE;
   SimplePreferences prefs_bat;
@@ -2245,6 +2111,20 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
     }
     prefs_bat.end();
   }
+  
+  socStats.capacity_mah = capacity_mah;
+  
+  // Convert to mWh using nominal voltage for battery chemistry
+  float nominalV = getNominalVoltage(battType);
+  socStats.capacity_mwh = capacity_mah * nominalV;
+  socStats.nominal_voltage = nominalV;
+  
+  socStats.current_soc_percent = 50.0f;  // Initial estimate
+  socStats.lastUpdateTime = getRTCTime();
+  
+  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh (%.0f mWh @ %.1fV) %s", 
+                     capacity_mah, socStats.capacity_mwh, nominalV,
+                     capacity_loaded ? "manual" : "default");
   
   // Get chemistry-specific critical threshold (Danger Zone boundary)
   uint16_t critical_mv;

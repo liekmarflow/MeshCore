@@ -159,15 +159,10 @@ void InheroMr2Board::begin() {
           // Never returns
         }
         
-        // Voltage recovered above critical threshold - THIS IS 0% SOC!
-        MESH_DEBUG_PRINTLN("Voltage recovered to %dmV, resuming normal operation at 0%% SOC", vbat_mv);
+        // Voltage recovered above critical threshold  - resumed normal operation
+        MESH_DEBUG_PRINTLN("Voltage recovered to %dmV, resuming normal operation", vbat_mv);
         // Clear ALL flags including Danger Zone - we're exiting!
         NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-        
-        // Start reverse learning (Method 2: 0% → 100% via USB-C charging)
-        // This is the perfect moment: we just exited danger zone = 0% SOC
-        // User will plug in USB-C, we accumulate all charged mAh to 100%
-        boardConfig.startReverseLearning();
       }
       // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2 may have Danger Zone flag from previous session)
       // This is the critical case to prevent motorboating!
@@ -434,33 +429,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float factor = boardConfig.getIna228CalibrationFactor();
     snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
     return true;
-  } else if (strcmp(cmd, "learning") == 0) {
-    // Get auto-learning status (both methods)
-    float capacity = boardConfig.getBatteryCapacity();
-    const char* source = boardConfig.isCapacityLearned() ? "learned" : "manual/default";
-    bool method1_active = boardConfig.isLearningActive();
-    
-    // Check Method 2 (reverse learning) via socStats
-    const BatterySOCStats* socStats = boardConfig.getSOCStats();
-    bool method2_active = (socStats != nullptr) ? socStats->reverse_learning_active : false;
-    
-    if (method1_active) {
-      float accumulated = boardConfig.getLearningAccumulatedMah();
-      snprintf(reply, maxlen, "M1 ACTIVE (100%%→10%%, %.0f mAh) Cap:%.0f mAh (%s)", 
-               accumulated, capacity, source);
-    } else if (method2_active) {
-      float accumulated = socStats->reverse_learning_accumulated_mah;
-      snprintf(reply, maxlen, "M2 ACTIVE (0%%→100%%, %.0f mAh) Cap:%.0f mAh (%s)", 
-               accumulated, capacity, source);
-    } else {
-      snprintf(reply, maxlen, "Learning IDLE Cap:%.0f mAh (%s)", capacity, source);
-    }
-    return true;
-  } else if (strcmp(cmd, "relearn") == 0) {
-    // Reset learned flag to enable auto-learning again
-    boardConfig.resetLearning();
-    snprintf(reply, maxlen, "Learning reset - auto-learning enabled");
-    return true;
   } else if (strcmp(cmd, "leds") == 0) {
     // Get LED enable state (heartbeat + BQ stat LED)
     bool enabled = boardConfig.getLEDsEnabled();
@@ -624,7 +592,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|life|imax|telem|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|learning|relearn|leds|i2cscan|inatest|inafix>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|soc|balance|cinfo|diag|togglehiz|clearhiz|mppt|mpps|conf|wdtstatus|ibcal|leds|i2cscan|inatest|inafix>");
   return true;
 }
 

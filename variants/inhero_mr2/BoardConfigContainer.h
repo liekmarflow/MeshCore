@@ -52,45 +52,42 @@ typedef struct {
   int32_t lastPower_mW;                    ///< Last measured power for energy calculation
 } MpptStatistics;
 
-// Battery Coulomb Counter & SOC Tracking (v0.2)
+// Battery SOC Tracking (v0.2) - mWh-based using INA228 Hardware Coulomb Counter
 #define DAILY_STATS_DAYS 7  // 7 days of daily statistics
 
 typedef struct {
   uint32_t timestamp;           ///< Unix timestamp (start of day, seconds)
-  int32_t charge_mah;          ///< Net charge for this day (+ = gained, - = lost)
-  int32_t discharge_mah;       ///< Total discharge for this day (always positive)
-  int32_t solar_charge_mah;    ///< Solar contribution for this day
-  int32_t net_balance_mah;     ///< Net balance (solar - discharge)
+  int32_t charged_mwh;         ///< Energy charged this day (mWh)
+  int32_t discharged_mwh;      ///< Energy discharged this day (mWh)
+  int32_t solar_mwh;           ///< Solar energy contribution (mWh)
+  int32_t net_balance_mwh;     ///< Net balance (solar - discharged)
 } DailyBatteryStats;
 
 typedef struct {
-  DailyBatteryStats days[DAILY_STATS_DAYS]; ///< Rolling buffer of daily stats
-  uint8_t currentIndex;                     ///< Current position in circular buffer
-  uint32_t lastUpdateTime;                  ///< Last update timestamp
+  // Battery configuration (user input in mAh, internally mWh)
+  float capacity_mah;          ///< User-configured capacity in mAh (for display)
+  float capacity_mwh;          ///< Total battery capacity in mWh (= capacity_mah × V_nominal)
+  float nominal_voltage;       ///< Nominal voltage for current chemistry (V)
   
-  // Current day accumulators
-  int32_t today_charge_mah;
-  int32_t today_discharge_mah;
-  int32_t today_solar_mah;
+  // SOC tracking using INA228 hardware counter
+  float current_soc_percent;   ///< Current State of Charge in % (0-100)
+  bool soc_valid;              ///< True after first "Charging Done" sync
+  int32_t ina228_baseline_mwh; ///< INA228 ENERGY reading at last 100% sync
   
-  // Battery capacity tracking
-  float battery_capacity_mah;  ///< Total battery capacity (learned or configured)
-  float current_soc_percent;   ///< Current State of Charge in %
-  bool capacity_learned;       ///< True if capacity was learned from full cycle
+  // Daily statistics (7-day rolling buffer)
+  DailyBatteryStats days[DAILY_STATS_DAYS];
+  uint8_t currentIndex;
+  uint32_t lastUpdateTime;
   
-  // Auto-learning state (full cycle: 100% → 10%)
-  bool learning_active;        ///< Currently in learning cycle
-  float learning_start_soc;    ///< SOC at start of learning
-  float learning_accumulated_mah; ///< Accumulated charge during learning
-  
-  // Reverse learning state (0% → 100% via USB-C charging)
-  bool reverse_learning_active; ///< Method 2: Learning from danger zone exit to full charge
-  float reverse_learning_accumulated_mah; ///< Accumulated charge from 0% to 100%
+  // Current day accumulators (mWh-based)
+  int32_t today_charged_mwh;
+  int32_t today_discharged_mwh;
+  int32_t today_solar_mwh;
   
   // Forecast
-  float avg_daily_deficit_mah; ///< 3-day average deficit (negative = using battery)
-  uint16_t ttl_hours;          ///< Time To Live - hours until battery empty (0 = not calculated)
-  bool living_on_battery;      ///< True if net deficit over last 24h
+  int32_t avg_daily_deficit_mwh; ///< 3-day average deficit (negative = using battery)
+  uint16_t ttl_hours;            ///< Time To Live - hours until battery empty (0 = not calculated)
+  bool living_on_battery;        ///< True if net deficit over last 24h
 } BatterySOCStats;
 
 class BoardConfigContainer {
@@ -108,6 +105,11 @@ public:
   static constexpr float LIION_1S_VOLTAGE = 4.1f;      // ~90-95% capacity, extended lifetime
   static constexpr float LIFEPO4_1S_VOLTAGE = 3.5f;    // ~95% capacity, optimal for longevity
   static constexpr float LTO_2S_VOLTAGE = 5.4f;        // 2.7V/cell, conservative for LTO
+  
+  // Nominal voltages for energy calculations (mAh → mWh conversion)
+  static constexpr float LIION_1S_NOMINAL = 3.7f;      // Li-Ion nominal voltage
+  static constexpr float LIFEPO4_1S_NOMINAL = 3.2f;    // LiFePO4 nominal voltage
+  static constexpr float LTO_2S_NOMINAL = 5.0f;        // LTO 2S nominal (2.5V/cell)
 
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
                                                        { "lifepo1s", LIFEPO4_1S },
@@ -201,23 +203,19 @@ public:
   uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
   void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
   
-  // Battery SOC & Coulomb Counter methods (v0.2)
+  // Battery SOC & Coulomb Counter methods (v0.2) - mWh-based
   float getStateOfCharge() const;              ///< Get current SOC in % (0-100)
   float getBatteryCapacity() const;            ///< Get battery capacity in mAh
-  bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI
-  bool setCapacityLearned(bool learned);       ///< Set and persist capacity_learned flag
+  bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI (converts to mWh internally)
   void getBatterySOCString(char* buffer, uint32_t bufferSize) const; ///< Get formatted SOC string
   void getDailyBalanceString(char* buffer, uint32_t bufferSize) const; ///< Get daily balance stats
   uint16_t getTTL_Hours() const;               ///< Get Time To Live in hours (0 = not calculated)
   bool isLivingOnBattery() const;              ///< True if net deficit over last 24h
-  bool isCapacityLearned() const;              ///< True if capacity was auto-learned
-  bool isLearningActive() const;               ///< True if currently learning capacity
-  float getLearningAccumulatedMah() const;     ///< Get accumulated mAh during learning
-  void startReverseLearning();                 ///< Start Method 2: 0% → 100% learning after danger zone exit
-  void resetLearning();                        ///< Reset capacity_learned flag to enable auto-learning
+  static void syncSOCToFull();                 ///< Sync SOC to 100% after "Charging Done" (resets INA228 baseline)
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
+  static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
   
   // INA228 Calibration methods (v0.2)
