@@ -293,6 +293,7 @@ bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
 
   channel++;
   // Battery telemetry
+  // INA228 driver returns correctly signed values: positive=charging, negative=discharging
   telemetry.addVoltage(channel, telemetryData->batterie.voltage / 1000.0f);
   telemetry.addCurrent(channel, telemetryData->batterie.current / 1000.0f);
   telemetry.addTemperature(channel, telemetryData->batterie.temperature);
@@ -396,16 +397,24 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float soc = boardConfig.getStateOfCharge();
     const BatterySOCStats* socStats = boardConfig.getSOCStats();
     
+    // Format currents: battery current with 1 decimal, solar current without decimals
+    // INA228 driver returns correctly signed values: positive=charging, negative=discharging
+    char bat_current_str[16];
+    snprintf(bat_current_str, sizeof(bat_current_str), "%.1fmA", precise_current_ma);
+    
+    char sol_current_str[16];
+    snprintf(sol_current_str, sizeof(sol_current_str), "%.0fmA", (float)telemetry->solar.current);
+    
     if (socStats && socStats->soc_valid) {
-      snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC SOC:%.1f%% S:%.2fV/%imA",
-               telemetry->batterie.voltage / 1000.0f, precise_current_ma,
+      snprintf(reply, maxlen, "B:%.2fV/%s/%.0fC SOC:%.1f%% S:%.2fV/%s",
+               telemetry->batterie.voltage / 1000.0f, bat_current_str,
                telemetry->batterie.temperature, soc,
-               telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
+               telemetry->solar.voltage / 1000.0f, sol_current_str);
     } else {
-      snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC SOC:N/A S:%.2fV/%imA",
-               telemetry->batterie.voltage / 1000.0f, precise_current_ma,
+      snprintf(reply, maxlen, "B:%.2fV/%s/%.0fC SOC:N/A S:%.2fV/%s",
+               telemetry->batterie.voltage / 1000.0f, bat_current_str,
                telemetry->batterie.temperature,
-               telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
+               telemetry->solar.voltage / 1000.0f, sol_current_str);
     }
     return true;
   } else if (strcmp(cmd, "conf") == 0) {

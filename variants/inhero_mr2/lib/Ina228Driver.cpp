@@ -57,8 +57,9 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   MESH_DEBUG_PRINTLN("INA228 begin(): ADC_CONFIG set to 0x%04X", adc_config);
 
   // Calculate current LSB: Max expected current / 2^19 (20-bit ADC)
-  // Max 1A through 20mΩ shunt, LSB = 1A / 524288 ≈ 1.91 µA
-  _current_lsb = 1.0f / 524288.0f;  // in Amperes
+  // With 20mΩ shunt and ±40.96mV ADC range: Max = 40.96mV / 0.02Ω = 2.048A
+  // Using 2.0A for safety margin, LSB = 2.0A / 524288 ≈ 3.81 µA
+  _current_lsb = 2.0f / 524288.0f;  // in Amperes (max ±2A)
 
   // Calculate shunt calibration value
   // SHUNT_CAL = 13107.2 × 10^6 × CURRENT_LSB × R_SHUNT
@@ -77,7 +78,7 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   delay(5);
 
   // Configure INA228: ADC range ±40.96mV for better resolution with 20mΩ shunt
-  // At 1A: V_shunt = 1A × 0.02Ω = 20mV (fits in ±40.96mV range)
+  // At 2A: V_shunt = 2A × 0.02Ω = 40mV (fits in ±40.96mV range)
   uint16_t config = INA228_CONFIG_ADCRANGE;  // Use ±40.96mV range (bit 4)
   writeRegister16(INA228_REG_CONFIG, config);
   delay(5);
@@ -140,8 +141,10 @@ int16_t Ina228Driver::readCurrent_mA() {
   current_raw >>= 4;
   // Current = raw × CURRENT_LSB
   // Calibration is applied via SHUNT_CAL register (hardware calibration)
+  // Sign convention: INVERT because shunt is oriented for battery perspective
+  // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
-  return (int16_t)(current_a * 1000.0f);  // Convert to mA
+  return (int16_t)(-current_a * 1000.0f);  // Convert to mA, inverted sign
 }
 
 float Ina228Driver::readCurrent_mA_precise() {
@@ -151,8 +154,10 @@ float Ina228Driver::readCurrent_mA_precise() {
   current_raw >>= 4;
   // Current = raw × CURRENT_LSB
   // Calibration is applied via SHUNT_CAL register (hardware calibration)
+  // Sign convention: INVERT because shunt is oriented for battery perspective
+  // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
-  return current_a * 1000.0f;  // Convert to mA with full precision
+  return -current_a * 1000.0f;  // Convert to mA with full precision, inverted sign
 }
 
 void Ina228Driver::shutdown() {
@@ -233,26 +238,29 @@ uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
 int32_t Ina228Driver::readPower_mW() {
   int32_t power_raw = readRegister24(INA228_REG_POWER);
   // Power LSB = 3.2 × CURRENT_LSB
+  // Sign convention: INVERT to match current sign (positive = charging)
   float power_w = power_raw * (3.2f * _current_lsb);
-  return (int32_t)(power_w * 1000.0f);  // Convert to mW
+  return (int32_t)(-power_w * 1000.0f);  // Convert to mW, inverted sign
 }
 
 int32_t Ina228Driver::readEnergy_mWh() {
   int64_t energy_raw = readRegister40(INA228_REG_ENERGY);
   // Energy LSB = 16 × 3.2 × CURRENT_LSB (in J)
   // Convert to Wh: / 3600
+  // Sign convention: INVERT to match current sign (positive = charging)
   float energy_j = energy_raw * (16.0f * 3.2f * _current_lsb);
   float energy_wh = energy_j / 3600.0f;
-  return (int32_t)(energy_wh * 1000.0f);  // Convert to mWh
+  return (int32_t)(-energy_wh * 1000.0f);  // Convert to mWh, inverted sign
 }
 
 float Ina228Driver::readCharge_mAh() {
   int64_t charge_raw = readRegister40(INA228_REG_CHARGE);
   // Charge LSB = CURRENT_LSB (in C = A·s)
   // Convert to Ah: / 3600
+  // Sign convention: INVERT to match current sign (positive = charging)
   float charge_c = charge_raw * _current_lsb;
   float charge_ah = charge_c / 3600.0f;
-  return charge_ah * 1000.0f;  // Convert to mAh
+  return -charge_ah * 1000.0f;  // Convert to mAh, inverted sign
 }
 
 float Ina228Driver::readDieTemperature_C() {

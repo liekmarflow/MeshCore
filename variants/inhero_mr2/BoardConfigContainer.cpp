@@ -817,7 +817,7 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   const Telemetry* telem = getTelemetryData();
   float vbus_v = telem ? telem->solar.voltage / 1000.0f : 0.0f;
   float vbat_v = telem ? telem->batterie.voltage / 1000.0f : 0.0f;
-  int16_t ibat_ma = telem ? telem->batterie.current : 0;
+  int16_t ibat_ma = telem ? telem->batterie.current : 0;  // INA228 driver returns correctly signed values
   float temp_c = telem ? telem->batterie.temperature : 0.0f;
 
   // Build comprehensive diagnostic string
@@ -1181,7 +1181,7 @@ bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
 /// @return true if preference found, false if default used
 bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   SimplePreferences prefs;
-  prefs.begin("inheromr1");
+  prefs.begin(PREFS_NAMESPACE);
   
   char buffer[10];
 
@@ -1901,11 +1901,12 @@ void BoardConfigContainer::updateBatterySOC() {
   // Read INA228 Hardware-Coulomb-Counter (mWh)
   int32_t energy_mwh = ina228DriverInstance->readEnergy_mWh();
   
-  // Net energy since last baseline reset (negative = discharged, positive = charged)
+  // Net energy since last baseline reset
+  // Sign convention: positive = charged (energy into battery), negative = discharged (energy from battery)
   int32_t net_energy_mwh = energy_mwh - socStats.ina228_baseline_mwh;
   
-  // Remaining capacity = Full capacity - consumed energy
-  float remaining_mwh = socStats.capacity_mwh - net_energy_mwh;
+  // Remaining capacity = Initial capacity + net energy (positive=charged adds, negative=discharged subtracts)
+  float remaining_mwh = socStats.capacity_mwh + net_energy_mwh;
   
   // Calculate SOC percentage
   if (socStats.capacity_mwh > 0) {

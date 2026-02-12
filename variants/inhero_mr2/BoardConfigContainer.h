@@ -253,7 +253,7 @@ private:
   bool configureChemistry(BatteryType type);
   // configureMCP() removed - v0.1 only, MR2 doesn't have MCP4652
   bool configureSolarOnlyInterrupts();
-  const char* PREFS_NAMESPACE = "inheromr2";
+  static constexpr const char* PREFS_NAMESPACE = "inheromr2";
   char* BATTKEY = "batType";
   char* FROSTKEY = "frost";
   char* MAXCHARGECURRENTKEY = "maxChrg";
