@@ -341,8 +341,27 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   } else if (strcmp(cmd, "mppt") == 0) {
     snprintf(reply, maxlen, "MPPT=%s", boardConfig.getMPPTEnabled() ? "1" : "0");
     return true;
-  } else if (strcmp(cmd, "mpps") == 0) {
-    boardConfig.getMpptStatsString(reply, maxlen);
+  } else if (strcmp(cmd, "stats") == 0) {
+    // Combined energy statistics: balance + MPPT
+    const BatterySOCStats* socStats = boardConfig.getSOCStats();
+    
+    // Balance info
+    int32_t today_net = socStats->today_solar_mwh - socStats->today_discharged_mwh;
+    const char* status = socStats->living_on_battery ? "BAT" : "SOL";
+    int32_t avg3d = socStats->avg_daily_deficit_mwh;
+    uint16_t ttl = boardConfig.getTTL_Hours();
+    
+    // MPPT info
+    float mppt_pct = boardConfig.getMpptEnabledPercentage7Day();
+    
+    // Compact format: Today/Avg3d Status MPPT% [TTL]
+    if (ttl > 0) {
+      snprintf(reply, maxlen, "%+d/%+dmWh %s M:%.0f%% TTL:%dh", 
+               today_net, avg3d, status, mppt_pct, ttl);
+    } else {
+      snprintf(reply, maxlen, "%+d/%+dmWh %s M:%.0f%%",
+               today_net, avg3d, status, mppt_pct);
+    }
     return true;
   } else if (strcmp(cmd, "cinfo") == 0) {
     char infoBuffer[100];
@@ -373,26 +392,20 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       precise_current_ma = (float)telemetry->batterie.current;
     }
     
-    snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC S:%.2fV/%imA",
-             telemetry->batterie.voltage / 1000.0f, precise_current_ma,
-             telemetry->batterie.temperature,
-             telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
-    return true;
-  } else if (strcmp(cmd, "soc") == 0) {
-    // Battery State of Charge (v0.2 feature)
-    char socBuffer[80];
-    boardConfig.getBatterySOCString(socBuffer, sizeof(socBuffer));
-    snprintf(reply, maxlen, "%s", socBuffer);
-    return true;
-  } else if (strcmp(cmd, "balance") == 0) {
-    // Daily balance and forecast (v0.2 feature)
-    char balanceBuffer[100];
-    boardConfig.getDailyBalanceString(balanceBuffer, sizeof(balanceBuffer));
-    uint16_t ttl = boardConfig.getTTL_Hours();
-    if (ttl > 0) {
-      snprintf(reply, maxlen, "%s TTL:%dh", balanceBuffer, ttl);
+    // Get SOC info
+    float soc = boardConfig.getStateOfCharge();
+    const BatterySOCStats* socStats = boardConfig.getSOCStats();
+    
+    if (socStats && socStats->soc_valid) {
+      snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC SOC:%.1f%% S:%.2fV/%imA",
+               telemetry->batterie.voltage / 1000.0f, precise_current_ma,
+               telemetry->batterie.temperature, soc,
+               telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
     } else {
-      snprintf(reply, maxlen, "%s", balanceBuffer);
+      snprintf(reply, maxlen, "B:%.2fV/%.3fmA/%.0fC SOC:N/A S:%.2fV/%imA",
+               telemetry->batterie.voltage / 1000.0f, precise_current_ma,
+               telemetry->batterie.temperature,
+               telemetry->solar.voltage / 1000.0f, telemetry->solar.current);
     }
     return true;
   } else if (strcmp(cmd, "conf") == 0) {
@@ -423,7 +436,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|soc|balance|cinfo|diag|togglehiz|mppt|mpps|conf|ibcal|leds>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds>");
   return true;
 }
 

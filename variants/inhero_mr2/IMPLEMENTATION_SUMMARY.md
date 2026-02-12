@@ -526,57 +526,80 @@ board.hwver     # Hardware-Information
                 # Output: "v0.2 (INA228+RTC)"
                 # Code: InheroMr2Board.cpp Zeile 175-179
 
-board.soc       # Battery State of Charge
-                # Output: "SOC:67.5% Cap:2000mAh(learned|config)"
+board.telem     # Full telemetry with SOC
+                # Output: "B:3.85V/125.432mA/22.3C SOC:68.5% S:5.12V/245mA"
+                # Output: "B:3.85V/125.432mA/22.3C SOC:N/A S:5.12V/245mA" (if not synced)
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 
-board.balance   # Daily energy balance & TTL
-                # Output: "Today:+150mAh SOLAR 3dAvg:+120mAh" oder
-                #         "Today:-80mAh BATTERY 3dAvg:-100mAh TTL:288h"
+board.stats     # Combined energy statistics (balance + MPPT)
+                # Output: "+1250/+450mWh SOL M:85%" oder
+                #         "-300/-450mWh BAT M:45% TTL:72h"
+                # Components: Today/Avg3d Status MPPT% [TTL]
+                # SOL = Solar sufficient (self-sufficient)
+                # BAT = Battery deficit (living on battery)
                 # Code: InheroMr2Board.cpp - getCustomGetter()
-
-board.telem     # Full telemetry
-                # Output: "B:3.85V/150mA/22C S:5.20V/85mA Y:3.30V"
-                # Code: InheroMr2Board.cpp - queryBoardTelemetry()
 
 board.cinfo     # Charger info
                 # Output: "PG / CC" (Power Good, Constant Current)
                 # Code: InheroMr2Board.cpp Zeile 215-221
 
-board.mpps      # MPPT statistics
-                # Output: "MPPT 7d avg: 87.3%, E_daily 3d: 1250mWh"
-                # Code: InheroMr2Board.cpp Zeile 211-213
-
-board.diag      # Detailed BQ25798 diagnostics (NEU!)
+board.diag      # Detailed BQ25798 diagnostics
                 # Output: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | voltages | temps
                 # Code: InheroMr2Board.cpp Zeile 223-226
 
+board.togglehiz # Manual HIZ cycle for input detection
+                # Output: "HIZ cycle <was set|forced>: VBUS=5.2V PG=OK"
+                # Same logic as automatic checkAndFixPgoodStuck()
+                # Always ends with HIZ=0
+                # Code: InheroMr2Board.cpp - getCustomGetter()
+
 board.conf      # All configuration
-                # Output: "B:liion1s F:0% M:1 I:500mA Vco:4.20"
+                # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
+                # Code: InheroMr2Board.cpp - getCustomGetter()
+
+board.ibcal     # INA228 calibration factor
+                # Output: "INA228 calibration: 0.9850 (1.0=default)"
+                # Code: InheroMr2Board.cpp - getCustomGetter()
+
+board.leds      # LED enable status
+                # Output: "LEDs: ON (Heartbeat + BQ Stat)"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 ```
 
 ### Setter (Implemented)
 ```bash
-set board.batcap <mAh>  # Set battery capacity
-                        # Range: 100-100000 mAh
-                        # Example: set board.batcap 2200
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.batcap <mAh>      # Set battery capacity
+                            # Range: 100-100000 mAh
+                            # Example: set board.batcap 2200
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
 
-set board.bat <type>    # Set battery chemistry
-                        # Options: liion1s | lifepo1s | lto2s
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.ibcal <current>   # Calibrate INA228 current sensor
+                            # Range: -2000 to +2000 mA (actual measured current)
+                            # Example: set board.ibcal 100.5
+                            # Output: "INA228 calibrated: factor=0.9824"
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
 
-set board.imax <mA>     # Set max charge current
-                        # Range: 10-1000 mA
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.bat <type>        # Set battery chemistry
+                            # Options: liion1s | lifepo1s | lto2s
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
 
-set board.mppt <0|1>    # Enable/disable MPPT
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.imax <mA>         # Set max charge current
+                            # Range: 10-1000 mA
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
 
-set board.frost <mode>  # Set frost charge behavior
-                        # Options: 0% | 20% | 40% | 100%
-                        # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.mppt <0|1>        # Enable/disable MPPT
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.frost <mode>      # Set frost charge behavior
+                            # Options: 0% | 20% | 40% | 100%
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.leds <on|off>     # Enable/disable heartbeat + BQ stat LED
+                            # Options: on/1 | off/0
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.bqreset           # Reset BQ25798 and reload config
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
 ```
 
 ---
