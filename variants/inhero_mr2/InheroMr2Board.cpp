@@ -453,9 +453,29 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "%.0f mAh (default)", capacity_mah);
     }
     return true;
+  } else if (strcmp(cmd, "energy") == 0) {
+    // Read INA228 Energy Counter Register
+    Ina228Driver* ina = boardConfig.getIna228Driver();
+    if (ina != nullptr) {
+      int32_t energy_mwh = ina->readEnergy_mWh();
+      const BatterySOCStats* socStats = boardConfig.getSOCStats();
+      
+      if (socStats && socStats->soc_valid) {
+        // Show raw counter and baseline (for debugging SOC calculations)
+        int32_t net_energy = energy_mwh - socStats->ina228_baseline_mwh;
+        snprintf(reply, maxlen, "Energy: %dmWh (Base: %dmWh, Net: %+dmWh)", 
+                 energy_mwh, socStats->ina228_baseline_mwh, net_energy);
+      } else {
+        // SOC not yet synced, only show raw counter
+        snprintf(reply, maxlen, "Energy: %dmWh (SOC not synced)", energy_mwh);
+      }
+    } else {
+      snprintf(reply, maxlen, "Err: INA228 not initialized");
+    }
+    return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap|energy>");
   return true;
 }
 

@@ -165,6 +165,7 @@ public:
   
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
+  static void socUpdateTask(void* pvParameters); ///< SOC update task (runs every minute)
   
   /// BQ25798 interrupt handler - ALWAYS clears interrupt flags (reads 0x1B) to prevent lockup.
   static void onBqInterrupt();
@@ -242,6 +243,7 @@ private:
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
   static TaskHandle_t voltageMonitorTaskHandle; ///< Handle for voltage monitor task (v0.2)
+  static TaskHandle_t socUpdateTaskHandle; ///< Handle for SOC update task (runs every minute)
   static MpptStatistics mpptStats; ///< MPPT statistics data
   static BatterySOCStats socStats; ///< Battery SOC statistics (v0.2)
   

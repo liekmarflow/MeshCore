@@ -62,6 +62,7 @@ Ina228Driver* BoardConfigContainer::ina228DriverInstance = nullptr;
 TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::voltageMonitorTaskHandle = NULL;
+TaskHandle_t BoardConfigContainer::socUpdateTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
@@ -378,6 +379,13 @@ void BoardConfigContainer::stopBackgroundTasks() {
     vTaskDelete(voltageMonitorTaskHandle);
     voltageMonitorTaskHandle = NULL;
     MESH_DEBUG_PRINTLN("Voltage monitor task stopped");
+  }
+  
+  // Delete SOC update task if running
+  if (socUpdateTaskHandle != NULL) {
+    vTaskDelete(socUpdateTaskHandle);
+    socUpdateTaskHandle = NULL;
+    MESH_DEBUG_PRINTLN("SOC update task stopped");
   }
   
   // Clean up semaphore
@@ -1068,6 +1076,17 @@ bool BoardConfigContainer::begin() {
       // Non-critical, continue
     } else {
       MESH_DEBUG_PRINTLN("Voltage Monitor task started (v0.2)");
+    }
+  }
+  
+  // Start SOC Update Task (runs every minute)
+  if (socUpdateTaskHandle == NULL && INA228_INITIALIZED) {
+    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::socUpdateTask, "SOCUpdate", 2048, NULL, 2, &socUpdateTaskHandle);
+    if (taskCreated != pdPASS) {
+      MESH_DEBUG_PRINTLN("Failed to create SOC Update task!");
+      // Non-critical, continue
+    } else {
+      MESH_DEBUG_PRINTLN("SOC Update task started - running every minute");
     }
   }
   
@@ -1885,21 +1904,51 @@ void BoardConfigContainer::updateBatterySOC() {
     return;
   }
   
-  // SOC is only valid after first "Charging Done" sync via syncSOCToFull()
-  if (!socStats.soc_valid) {
-    // Check if BQ reports charging done → auto-sync
-    if (bqDriverInstance) {
-      bq25798_charging_status status = bqDriverInstance->getChargingStatus();
-      if (status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
+  // Read INA228 Hardware-Coulomb-Counter (mWh)
+  int32_t energy_mwh = ina228DriverInstance->readEnergy_mWh();
+  
+  // Update daily statistics (track charged/discharged energy in mWh)
+  // This runs ALWAYS, independent of SOC validity
+  static int32_t last_energy_mwh = 0;
+  static bool first_read = true;
+  
+  if (first_read) {
+    // Initialize baseline on first read, don't count initial value as delta
+    last_energy_mwh = energy_mwh;
+    first_read = false;
+  } else {
+    int32_t delta_mwh = energy_mwh - last_energy_mwh;
+    last_energy_mwh = energy_mwh;
+    
+    // Battery perspective: Positive delta = charging (counter rises), Negative delta = discharging (counter falls)
+    if (delta_mwh > 0) {
+      // Counter rising = Charging (energy added to battery)
+      socStats.today_charged_mwh += delta_mwh;
+      socStats.today_solar_mwh += delta_mwh;  // Assume solar (BQ tracks this)
+    } else if (delta_mwh < 0) {
+      // Counter falling = Discharging (energy removed from battery)
+      socStats.today_discharged_mwh += (-delta_mwh);
+    }
+  }
+  
+  // Check if BQ reports charging done → auto-sync
+  if (bqDriverInstance) {
+    bq25798_charging_status status = bqDriverInstance->getChargingStatus();
+    if (status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
+      if (!socStats.soc_valid) {
         MESH_DEBUG_PRINTLN("SOC: First \"Charging Done\" detected - syncing to 100%%");
+        syncSOCToFull();
+      } else if (socStats.current_soc_percent < 99.0f) {
+        MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" detected - re-syncing to 100%%");
         syncSOCToFull();
       }
     }
-    return;  // Wait for first sync
   }
   
-  // Read INA228 Hardware-Coulomb-Counter (mWh)
-  int32_t energy_mwh = ina228DriverInstance->readEnergy_mWh();
+  // SOC calculation is only valid after first "Charging Done" sync via syncSOCToFull()
+  if (!socStats.soc_valid) {
+    return;  // Wait for first sync
+  }
   
   // Net energy since last baseline reset
   // Sign convention: positive = charged (energy into battery), negative = discharged (energy from battery)
@@ -1915,29 +1964,6 @@ void BoardConfigContainer::updateBatterySOC() {
     // Clamp to 0-100%
     if (socStats.current_soc_percent > 100.0f) socStats.current_soc_percent = 100.0f;
     if (socStats.current_soc_percent < 0.0f) socStats.current_soc_percent = 0.0f;
-  }
-  
-  // Update daily statistics (track charged/discharged energy in mWh)
-  static int32_t last_energy_mwh = 0;
-  int32_t delta_mwh = energy_mwh - last_energy_mwh;
-  last_energy_mwh = energy_mwh;
-  
-  if (delta_mwh > 0) {
-    // Charging
-    socStats.today_charged_mwh += delta_mwh;
-    socStats.today_solar_mwh += delta_mwh;  // Assume solar (BQ tracks this)
-  } else if (delta_mwh < 0) {
-    // Discharging
-    socStats.today_discharged_mwh += (-delta_mwh);
-  }
-  
-  // Auto-sync if BQ25798 reports "Charging Done"
-  if (bqDriverInstance) {
-    bq25798_charging_status status = bqDriverInstance->getChargingStatus();
-    if (status == BQ25798_CHARGER_STATE_DONE_CHARGING && socStats.current_soc_percent < 99.0f) {
-      MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" detected - re-syncing to 100%%");
-      syncSOCToFull();
-    }
   }
 }
 
@@ -2063,6 +2089,30 @@ float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryT
   return soc;
 }
 
+/// @brief SOC Update Task - runs every minute to update battery statistics
+/// @details Updates SOC from INA228 Coulomb Counter and daily balance statistics.
+///          Separated from voltageMonitorTask to allow frequent SOC updates (1 minute)
+///          while voltageMonitorTask handles voltage checks at longer intervals (1 hour).
+/// @param pvParameters Task parameters (unused)
+void BoardConfigContainer::socUpdateTask(void* pvParameters) {
+  (void)pvParameters;
+  
+  MESH_DEBUG_PRINTLN("SOC Update Task started - running every minute");
+  
+  const uint32_t UPDATE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
+  
+  while (true) {
+    // Wait for 1 minute
+    vTaskDelay(pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
+    
+    // Update SOC from Coulomb Counter
+    updateBatterySOC();
+    
+    // Update daily balance (checks if day changed)
+    updateDailyBalance();
+  }
+}
+
 /// @brief Voltage Monitor Task with SOC tracking (v0.2)
 /// @param pvParameters Task parameters (unused)
 void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
@@ -2146,12 +2196,6 @@ void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
 #endif
   
   while (true) {
-    // Update SOC from Coulomb Counter
-    updateBatterySOC();
-    
-    // Update daily balance (checks if day changed)
-    updateDailyBalance();
-    
     // Read current voltage
     uint16_t vbat_mv = 0;
     if (ina228DriverInstance) {

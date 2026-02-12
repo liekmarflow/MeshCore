@@ -247,20 +247,21 @@ int32_t Ina228Driver::readEnergy_mWh() {
   int64_t energy_raw = readRegister40(INA228_REG_ENERGY);
   // Energy LSB = 16 × 3.2 × CURRENT_LSB (in J)
   // Convert to Wh: / 3600
-  // Sign convention: INVERT to match current sign (positive = charging)
+  // NO inversion - shunt orientation gives correct battery perspective
+  // Positive = discharging (energy from battery), Negative = charging (energy into battery)
   float energy_j = energy_raw * (16.0f * 3.2f * _current_lsb);
   float energy_wh = energy_j / 3600.0f;
-  return (int32_t)(-energy_wh * 1000.0f);  // Convert to mWh, inverted sign
+  return (int32_t)(energy_wh * 1000.0f);  // Convert to mWh, NO inversion
 }
 
 float Ina228Driver::readCharge_mAh() {
   int64_t charge_raw = readRegister40(INA228_REG_CHARGE);
   // Charge LSB = CURRENT_LSB (in C = A·s)
   // Convert to Ah: / 3600
-  // Sign convention: INVERT to match current sign (positive = charging)
+  // NO inversion - matches energy register orientation
   float charge_c = charge_raw * _current_lsb;
   float charge_ah = charge_c / 3600.0f;
-  return -charge_ah * 1000.0f;  // Convert to mAh, inverted sign
+  return charge_ah * 1000.0f;  // Convert to mAh, NO inversion
 }
 
 float Ina228Driver::readDieTemperature_C() {
