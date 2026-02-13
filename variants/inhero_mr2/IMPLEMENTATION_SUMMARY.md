@@ -686,6 +686,8 @@ set board.ibcal <current>   # Calibrate INA228 current sensor
                             # Range: -2000 to +2000 mA (actual measured current)
                             # Example: set board.ibcal 100.5
                             # Output: "INA228 calibrated: factor=0.9824"
+                            # Or: set board.ibcal reset
+                            # Resets calibration to default value (1.0)
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.bat <type>        # Set battery chemistry

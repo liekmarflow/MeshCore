@@ -204,6 +204,8 @@ set board.ibcal <current_mA>   # INA228-Stromsensor kalibrieren (v0.2-Feature)
                                # Measures actual current, calculates correction factor
                                # Beispiel: set board.ibcal 100.5
                                # Ausgabe: INA228 calibrated: factor=0.9850
+                               # Oder: set board.ibcal reset
+                               # Setzt Kalibrierung auf Standardwert 1.0 zurück
 
 set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS neu laden
                                # Performs software reset and reconfigures

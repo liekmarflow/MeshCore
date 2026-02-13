@@ -602,8 +602,19 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     }
     return ret;
   } else if (strncmp(setCommand, "ibcal ", 6) == 0) {
-    // INA228 current calibration: set board.ibcal <actual_current_mA>
+    // INA228 current calibration: set board.ibcal <actual_current_mA> or set board.ibcal reset
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+    
+    // Check for reset command
+    if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
+      if (boardConfig.setIna228CalibrationFactor(1.0f)) {
+        snprintf(ret, sizeof(ret), "INA228 calibration reset to 1.0000 (default)");
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Failed to reset calibration");
+      }
+      return ret;
+    }
+    
     float actual_current_ma = atof(value);
     
     // Validate reasonable current range (-2000 to +2000 mA)
