@@ -122,7 +122,10 @@ namespace {
     rtc_clock.setLocked(false);
   }
 
-  void blinkRed(uint8_t count, uint16_t on_ms, uint16_t off_ms) {
+  void blinkRed(uint8_t count, uint16_t on_ms, uint16_t off_ms, bool led_enabled) {
+    if (!led_enabled) {
+      return;
+    }
     for (uint8_t i = 0; i < count; i++) {
       digitalWrite(LED_RED, HIGH);
       delay(on_ms);
@@ -273,14 +276,14 @@ void BoardConfigContainer::runVoltageMonitor() {
   MESH_DEBUG_PRINTLN("PWRMGT: Voltage check - VBAT=%dmV, Critical=%dmV, DangerZone=%d, GPREGRET2=0x%02X",
                      vbat_mv, critical_mv, in_danger_zone, NRF_POWER->GPREGRET2);
 
-  blinkRed(3, 100, 100);
+  blinkRed(3, 100, 100, leds_enabled);
 
   if (vbat_mv > 0) {
     if (vbat_mv < critical_mv) {
       MESH_DEBUG_PRINTLN("PWRMGT: Danger Zone breach - voltage %dmV < %dmV - shutting down", vbat_mv, critical_mv);
 
-      blinkRed(1, 100, 100);
-      blinkRed(3, 300, 300);
+      blinkRed(1, 100, 100, leds_enabled);
+      blinkRed(3, 300, 300, leds_enabled);
 
       if (!in_danger_zone) {
         NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
@@ -336,10 +339,12 @@ void BoardConfigContainer::runVoltageMonitor() {
       delay(100);
       NRF_POWER->SYSTEMOFF = 1;
       delay(100);
-      digitalWrite(LED_RED, HIGH);
+      if (leds_enabled) {
+        digitalWrite(LED_RED, HIGH);
+      }
       while (1) { delay(1000); }
     } else {
-      blinkRed(3, 100, 100);
+      blinkRed(3, 100, 100, leds_enabled);
 
       if (in_danger_zone) {
         MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered to %dmV (Critical=%dmV)", vbat_mv, critical_mv);
@@ -380,11 +385,13 @@ void BoardConfigContainer::setupWatchdog() {
     
     // Visual feedback: blink LED 3 times to indicate WDT is active
     #ifdef LED_BLUE
-      for (int i = 0; i < 3; i++) {
-        digitalWrite(LED_BLUE, HIGH);
-        delay(100);
-        digitalWrite(LED_BLUE, LOW);
-        delay(100);
+      if (leds_enabled) {
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_BLUE, HIGH);
+          delay(100);
+          digitalWrite(LED_BLUE, LOW);
+          delay(100);
+        }
       }
     #endif
   #else
@@ -677,9 +684,13 @@ void BoardConfigContainer::heartbeatTask(void* pvParameters) {
   pinMode(LED_BLUE, OUTPUT);
 
   while (true) {
-    digitalWrite(LED_BLUE, HIGH);
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, HIGH);
+    }
     vTaskDelay(pdMS_TO_TICKS(10));  // 10ms flash - well visible, minimal power
-    digitalWrite(LED_BLUE, LOW);
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, LOW);
+    }
     vTaskDelay(pdMS_TO_TICKS(5000)); // 5s interval - lower power consumption
   }
 }
@@ -1125,6 +1136,8 @@ bool BoardConfigContainer::begin() {
   } else {
     leds_enabled = true;  // Default: enabled
   }
+
+  bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
   
   // Initialize BQ25798 (common for both v0.1 and v0.2)
   if (bq.begin()) {
@@ -1133,10 +1146,12 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("BQ25798 found. ");
     
     // Blue LED flash: BQ25798 initialized
-    digitalWrite(LED_BLUE, HIGH);
-    delay(150);
-    digitalWrite(LED_BLUE, LOW);
-    delay(100);
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, HIGH);
+      delay(150);
+      digitalWrite(LED_BLUE, LOW);
+      delay(100);
+    }
   } else {
     MESH_DEBUG_PRINTLN("BQ25798 not found.");
     BQ_INITIALIZED = false;
@@ -1148,8 +1163,10 @@ bool BoardConfigContainer::begin() {
   delay(10);  // Let serial output flush
   
   // Visual indicator: Red LED on = INA228 detection in progress
-  digitalWrite(LED_RED, HIGH);
-  delay(50);
+  if (leds_enabled) {
+    digitalWrite(LED_RED, HIGH);
+    delay(50);
+  }
   
   // First test I2C communication
   Wire.beginTransmission(0x40);
@@ -1185,14 +1202,18 @@ bool BoardConfigContainer::begin() {
       ina228DriverInstance = &ina228;
       
       // Turn off red LED (INA228 detection complete)
-      digitalWrite(LED_RED, LOW);
-      delay(10);
+      if (leds_enabled) {
+        digitalWrite(LED_RED, LOW);
+        delay(10);
+      }
       
       // Blue LED flash: INA228 initialized
-      digitalWrite(LED_BLUE, HIGH);
-      delay(150);
-      digitalWrite(LED_BLUE, LOW);
-      delay(100);
+      if (leds_enabled) {
+        digitalWrite(LED_BLUE, HIGH);
+        delay(150);
+        digitalWrite(LED_BLUE, LOW);
+        delay(100);
+      }
       
       // Load and apply current calibration factor
       float calib_factor = 1.0f;
@@ -1234,28 +1255,38 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("RV-3028 RTC found @ 0x52");
     
     // Blue LED flash: RTC initialized
-    digitalWrite(LED_BLUE, HIGH);
-    delay(150);
-    digitalWrite(LED_BLUE, LOW);
-    delay(100);
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, HIGH);
+      delay(150);
+      digitalWrite(LED_BLUE, LOW);
+      delay(100);
+    }
   } else {
     MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52");
   }
   
   // === MR2 Configuration (v0.2 only) ===
-  prefs.begin(PREFS_NAMESPACE);
+  SimplePreferences prefs_init;
+  prefs_init.begin(PREFS_NAMESPACE);
+  
   BatteryType bat = DEFAULT_BATTERY_TYPE;
   FrostChargeBehaviour frost = DEFAULT_FROST_BEHAVIOUR;
   uint16_t maxChargeCurrent_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
 
   if (!loadBatType(bat)) {
-    prefs.putString(BATTKEY, getBatteryTypeCommandString(bat));
+    if (!skip_fs_writes) {
+      prefs_init.putString(BATTKEY, getBatteryTypeCommandString(bat));
+    }
   }
   if (!loadFrost(frost)) {
-    prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(frost));
+    if (!skip_fs_writes) {
+      prefs_init.putString(FROSTKEY, getFrostChargeBehaviourCommandString(frost));
+    }
   }
   if (!loadMaxChrgI(maxChargeCurrent_mA)) {
-    prefs.putInt(MAXCHARGECURRENTKEY, maxChargeCurrent_mA);
+    if (!skip_fs_writes) {
+      prefs_init.putInt(MAXCHARGECURRENTKEY, maxChargeCurrent_mA);
+    }
   }
 
   this->configureBaseBQ();
@@ -1315,14 +1346,16 @@ bool BoardConfigContainer::begin() {
     if (!rtc_initialized) MESH_DEBUG_PRINTLN("  - RV-3028 RTC missing");
     
     // Create error LED blink task
-    xTaskCreate([](void* param) {
-      while(1) {
-        digitalWrite(LED_RED, HIGH);  // Red LED on
-        vTaskDelay(pdMS_TO_TICKS(500));
-        digitalWrite(LED_RED, LOW);   // Red LED off
-        vTaskDelay(pdMS_TO_TICKS(500));
-      }
-    }, "ErrorLED", 512, NULL, 1, NULL);
+    if (leds_enabled) {
+      xTaskCreate([](void* param) {
+        while (1) {
+          digitalWrite(LED_RED, HIGH);  // Red LED on
+          vTaskDelay(pdMS_TO_TICKS(500));
+          digitalWrite(LED_RED, LOW);   // Red LED off
+          vTaskDelay(pdMS_TO_TICKS(500));
+        }
+      }, "ErrorLED", 512, NULL, 1, NULL);
+    }
   }
   
   // Voltage monitoring is handled inside socUpdateTask (single periodic loop).
@@ -1356,11 +1389,13 @@ bool BoardConfigContainer::begin() {
       MESH_DEBUG_PRINTLN("⚠ INA228 ADC_CONFIG=0x%04X after task start - fixing...", adc_cfg_check);
       
       // Visual: Rapid red blinks = ADC_CONFIG corrupted by task race
-      for (int i = 0; i < 3; i++) {
-        digitalWrite(LED_RED, HIGH);
-        delay(100);
-        digitalWrite(LED_RED, LOW);
-        delay(100);
+      if (leds_enabled) {
+        for (int i = 0; i < 3; i++) {
+          digitalWrite(LED_RED, HIGH);
+          delay(100);
+          digitalWrite(LED_RED, LOW);
+          delay(100);
+        }
       }
       
       // Force-write ADC_CONFIG again
@@ -1383,6 +1418,9 @@ bool BoardConfigContainer::begin() {
 /// @param type Reference to store loaded battery type
 /// @return true if preference found and valid, false if default used
 bool BoardConfigContainer::loadBatType(BatteryType& type) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
   char buffer[10];
   if (prefs.getString(BATTKEY, buffer, sizeof(buffer), "") > 0) {
     type = this->getBatteryTypeFromCommandString(buffer);
@@ -1403,6 +1441,9 @@ bool BoardConfigContainer::loadBatType(BatteryType& type) const {
 /// @param behaviour Reference to store loaded behavior
 /// @return true if preference found and valid, false if default used
 bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
   char buffer[10];
   if (prefs.getString(FROSTKEY, buffer, sizeof(buffer), "") > 0) {
     behaviour = this->getFrostChargeBehaviourFromCommandString(buffer);
@@ -1423,6 +1464,9 @@ bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
 /// @param maxCharge_mA Reference to store loaded current in mA
 /// @return true if preference found and valid (1-3000mA), false if default used
 bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
   char buffer[10];
 
   if (prefs.getString(MAXCHARGECURRENTKEY, buffer, sizeof(buffer), "") > 0) {
@@ -1660,6 +1704,9 @@ bool BoardConfigContainer::getMPPTEnabled() const {
 /// @return true if successful
 bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
   // Save to preferences first
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
   if (!prefs.putString(MPPTENABLEKEY, enableMPPT ? "1" : "0")) {
     return false;
   }
@@ -1714,6 +1761,8 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
   // MR2 (v0.2) doesn't use MCP4652
   
   // Store battery type in preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
   prefs.putString(BATTKEY, getBatteryTypeCommandString(type));
   
   // Safety: When switching to Li-Ion or LiFePO4, reset frost charge to NO_CHARGE
@@ -1743,6 +1792,8 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_20_PERCENT);
     break;
   }
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
   prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(behaviour));
 }
 
@@ -1750,6 +1801,8 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
 /// @param maxChrgI Maximum charge current in mA
 /// @return true if successful
 bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
   prefs.putInt(MAXCHARGECURRENTKEY, maxChrgI);
   return bq.setChargeLimitA(maxChrgI / 1000.0f);
 }
@@ -1892,8 +1945,12 @@ float BoardConfigContainer::getBatteryCapacity() const {
 /// @brief Check if battery capacity was explicitly set via CLI
 /// @return true if capacity was set in preferences, false if using default
 bool BoardConfigContainer::isBatteryCapacitySet() const {
-  String path = String("/") + PREFS_NAMESPACE + "/" + BATTERY_CAPACITY_KEY + ".txt";
-  return InternalFS.exists(path.c_str());
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  size_t len = prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "");
+  return (len > 0 && buffer[0] != '\0');
 }
 
 /// @brief Set battery capacity manually via CLI (converts to mWh internally)
@@ -1915,8 +1972,13 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   // Invalidate SOC until next "Charging Done" sync
   socStats.soc_valid = false;
   
-  // Save to preferences (as integer mAh)
-  prefs.putInt(BATTERY_CAPACITY_KEY, (uint16_t)capacity_mah);
+  // Save to preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "%.1f", capacity_mah);
+  prefs.putString(BATTERY_CAPACITY_KEY, buffer);
   
   MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV", 
                      capacity_mah, v_nominal);
@@ -2027,13 +2089,15 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
 /// @param capacity_mah Output parameter
 /// @return true if loaded successfully
 bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
-  // Check if key exists by building file path manually
-  String path = String("/") + PREFS_NAMESPACE + "/" + BATTERY_CAPACITY_KEY + ".txt";
-  if (InternalFS.exists(path.c_str())) {
-    char buffer[20];
-    prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "0");
-    capacity_mah = atof(buffer);
-    return (capacity_mah > 0.0f);
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  if (prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      capacity_mah = atof(buffer);
+      return (capacity_mah > 0.0f);
+    }
   }
   
   // Default capacity based on battery type (estimate)
@@ -2062,15 +2126,18 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
 /// @param factor Output parameter
 /// @return true if loaded successfully, false if using default
 bool BoardConfigContainer::loadIna228CalibrationFactor(float& factor) const {
-  String path = String("/") + PREFS_NAMESPACE + "/" + INA228_CALIB_KEY + ".txt";
-  if (InternalFS.exists(path.c_str())) {
-    char buffer[20];
-    prefs.getString(INA228_CALIB_KEY, buffer, sizeof(buffer), "1.0");
-    factor = atof(buffer);
-    
-    // Validate factor is in reasonable range
-    if (factor >= 0.5f && factor <= 2.0f) {
-      return true;
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  if (prefs.getString(INA228_CALIB_KEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      factor = atof(buffer);
+      
+      // Validate factor is in reasonable range
+      if (factor >= 0.5f && factor <= 2.0f) {
+        return true;
+      }
     }
   }
   
@@ -2093,6 +2160,9 @@ bool BoardConfigContainer::setIna228CalibrationFactor(float factor) {
   }
   
   // Save to preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
   char buffer[20];
   snprintf(buffer, sizeof(buffer), "%.4f", factor);
   

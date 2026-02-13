@@ -423,8 +423,10 @@ float Ina228Driver::calibrateCurrent(float actual_current_ma) {
     return 1.0f;  // No correction possible
   }
   
-  // Step 3: Calculate correction factor: actual / measured
-  float new_factor = actual_current_ma / (float)measured_current_ma;
+  // Step 3: Calculate correction factor (INVERSE ratio)
+  // If INA shows -9.4mA but actual is -10.4mA, we need SHUNT_CAL to be SMALLER
+  // so INA writes a LARGER value. Factor = measured/actual = 9.4/10.4 = 0.904
+  float new_factor = (float)measured_current_ma / actual_current_ma;
   
   // Step 4: Apply new calibration factor to INA228 hardware
   setCalibrationFactor(new_factor);
@@ -439,8 +441,10 @@ void Ina228Driver::setCalibrationFactor(float factor) {
   
   _calibration_factor = factor;
   
-  // Apply calibration factor to SHUNT_CAL register (hardware calibration)
-  // This affects all current-based measurements: current, power, energy, charge
+  // Apply calibration factor to SHUNT_CAL register
+  // Lower SHUNT_CAL → INA writes larger values → higher current reading
+  // Higher SHUNT_CAL → INA writes smaller values → lower current reading
+  // CURRENT_LSB stays constant (per datasheet design)
   if (_base_shunt_cal > 0) {
     uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * factor);
     writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);

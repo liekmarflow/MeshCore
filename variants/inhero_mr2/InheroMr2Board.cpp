@@ -134,11 +134,13 @@ void InheroMr2Board::begin() {
         MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
         
         // Visual indication: 3x fast blue blink to show RTC wake-up
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_BLUE, HIGH);
-          delay(150);
-          digitalWrite(LED_BLUE, LOW);
-          delay(150);
+        if (boardConfig.getLEDsEnabled()) {
+          for (int i = 0; i < 3; i++) {
+            digitalWrite(LED_BLUE, HIGH);
+            delay(150);
+            digitalWrite(LED_BLUE, LOW);
+            delay(150);
+          }
         }
         
         if (vbat_mv < critical_threshold) {

@@ -215,7 +215,7 @@ public:
 private:
   uint8_t _i2c_addr;
   float _shunt_mohm;
-  float _current_lsb;  // Current LSB in A
+  float _current_lsb;  // Current LSB in A (constant per datasheet)
   uint16_t _base_shunt_cal;  // Original SHUNT_CAL value (before calibration)
   float _calibration_factor;  // Current calibration factor (1.0 = no correction)
 
