@@ -163,25 +163,15 @@ bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
-// Battery voltage hardware cutoff thresholds (in millivolts) - INA228 Alert/UVLO
-// SAFETY FEATURE: Latched alert for catastrophic battery protection
-// Set below software Danger Zone (200-300mV margin) but not so low to risk battery damage
-// CRITICAL: INA228 powered by battery, NOT by 3.3V rail!
-//   → Latched alert CANNOT be cleared by software (INA stays powered)
-//   → Recovery requires PHYSICAL battery disconnect to reset INA228 registers
-//   → Or complete battery voltage collapse (INA loses power)
+// Battery voltage thresholds moved to BatteryProperties structure (see .h file)
+// SAFETY FEATURE: INA228 UVLO Alert provides latched hardware protection
+// - Latched alert CANNOT be cleared by software (INA228 powered by battery)
+// - Recovery requires PHYSICAL battery disconnect to reset INA228 registers
+// - Or complete battery voltage collapse (INA loses power)
 // This is intentional: Forces battery replacement/external charging for extreme deep discharge
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 3900;      // 3.9V - LTO 2S (300mV below software 4.2V)
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2500;  // 2.5V - LiFePO4 1S (400mV below software 2.9V)
-static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3100;    // 3.1V - Li-Ion 1S (300mV below software 3.4V)
 
 // Temporary: disable INA228 UVLO alert during lab testing.
 static const bool INA228_UVLO_ENABLED = false;
-
-// Battery voltage critical thresholds (in millivolts) - Danger zone boundary, 0% SOC, software shutdown
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LTO_2S = 4200;      // 4.2V - LTO 2S 0% SOC
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S = 2900;  // 2.9V - LiFePO4 1S 0% SOC
-static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIION_1S = 3400;    // 3.4V - Li-Ion 1S 0% SOC
 
 void BoardConfigContainer::runVoltageMonitor() {
   static bool init_done = false;
@@ -225,18 +215,9 @@ void BoardConfigContainer::runVoltageMonitor() {
                        capacity_mah, socStats.nominal_voltage,
                        capacity_loaded ? "manual" : "default");
 
-    switch (battType) {
-      case BatteryType::LTO_2S:
-        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;
-        break;
-      case BatteryType::LIFEPO4_1S:
-        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;
-        break;
-      case BatteryType::LIION_1S:
-      default:
-        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;
-        break;
-    }
+    // Get danger zone threshold from battery properties
+    const BatteryProperties* props = getBatteryProperties(battType);
+    critical_mv = props ? props->danger_threshold : 2000;  // Fallback to 2000mV if lookup fails
 
     MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
 
@@ -1629,23 +1610,39 @@ bool BoardConfigContainer::configureBaseBQ() {
 }
 
 /// @brief Configures battery chemistry-specific parameters (cell count, charge voltage)
-/// @param type Battery chemistry type (LIION_1S, LIFEPO4_1S, LTO_2S)
+/// @param type Battery chemistry type (LIION_1S, LIFEPO4_1S, LTO_2S, BAT_UNKNOWN)
 /// @return true if configuration successful
 bool BoardConfigContainer::configureChemistry(BatteryType type) {
   if (!BQ_INITIALIZED) {
     return false;
   }
 
+  // Get battery properties from lookup table
+  const BatteryProperties* props = getBatteryProperties(type);
+  if (!props) {
+    MESH_DEBUG_PRINTLN("ERROR: Invalid battery type");
+    return false;
+  }
+
+  // Apply charge enable/disable based on battery type
+  bq.setChargeEnable(props->charge_enable);
+  
+  if (!props->charge_enable) {
+    MESH_DEBUG_PRINTLN("WARNING: Battery type UNKNOWN - Charging DISABLED for safety!");
+    return true;  // No further configuration needed for unknown battery
+  }
+
+  // Configure chemistry-specific parameters
   switch (type) {
   case BoardConfigContainer::BatteryType::LIION_1S:
     bq.setCellCount(BQ25798_CELL_COUNT_1S);
     bq.setTsIgnore(false);
-    bq.setChargeLimitV(LIION_1S_VOLTAGE);
+    bq.setChargeLimitV(props->charge_voltage);
     break;
   case BoardConfigContainer::BatteryType::LIFEPO4_1S:
     bq.setCellCount(BQ25798_CELL_COUNT_1S);
     bq.setTsIgnore(false);
-    bq.setChargeLimitV(LIFEPO4_1S_VOLTAGE);
+    bq.setChargeLimitV(props->charge_voltage);
     break;
   case BoardConfigContainer::BatteryType::LTO_2S:
     bq.setCellCount(BQ25798_CELL_COUNT_2S);
@@ -1654,7 +1651,11 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
     // Even though TS_IGNORE disables temperature monitoring, ensure JEITA registers don't interfere
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);  // Cold region - no current reduction
     bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);  // Warm region - no current reduction
-    bq.setChargeLimitV(LTO_2S_VOLTAGE);
+    bq.setChargeLimitV(props->charge_voltage);
+    break;
+  case BoardConfigContainer::BatteryType::BAT_UNKNOWN:
+    // Already handled above via charge_enable flag
+    break;
   }
 
   return true;
@@ -1667,13 +1668,13 @@ bool BoardConfigContainer::configureSolarOnlyInterrupts() {
 }
 
 /// @brief Gets current battery type from preferences
-/// @return Current battery chemistry type, defaults to LIFEPO4_1S if read fails
+/// @return Current battery chemistry type, defaults to DEFAULT_BATTERY_TYPE if read fails
 BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryType() const {
   BatteryType bat;
   if (loadBatType(bat)) {
     return bat;
   } else {
-    return BatteryType::LIFEPO4_1S;
+    return DEFAULT_BATTERY_TYPE;
   }
 }
 
@@ -1743,22 +1744,8 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
   
   // === CRITICAL: Update INA228 UVLO threshold when battery type changes ===
   if (ina228DriverInstance) {
-    uint16_t uvlo_mv = 0;
-    switch (type) {
-      case BatteryType::LTO_2S:
-        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;      // 3900mV
-        break;
-      case BatteryType::LIFEPO4_1S:
-        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;  // 2700mV
-        break;
-      case BatteryType::LIION_1S:
-      default:
-        uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;    // 3100mV
-        break;
-    }
-    
-    
     // INA228 UVLO Alert: Update threshold for new battery chemistry
+    // Threshold is read from battery properties in applyUvloSetting()
     applyUvloSetting();
     delay(10);
   }
@@ -2276,22 +2263,10 @@ void BoardConfigContainer::applyUvloSetting() {
   bool uvlo_enabled = false;
   loadUvloEnabled(uvlo_enabled);
   
-  // Get chemistry type for proper UVLO threshold
+  // Get chemistry type and UVLO threshold from battery properties
   BatteryType bat_type = getBatteryType();
-  uint16_t uvlo_mv = 0;
-  
-  switch (bat_type) {
-    case BatteryType::LTO_2S:
-      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;      // 3900mV
-      break;
-    case BatteryType::LIFEPO4_1S:
-      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;  // 2500mV
-      break;
-    case BatteryType::LIION_1S:
-    default:
-      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;    // 3100mV
-      break;
-  }
+  const BatteryProperties* props = getBatteryProperties(bat_type);
+  uint16_t uvlo_mv = props ? props->uvlo_threshold : 2000;  // Fallback to 2000mV if lookup fails
   
   // Apply to hardware
   ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
@@ -2306,30 +2281,16 @@ void BoardConfigContainer::applyUvloSetting() {
 /// @param type Battery chemistry type
 /// @return Threshold in millivolts - Danger zone boundary (100-200mV above hardware UVLO)
 uint16_t BoardConfigContainer::getVoltageCriticalThreshold(BatteryType type) {
-  switch (type) {
-    case BatteryType::LTO_2S:
-      return VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;
-    case BatteryType::LIFEPO4_1S:
-      return VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;
-    case BatteryType::LIION_1S:
-    default:
-      return VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;
-  }
+  const BatteryProperties* props = getBatteryProperties(type);
+  return props ? props->danger_threshold : 2000;  // Fallback to 2000mV
 }
 
 /// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
 /// @param type Battery chemistry type
 /// @return Hardware cutoff voltage in millivolts (INA228 Alert threshold)
 uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
-  switch (type) {
-    case BatteryType::LTO_2S:
-      return VOLTAGE_HARDWARE_CUTOFF_LTO_2S;
-    case BatteryType::LIFEPO4_1S:
-      return VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;
-    case BatteryType::LIION_1S:
-    default:
-      return VOLTAGE_HARDWARE_CUTOFF_LIION_1S;
-  }
+  const BatteryProperties* props = getBatteryProperties(type);
+  return props ? props->uvlo_threshold : 2000;  // Fallback to 2000mV
 }
 
 /// @brief Update battery SOC from INA228 Hardware Coulomb Counter (v0.2)
@@ -2697,6 +2658,18 @@ BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromComman
     }
   }
   return BatteryType::BAT_UNKNOWN;
+}
+
+/// @brief Get battery properties for a given battery type
+/// @param type Battery type
+/// @return Pointer to BatteryProperties structure, or nullptr if not found
+const BoardConfigContainer::BatteryProperties* BoardConfigContainer::getBatteryProperties(BatteryType type) {
+  for (const auto& props : battery_properties) {
+    if (props.type == type) {
+      return &props;
+    }
+  }
+  return nullptr;  // Should never happen if battery_properties is complete
 }
 
 /// @brief Convert battery type enum to command string

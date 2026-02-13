@@ -143,7 +143,9 @@ const Telemetry* const BqDriver::getTelemetryData() {
     return &telemetryData;
   }
 
-  delay(170);
+  // Wait for ADC conversion to complete (datasheet: typical 150ms for one-shot)
+  // Extended to 250ms to ensure TS ADC is ready
+  delay(250);
   
   telemetryData.solar.voltage = getVBUS();
   telemetryData.solar.current = getIBUS() - IBUS_ADC_OFFSET_MA;
@@ -172,9 +174,18 @@ const Telemetry* const BqDriver::getTelemetryData() {
  * Calculates battery temperature in °C
  * Per BQ25798 datasheet Figure 9-12: REGN → RT1 → TS → (RT2||NTC) → GND
  * @param ts_pct Voltage at TS pin in percentage of REGN (e.g., 70.5 for 70.5%)
- * @return Temperature in °C
+ *               Special values: -1.0 = I2C error, -2.0 = ADC not ready/invalid
+ * @return Temperature in °C, or error codes:
+ *         -999.0 = I2C communication error
+ *         -888.0 = ADC not ready (read 0 or 0xFFFF)
+ *          -99.0 = NTC open/disconnected (k > 0.99)
+ *           99.0 = NTC short circuit (k < 0.01)
  */
 float BqDriver::calculateBatteryTemp(float ts_pct) {
+  // Check for I2C read error
+  if (ts_pct == -1.0f) return -999.0f; // I2C error
+  if (ts_pct == -2.0f) return -888.0f; // ADC not ready or invalid value
+  
   // Convert TS percentage to ratio (0.0 to 1.0)
   // TS% = 100 × R_bottom / (R_top + R_bottom)
   // where R_bottom = RT2 || NTC
@@ -635,10 +646,26 @@ uint16_t BqDriver::getVSYS() {
 float BqDriver::getTS() {
   Adafruit_BusIO_Register ts_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TS_ADC, 2, MSBFIRST);
   uint16_t val;
-  if (!ts_reg.read(&val)) {
-    return 0.0f;
+  
+  // Try up to 3 times with small delays if we get invalid values
+  for (int retry = 0; retry < 3; retry++) {
+    if (!ts_reg.read(&val)) {
+      delay(20);
+      continue; // I2C read error, retry
+    }
+    // Check for invalid/uninitialized ADC value (0 or 0xFFFF)
+    if (val == 0 || val == 0xFFFF) {
+      if (retry < 2) {
+        delay(50); // Wait a bit longer for ADC to settle
+        continue;
+      }
+      return -2.0f; // ADC not ready / invalid value after retries
+    }
+    // Valid value
+    return val * 0.09765625f; // 0.09765625 %/LSB (exact: 1/1024)
   }
-  return val * 0.09765625f; // 0.09765625 %/LSB (exact: 1/1024)
+  
+  return -1.0f; // I2C read error after all retries
 }
 
 // Für getTDIE(): signed °C

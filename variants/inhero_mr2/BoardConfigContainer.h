@@ -103,7 +103,27 @@ public:
     BatteryType type;
   } BatteryMapping;
 
-  // Charge voltage limits for different battery types (battery-friendly defaults)
+  // Battery type properties
+  typedef struct {
+    BatteryType type;
+    float charge_voltage;       // Max charge voltage in V
+    float nominal_voltage;      // Nominal voltage for energy calculations
+    uint16_t uvlo_threshold;    // Hardware UVLO cutoff (INA228 Alert) in mV
+    uint16_t danger_threshold;  // Software danger zone boundary (0% SOC) in mV
+    bool charge_enable;         // Enable/disable charging (false for BAT_UNKNOWN)
+  } BatteryProperties;
+
+  // Battery properties lookup table
+  // All battery-specific thresholds in one central location
+  static inline constexpr BatteryProperties battery_properties[] = {
+    // Type         ChgV  NomV  UVLO  Danger  ChgEn
+    { BAT_UNKNOWN,  0.0f, 0.0f, 2000, 2000,  false }, // SAFETY: Safe low thresholds, no charging
+    { LTO_2S,       5.4f, 5.0f, 3900, 4200,  true  }, // LTO 2S: 2.7V/cell (300mV UVLO margin)
+    { LIFEPO4_1S,   3.5f, 3.2f, 2500, 2900,  true  }, // LiFePO4: 400mV UVLO margin
+    { LIION_1S,     4.1f, 3.7f, 3100, 3400,  true  }  // Li-Ion: 300mV UVLO margin
+  };
+
+  // Legacy constants for backward compatibility
   static constexpr float LIION_1S_VOLTAGE = 4.1f;      // ~90-95% capacity, extended lifetime
   static constexpr float LIFEPO4_1S_VOLTAGE = 3.5f;    // ~95% capacity, optimal for longevity
   static constexpr float LTO_2S_VOLTAGE = 5.4f;        // 2.7V/cell, conservative for LTO
@@ -139,7 +159,7 @@ public:
   };
 
   // Default values for newly flashed boards
-  static constexpr BatteryType DEFAULT_BATTERY_TYPE = LIION_1S;
+  static constexpr BatteryType DEFAULT_BATTERY_TYPE = BAT_UNKNOWN;  // Safe: low thresholds, user must configure
   static constexpr FrostChargeBehaviour DEFAULT_FROST_BEHAVIOUR = NO_CHARGE;
   static constexpr uint16_t DEFAULT_MAX_CHARGE_CURRENT_MA = 200;
   static constexpr bool DEFAULT_MPPT_ENABLED = false;
@@ -151,6 +171,7 @@ public:
   static FrostChargeBehaviour getFrostChargeBehaviourFromCommandString(const char* cmdStr);
   static const char* getAvailableFrostChargeBehaviourOptions();
   static const char* getAvailableBatOptions();
+  static const BatteryProperties* getBatteryProperties(BatteryType type);
   
   // Solar Power Management Functions
   // These functions work together to handle stuck PGOOD conditions and MPPT recovery:
