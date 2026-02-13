@@ -47,16 +47,17 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 
 ## Energieverwaltungsfunktionen (v0.2)
 
-### Test- vs. Produktionsmodus
-Die Firmware unterstützt zwei Betriebsmodi, gesteuert über das Flag `TESTING_MODE` in [InheroMr2Board.h](InheroMr2Board.h#L33):
-- **Testmodus** (`TESTING_MODE = true`): 60-Sekunden-Intervalle für schnelle Labortests
-- **Produktionsmodus** (`TESTING_MODE = false`): Optimierte Intervalle für den realen Einsatz
+### Monitoring-Intervalle
+Die Firmware nutzt feste Intervalle:
+- **VBAT-Check**: 60s
+- **RTC-Wake**: 6 Stunden (periodisch)
 
 ### 2-stufiges Schutzsystem
-1. **Software-Spannungsüberwachung** - zweistufige Strategie:
-    - **Normalmodus**: 1-Stunden-Checks (System läuft bereits, minimale Kosten)
-    - **Danger Zone**: 12-Stunden-RTC-Wakeups (SYSTEMOFF, teurer Bootvorgang)
+1. **Software-Spannungsüberwachung** - feste Strategie:
+   - **Normalbetrieb**: 60s Checks (System läuft bereits)
+   - **Danger Zone**: 6-Stunden-RTC-Wakeups (SYSTEMOFF, teurer Bootvorgang)
 2. **Hardware-UVLO** - INA228 Alert → TPS62840 EN (absoluter Schutz auf Hardware-Ebene)
+3. **SX1262 Power Control** - RadioLib `powerOff()` vor SYSTEMOFF (richtige Sleep-Methode)
 
 **Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~50-150mAh (vollständiger Systemstart). Die Strategie maximiert die Batterielaufzeit.
 
@@ -159,6 +160,14 @@ board.togglehiz # Force input detection via HIZ cycle 🆕
                 # Always ends with HIZ=0
                 # Useful for manually triggering stuck PGOOD recovery
 
+board.uvlo      # UVLO-Einstellung abfragen (v0.2-Feature) 🆕
+                # Ausgabe: ENABLED | DISABLED
+                # Zeigt die Persistente UVLO-Einstellung
+                # Chemie-spezifische UVLO-Schwellen:
+                # - Li-Ion 1S: 3.1V
+                # - LiFePO4 1S: 2.7V
+                # - LTO 2S: 3.9V
+
 board.conf      # Alle Konfigurationswerte abfragen
                 # Ausgabe: B:<bat> F:<frost> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
@@ -203,6 +212,12 @@ set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
                                # Boot-LEDs (3 blaue Blinks) immer aktiv
+
+set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen (v0.2-Feature) 🆕
+                               # 0/false = DISABLED (Standard für Feldtests)
+                               # 1/true = ENABLED (für kritische Anwendungen)
+                               # Wird persistent gespeichert und bei nächstem Boot geladen
+                               # Chemie-spezifische Schwellen werden automatisch angewendet
 
 set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
                                # Bereich: 0-100

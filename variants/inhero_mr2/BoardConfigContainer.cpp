@@ -22,7 +22,9 @@
  * SOFTWARE.
  */
 #include "BoardConfigContainer.h"
+#include "GuardedRTCClock.h"
 #include "InheroMr2Board.h"
+#include "target.h"
 
 #include "lib/BqDriver.h"
 #include "lib/Ina228Driver.h"
@@ -35,15 +37,98 @@
 #include <nrf_wdt.h>
 #include <nrf_soc.h>  // For sd_power_system_off() and NRF_POWER
 
-// Forward declaration - rtc_clock is defined in target.cpp
-// Use base class to avoid including AutoDiscoverRTCClock header
-class AutoDiscoverRTCClock;
-extern AutoDiscoverRTCClock rtc_clock;
+// rtc_clock is defined in target.cpp
+extern GuardedRTCClock rtc_clock;
 
 // Helper function to get RTC time safely
 namespace {
   inline uint32_t getRTCTime() {
     return ((mesh::RTCClock&)rtc_clock).getCurrentTime();
+  }
+
+  uint16_t getRtcExpectedCountdownSeconds();
+  bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds);
+  void configureRtcPeriodicWake(uint16_t seconds);
+
+  uint16_t getRtcExpectedCountdownSeconds() {
+    return 21600;  // 6 hours
+  }
+
+  bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds) {
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL1);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) return false;
+    uint8_t ctrl1 = Wire.read();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL2);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) return false;
+    uint8_t ctrl2 = Wire.read();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_TIMER_VALUE_0);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)2) != 2) return false;
+    uint8_t val0 = Wire.read();
+    uint8_t val1 = Wire.read();
+
+    uint16_t countdown = (uint16_t)val0 | ((uint16_t)(val1 & 0x0F) << 8);
+
+    bool timer_enabled = (ctrl1 & 0x04) != 0;   // TE
+    bool repeat_enabled = (ctrl1 & 0x80) != 0;  // TRPT
+    bool one_hz = (ctrl1 & 0x03) == 0x02;       // TD=10 (1 Hz)
+    bool interrupt_enabled = (ctrl2 & 0x10) != 0; // TIE
+
+    return timer_enabled && repeat_enabled && one_hz && interrupt_enabled &&
+           countdown == expected_seconds;
+  }
+
+  void configureRtcPeriodicWake(uint16_t seconds) {
+    rtc_clock.setLocked(true);
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL1);
+    Wire.write(0x00);  // TE=0, TD=00 (stop timer)
+    Wire.endTransmission();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL2);
+    Wire.write(0x00);  // TIE=0
+    Wire.endTransmission();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_STATUS);
+    Wire.write(0x00);  // Clear TF
+    Wire.endTransmission();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_TIMER_VALUE_0);
+    Wire.write(seconds & 0xFF);
+    Wire.write((seconds >> 8) & 0x0F);
+    Wire.endTransmission();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL1);
+    Wire.write(0x86);  // TE=1, TD=10 (1 Hz), TRPT=1 (repeat)
+    Wire.endTransmission();
+
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    Wire.write(RV3028_REG_CTRL2);
+    Wire.write(0x10);  // TIE=1
+    Wire.endTransmission();
+
+    rtc_clock.setLocked(false);
+  }
+
+  void blinkRed(uint8_t count, uint16_t on_ms, uint16_t off_ms) {
+    for (uint8_t i = 0; i < count; i++) {
+      digitalWrite(LED_RED, HIGH);
+      delay(on_ms);
+      digitalWrite(LED_RED, LOW);
+      delay(off_ms);
+    }
   }
 }
 
@@ -82,10 +167,193 @@ static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LTO_2S = 3900;      // 3.9V - LTO 
 static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S = 2500;  // 2.5V - LiFePO4 1S (400mV below software 2.9V)
 static const uint16_t VOLTAGE_HARDWARE_CUTOFF_LIION_1S = 3100;    // 3.1V - Li-Ion 1S (300mV below software 3.4V)
 
+// Temporary: disable INA228 UVLO alert during lab testing.
+static const bool INA228_UVLO_ENABLED = false;
+
 // Battery voltage critical thresholds (in millivolts) - Danger zone boundary, 0% SOC, software shutdown
 static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LTO_2S = 4200;      // 4.2V - LTO 2S 0% SOC
 static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S = 2900;  // 2.9V - LiFePO4 1S 0% SOC
 static const uint16_t VOLTAGE_CRITICAL_THRESHOLD_LIION_1S = 3400;    // 3.4V - Li-Ion 1S 0% SOC
+
+void BoardConfigContainer::runVoltageMonitor() {
+  static bool init_done = false;
+  static uint16_t critical_mv = 0;
+  static uint32_t normal_interval_ms = 0;
+  static uint32_t danger_interval_ms = 0;
+  static uint32_t next_check_ms = 0;
+  static uint32_t next_rtc_check_ms = 0;
+
+  uint32_t now_ms = millis();
+
+  if (!init_done) {
+    BoardConfigContainer temp;
+    float capacity_mah = 0.0f;
+    bool capacity_loaded = false;
+    if (bqDriverInstance) {
+      capacity_loaded = temp.loadBatteryCapacity(capacity_mah);
+    } else {
+      capacity_mah = 2000.0f;
+    }
+
+    BatteryType battType = DEFAULT_BATTERY_TYPE;
+    SimplePreferences prefs_bat;
+    if (prefs_bat.begin("inheromr2")) {
+      char buffer[10];
+      if (prefs_bat.getString("batType", buffer, sizeof(buffer), "") > 0) {
+        battType = getBatteryTypeFromCommandString(buffer);
+        if (battType == BAT_UNKNOWN) {
+          battType = DEFAULT_BATTERY_TYPE;
+        }
+      }
+      prefs_bat.end();
+    }
+
+    socStats.capacity_mah = capacity_mah;
+    socStats.nominal_voltage = getNominalVoltage(battType);
+    socStats.current_soc_percent = 50.0f;
+    socStats.lastHourUpdateTime = getRTCTime();
+
+    MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh @ %.1fV %s",
+                       capacity_mah, socStats.nominal_voltage,
+                       capacity_loaded ? "manual" : "default");
+
+    switch (battType) {
+      case BatteryType::LTO_2S:
+        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;
+        break;
+      case BatteryType::LIFEPO4_1S:
+        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;
+        break;
+      case BatteryType::LIION_1S:
+      default:
+        critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;
+        break;
+    }
+
+    MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
+
+  normal_interval_ms = 60UL * 1000UL;
+  danger_interval_ms = 60UL * 1000UL;
+
+    MESH_DEBUG_PRINTLN("PWRMGT: Waiting 2s for system stabilization before initial check");
+    next_check_ms = now_ms + 2000;
+    next_rtc_check_ms = now_ms + (60UL * 1000UL);
+    init_done = true;
+    return;
+  }
+
+  if (now_ms < next_check_ms) {
+    if (now_ms >= next_rtc_check_ms) {
+      uint16_t expected_seconds = getRtcExpectedCountdownSeconds();
+      if (!isRtcPeriodicWakeConfigured(expected_seconds)) {
+        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", expected_seconds);
+        configureRtcPeriodicWake(expected_seconds);
+      }
+      next_rtc_check_ms = now_ms + (60UL * 1000UL);
+    }
+    return;
+  }
+
+  if (now_ms >= next_rtc_check_ms) {
+    uint16_t expected_seconds = getRtcExpectedCountdownSeconds();
+    if (!isRtcPeriodicWakeConfigured(expected_seconds)) {
+      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", expected_seconds);
+      configureRtcPeriodicWake(expected_seconds);
+    }
+    next_rtc_check_ms = now_ms + (60UL * 1000UL);
+  }
+
+  uint16_t vbat_mv = 0;
+  if (ina228DriverInstance) {
+    vbat_mv = ina228DriverInstance->readVoltage_mV();
+  }
+
+  bool in_danger_zone = (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) != 0;
+
+  MESH_DEBUG_PRINTLN("PWRMGT: Voltage check - VBAT=%dmV, Critical=%dmV, DangerZone=%d, GPREGRET2=0x%02X",
+                     vbat_mv, critical_mv, in_danger_zone, NRF_POWER->GPREGRET2);
+
+  blinkRed(3, 100, 100);
+
+  if (vbat_mv > 0) {
+    if (vbat_mv < critical_mv) {
+      MESH_DEBUG_PRINTLN("PWRMGT: Danger Zone breach - voltage %dmV < %dmV - shutting down", vbat_mv, critical_mv);
+
+      blinkRed(1, 100, 100);
+      blinkRed(3, 300, 300);
+
+      if (!in_danger_zone) {
+        NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
+      }
+
+      // Force SX1262 into sleep via RadioLib before SYSTEMOFF.
+      radio_driver.powerOff();
+      delay(5);
+
+#ifndef DEBUG_MODE
+      NRF_WDT->TASKS_START = 0;
+#endif
+
+      uint8_t rtc_result1 = 0, rtc_result2 = 0, rtc_result3 = 0, rtc_result4 = 0, rtc_result5 = 0;
+
+      Wire.beginTransmission(0x52);
+      Wire.write(0x0F);
+      Wire.write(0x00);
+      rtc_result1 = Wire.endTransmission();
+
+      Wire.beginTransmission(0x52);
+      Wire.write(0x10);
+      Wire.write(0x00);
+      rtc_result2 = Wire.endTransmission();
+
+      Wire.beginTransmission(0x52);
+      Wire.write(0x0E);
+      Wire.write(0x00);
+      rtc_result3 = Wire.endTransmission();
+
+  uint16_t countdown = 21600;  // 6 hours
+  Wire.beginTransmission(0x52);
+  Wire.write(0x0A);
+  Wire.write(countdown & 0xFF);
+  Wire.write((countdown >> 8) & 0x0F);
+  rtc_result4 = Wire.endTransmission();
+
+  Wire.beginTransmission(0x52);
+  Wire.write(0x0F);
+  Wire.write(0x06);  // 1 Hz, single shot
+  rtc_result5 = Wire.endTransmission();
+
+  MESH_DEBUG_PRINTLN("RTC: Wake-up in 6 hours");
+
+      Wire.beginTransmission(0x52);
+      Wire.write(0x10);
+      Wire.write(0x10);
+      uint8_t rtc_result6 = Wire.endTransmission();
+
+      NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
+
+      sd_power_system_off();
+      delay(100);
+      NRF_POWER->SYSTEMOFF = 1;
+      delay(100);
+      digitalWrite(LED_RED, HIGH);
+      while (1) { delay(1000); }
+    } else {
+      blinkRed(3, 100, 100);
+
+      if (in_danger_zone) {
+        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered to %dmV (Critical=%dmV)", vbat_mv, critical_mv);
+        MESH_DEBUG_PRINTLN("PWRMGT: Exiting Danger Zone - initiating system reset to re-enable SX1262");
+
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+        delay(100);
+        NVIC_SystemReset();
+      }
+    }
+  }
+
+  next_check_ms = now_ms + (in_danger_zone ? danger_interval_ms : normal_interval_ms);
+}
 
 // Watchdog state
 static bool wdt_enabled = false;
@@ -942,22 +1210,12 @@ bool BoardConfigContainer::begin() {
         bat = DEFAULT_BATTERY_TYPE;
       }
       
-      // INA228 UVLO Alert: ENABLED in LATCH mode (safety feature)
+      // INA228 UVLO Alert: Load from preferences
       // Purpose: Catastrophic battery protection - permanent shutdown if battery critically low
-      // NOTE: Set to LOWEST threshold (2700mV) during boot as safe default
-      //       Will be updated to chemistry-specific value later via setBatteryType() after filesystem loads
       // Latch mode: Alert stays LOW permanently (INA228 powered by battery, not 3.3V rail)
       // Recovery: Requires PHYSICAL battery disconnect to reset INA228 registers
-#if TESTING_MODE
-      // TESTING MODE: UVLO Alert DISABLED (ammeter in series causes voltage drop)
-      ina228.enableAlert(false, false, false);  // UVLO disabled for lab testing
-      MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (TESTING_MODE - ammeter in series)");
-#else
-      uint16_t uvlo_mv = 2700;  // Safe default = lowest threshold (LiFePO4)
-      ina228.setUnderVoltageAlert(uvlo_mv);
-      ina228.enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
-      MESH_DEBUG_PRINTLN("INA228 UVLO: %dmV (Alert active-LOW, LATCHED - will update after FS loads)", uvlo_mv);
-#endif
+      // Note: applyUvloSetting() will load from preferences and set chemistry-specific threshold
+      applyUvloSetting();
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
       INA228_INITIALIZED = false;
@@ -1067,17 +1325,7 @@ bool BoardConfigContainer::begin() {
     }, "ErrorLED", 512, NULL, 1, NULL);
   }
   
-  // Start Voltage Monitor Task AFTER all hardware is initialized
-  // This prevents I2C bus conflicts during INA228 setup
-  if (voltageMonitorTaskHandle == NULL && INA228_INITIALIZED) {
-    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::voltageMonitorTask, "VoltMon", 2048, NULL, 2, &voltageMonitorTaskHandle);
-    if (taskCreated != pdPASS) {
-      MESH_DEBUG_PRINTLN("Failed to create Voltage Monitor task!");
-      // Non-critical, continue
-    } else {
-      MESH_DEBUG_PRINTLN("Voltage Monitor task started (v0.2)");
-    }
-  }
+  // Voltage monitoring is handled inside socUpdateTask (single periodic loop).
   
   // Start SOC Update Task (runs every minute)
   if (socUpdateTaskHandle == NULL && INA228_INITIALIZED) {
@@ -1459,15 +1707,7 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
     
     
     // INA228 UVLO Alert: Update threshold for new battery chemistry
-#if TESTING_MODE
-    // TESTING MODE: UVLO Alert DISABLED (ammeter in series causes voltage drop)
-    ina228DriverInstance->enableAlert(false, false, false);  // UVLO disabled for lab testing
-    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (TESTING_MODE - ammeter in series)");
-#else
-    ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
-    ina228DriverInstance->enableAlert(true, false, true);  // UVLO, active-LOW, LATCHED
-    MESH_DEBUG_PRINTLN("INA228 UVLO updated to %dmV for battery type %d (LATCHED)", uvlo_mv, (int)type);
-#endif
+    applyUvloSetting();
     delay(10);
   }
   
@@ -1902,6 +2142,89 @@ Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
 }
 
+/// @brief Load UVLO enabled setting from preferences
+/// @param enabled Reference to store loaded setting
+/// @return true if preference found, false if default used
+bool BoardConfigContainer::loadUvloEnabled(bool& enabled) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[10];
+  if (prefs.getString(UVLO_ENABLE_KEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      enabled = buffer[0] == '1' ? true : false;
+      return true;
+    } else {
+      enabled = false;  // Default: disabled
+      return false;
+    }
+  }
+  
+  // No preference found - use default
+  enabled = false;  // Default: UVLO disabled for field testing
+  return false;
+}
+
+/// @brief Enable or disable INA228 UVLO alert
+/// @param enabled true = enable UVLO, false = disable UVLO
+/// @return true if successful
+bool BoardConfigContainer::setUvloEnabled(bool enabled) {
+  // Save to preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  bool success = prefs.putString(UVLO_ENABLE_KEY, enabled ? "1" : "0");
+  prefs.end();
+  
+  if (success) {
+    // Apply immediately to hardware
+    applyUvloSetting();
+    MESH_DEBUG_PRINTLN("INA228 UVLO: %s (persistent)", enabled ? "ENABLED" : "DISABLED");
+    return true;
+  }
+  return false;
+}
+
+/// @brief Get current UVLO enable state
+/// @return true if UVLO is enabled
+bool BoardConfigContainer::getUvloEnabled() const {
+  bool enabled = false;
+  loadUvloEnabled(enabled);
+  return enabled;
+}
+
+/// @brief Apply current UVLO setting to INA228 hardware
+void BoardConfigContainer::applyUvloSetting() {
+  if (!ina228DriverInstance) {
+    return;  // INA228 not initialized
+  }
+  
+  bool uvlo_enabled = false;
+  loadUvloEnabled(uvlo_enabled);
+  
+  // Get chemistry type for proper UVLO threshold
+  BatteryType bat_type = getBatteryType();
+  uint16_t uvlo_mv = 0;
+  
+  switch (bat_type) {
+    case BatteryType::LTO_2S:
+      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LTO_2S;      // 3900mV
+      break;
+    case BatteryType::LIFEPO4_1S:
+      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIFEPO4_1S;  // 2500mV
+      break;
+    case BatteryType::LIION_1S:
+    default:
+      uvlo_mv = VOLTAGE_HARDWARE_CUTOFF_LIION_1S;    // 3100mV
+      break;
+  }
+  
+  // Apply to hardware
+  ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
+  ina228DriverInstance->enableAlert(uvlo_enabled, false, true);  // UVLO enabled/disabled, active-LOW, LATCHED
+  
+  MESH_DEBUG_PRINTLN("INA228 UVLO: %s @ %dmV (Latched)", uvlo_enabled ? "ENABLED" : "DISABLED", uvlo_mv);
+}
+
 /// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
 /// @details This is the danger zone boundary and 0% SOC point. Below this: danger zone (no TX, RTC wake).
 ///          Above this: normal operation. Hysteresis above UVLO prevents motorboating.
@@ -2226,13 +2549,26 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
   
   const uint32_t UPDATE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
   static uint8_t minute_counter = 0;  // Count minutes until hourly update
+  static bool first_loop = true;
   
   while (true) {
+    // Run an immediate voltage/RTC check on task start to avoid 60s wait in Danger Zone.
+    runVoltageMonitor();
+    if (first_loop) {
+      // Allow the short stabilization window to pass, then re-check before the 60s cadence.
+      vTaskDelay(pdMS_TO_TICKS(2000));
+      runVoltageMonitor();
+      first_loop = false;
+    }
+
     // Wait for 1 minute
     vTaskDelay(pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
     
     // Update SOC from Coulomb Counter (runs every minute)
     updateBatterySOC();
+
+    // Run periodic undervoltage/RTC checks on the same cadence
+    runVoltageMonitor();
     
     // Increment minute counter
     minute_counter++;
@@ -2250,332 +2586,8 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
 /// @param pvParameters Task parameters (unused)
 void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   (void)pvParameters;
-  
-  MESH_DEBUG_PRINTLN("Voltage Monitor Task started (v0.2)");
-  
-  // Load or estimate battery capacity
-  float capacity_mah;
-  bool capacity_loaded = false;
-  if (bqDriverInstance) {
-    BoardConfigContainer temp;
-    capacity_loaded = temp.loadBatteryCapacity(capacity_mah);
-  } else {
-    capacity_mah = 2000.0f;  // Default
-  }
-  
-  // Load battery type from preferences to get correct voltage thresholds
-  BatteryType battType = DEFAULT_BATTERY_TYPE;
-  SimplePreferences prefs_bat;
-  if (prefs_bat.begin("inheromr2")) {
-    char buffer[10];
-    if (prefs_bat.getString("batType", buffer, sizeof(buffer), "") > 0) {
-      battType = getBatteryTypeFromCommandString(buffer);
-      if (battType == BAT_UNKNOWN) {
-        battType = DEFAULT_BATTERY_TYPE;
-      }
-    }
-    prefs_bat.end();
-  }
-  
-  socStats.capacity_mah = capacity_mah;
-  
-  // Store nominal voltage for battery chemistry
-  float nominalV = getNominalVoltage(battType);
-  socStats.nominal_voltage = nominalV;
-  
-  socStats.current_soc_percent = 50.0f;  // Initial estimate
-  socStats.lastHourUpdateTime = getRTCTime();
-  
-  MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh @ %.1fV %s", 
-                     capacity_mah, nominalV,
-                     capacity_loaded ? "manual" : "default");
-  
-  // Get chemistry-specific critical threshold (Danger Zone boundary)
-  uint16_t critical_mv;
-  
-  switch (battType) {
-    case BatteryType::LTO_2S:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LTO_2S;      // 4200mV (0% SOC)
-      break;
-    case BatteryType::LIFEPO4_1S:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIFEPO4_1S;  // 2900mV (0% SOC)
-      break;
-    case BatteryType::LIION_1S:
-    default:
-      critical_mv = VOLTAGE_CRITICAL_THRESHOLD_LIION_1S;    // 3400mV (0% SOC)
-      break;
-  }
-  
-  MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
-  
-  // === CRITICAL: Initial voltage check within 30s after boot ===
-  // This handles BOTH first Danger Zone entry AND RTC wakes (after soft reset)
-  // Wait 10s for system to fully stabilize (RadioLib init, mesh init, etc.)
-  MESH_DEBUG_PRINTLN("PWRMGT: Waiting 10s for system stabilization before initial check");
-  delay(10000);
-  
-  // Two-stage monitoring with TESTING_MODE support:
-  // Testing Mode: 60s normal, 60s danger zone (fast lab testing)
-  // Production Mode: 1h normal, 12h danger zone (power optimized)
-#if TESTING_MODE
-  const uint32_t NORMAL_CHECK_INTERVAL_MS = 60UL * 1000UL;  // 60 seconds (testing)
-  const uint32_t DANGER_CHECK_INTERVAL_MS = 60UL * 1000UL;  // 60 seconds (testing)
-  MESH_DEBUG_PRINTLN("Voltage Monitor: TESTING MODE - 60s intervals");
-#else
-  const uint32_t NORMAL_CHECK_INTERVAL_MS = 1UL * 60UL * 60UL * 1000UL;  // 1 hour (production)
-  const uint32_t DANGER_CHECK_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;  // 12 hours (production)
-  MESH_DEBUG_PRINTLN("Voltage Monitor: PRODUCTION MODE - 1h/12h intervals");
-#endif
-  
-  while (true) {
-    // Read current voltage
-    uint16_t vbat_mv = 0;
-    if (ina228DriverInstance) {
-      vbat_mv = ina228DriverInstance->readVoltage_mV();
-    }
-    
-    // Check if we're currently in Danger Zone (SX1262 disabled)
-    bool in_danger_zone = (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) != 0;
-    
-    // DEBUG: Show voltage check
-    MESH_DEBUG_PRINTLN("PWRMGT: Voltage check - VBAT=%dmV, Critical=%dmV, DangerZone=%d, GPREGRET2=0x%02X", 
-                       vbat_mv, critical_mv, in_danger_zone, NRF_POWER->GPREGRET2);
-    
-    // Check voltage thresholds
-    if (vbat_mv > 0) {
-      if (vbat_mv < critical_mv) {
-        // Below Critical threshold (0% SOC) - initiate shutdown
-        MESH_DEBUG_PRINTLN("PWRMGT: Danger Zone breach - voltage %dmV < %dmV - shutting down", vbat_mv, critical_mv);
-        
-        if (!in_danger_zone) {
-          // First time entering Danger Zone - put SX1262 into Deep Sleep
-          // LED indication: Single LONG red (1 second) = Entering SX1262 Sleep Mode
-          digitalWrite(LED_RED, HIGH);
-          delay(1000);
-          digitalWrite(LED_RED, LOW);
-          delay(200);
-          
-          // === SX1262 Deep Sleep via SPI (no RadioLib needed) ===
-          // Command: 0x84 (SetSleep), Config: 0x00 (Cold start, lowest power ~1µA)
-          // Note: RAK4630 has no hardware power switch - P1.05 is antenna switch only!
-          
-          // Wait for BUSY to be LOW (SX1262 ready to accept command)
-          uint32_t busy_start = millis();
-          while (digitalRead(46) == HIGH && (millis() - busy_start) < 100) {
-            delayMicroseconds(10);
-          }
-          
-          SPI.begin();
-          pinMode(42, OUTPUT);  // P_LORA_NSS (SPI CS)
-          digitalWrite(42, LOW);
-          delayMicroseconds(10);
-          SPI.transfer(0x84);  // SetSleep command
-          SPI.transfer(0x00);  // Sleep config: Cold start, RTC disabled
-          delayMicroseconds(10);
-          digitalWrite(42, HIGH);
-          delay(10);  // Give SX1262 time to enter sleep
-          SPI.end();
-          
-          // Set Danger Zone flag (will persist across sleep/wake cycles)
-          NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
-        }
-        
-        // Visual indication: Blink both LEDs alternately 5 times
-        for (int i = 0; i < 5; i++) {
-          digitalWrite(LED_RED, HIGH);
-          digitalWrite(LED_BLUE, LOW);
-          delay(200);
-          digitalWrite(LED_RED, LOW);
-          digitalWrite(LED_BLUE, HIGH);
-          delay(200);
-        }
-        digitalWrite(LED_RED, LOW);
-        digitalWrite(LED_BLUE, LOW);
-        delay(500);
-        
-        // Ensure SX1262 is in Deep Sleep before shutdown
-        // Wait for BUSY=LOW with timeout
-        uint32_t busy_start = millis();
-        while (digitalRead(46) == HIGH && (millis() - busy_start) < 100) {
-          delayMicroseconds(10);
-        }
-        
-        SPI.begin();
-        pinMode(42, OUTPUT);
-        digitalWrite(42, LOW);
-        delayMicroseconds(10);
-        SPI.transfer(0x84);
-        SPI.transfer(0x00);
-        delayMicroseconds(10);
-        digitalWrite(42, HIGH);
-        delay(10);
-        SPI.end();
-        
-        // LED CODE 1: Quick red blink = SX1262 powered off
-        digitalWrite(LED_RED, HIGH);
-        delay(100);
-        digitalWrite(LED_RED, LOW);
-        delay(300);
-        
-        // Stop watchdog BEFORE RTC configuration
-        #ifndef DEBUG_MODE
-          NRF_WDT->TASKS_START = 0;
-        #endif
-        
-        // LED CODE 2: Quick blue blink = Watchdog stopped
-        digitalWrite(LED_BLUE, HIGH);
-        delay(100);
-        digitalWrite(LED_BLUE, LOW);
-        delay(300);
-        
-        // === RTC Timer Configuration per Manual Section 4.8.2 ===
-        // CRITICAL: Use correct register addresses!
-        // 0x0A = Timer Value 0 (NOT 0x09 which is Date Alarm!)
-        // 0x0B = Timer Value 1
-        // 0x0E = Status (TF flag at bit 3)
-        // 0x0F = Control 1 (TE at bit 2, TD at bits 1:0)
-        // 0x10 = Control 2 (TIE at bit 4)
-        
-        uint8_t rtc_result1 = 0, rtc_result2 = 0, rtc_result3 = 0, rtc_result4 = 0, rtc_result5 = 0;
-        
-        // Step 1: Stop Timer and clear TF flag (per manual recommendation)
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0F);  // CTRL1
-        Wire.write(0x00);  // TE=0, TD=00 (stop everything)
-        rtc_result1 = Wire.endTransmission();
-        
-        Wire.beginTransmission(0x52);
-        Wire.write(0x10);  // CTRL2
-        Wire.write(0x00);  // TIE=0 (disable interrupt)
-        rtc_result2 = Wire.endTransmission();
-        
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0E);  // STATUS register
-        Wire.write(0x00);  // Clear TF flag (bit 3) and all others
-        rtc_result3 = Wire.endTransmission();
-        
-#if TESTING_MODE
-        // TESTING MODE: 60 seconds with 1 Hz clock (TD=10)
-        uint16_t countdown = 60;  // 60 seconds
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0A);  // Timer Value 0 register
-        Wire.write(countdown & 0xFF);
-        Wire.write((countdown >> 8) & 0x0F);
-        rtc_result4 = Wire.endTransmission();
-        
-        // Configure Timer: TD=10 (1 Hz = second ticks), TE=1 (Enable), TRPT=0 (Single shot)
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0F);  // CTRL1
-        Wire.write(0x06);  // 0b00000110: TE=1, TD=10 (1 Hz)
-        rtc_result5 = Wire.endTransmission();
-        
-        MESH_DEBUG_PRINTLN("RTC: TESTING MODE - 60 seconds wake-up");
-#else
-        // PRODUCTION MODE: 12 hours = 720 minutes with 1/60 Hz clock (TD=11)
-        uint16_t countdown = 720;  // 720 minutes = 12 hours
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0A);  // Timer Value 0 register
-        Wire.write(countdown & 0xFF);        // Lower 8 bits (720 = 0x02D0)
-        Wire.write((countdown >> 8) & 0x0F); // Upper 4 bits (0x02)
-        rtc_result4 = Wire.endTransmission();
-        
-        // Configure Timer: TD=11 (1/60 Hz = minute ticks), TE=1 (Enable), TRPT=0 (Single shot)
-        Wire.beginTransmission(0x52);
-        Wire.write(0x0F);  // CTRL1
-        Wire.write(0x07);  // 0b00000111: TE=1, TD=11 (1/60 Hz = minute ticks)
-        rtc_result5 = Wire.endTransmission();
-        
-        MESH_DEBUG_PRINTLN("RTC: PRODUCTION MODE - 12 hours wake-up");
-#endif
-        
-        // Step 4: Enable Timer Interrupt on INT pin
-        Wire.beginTransmission(0x52);
-        Wire.write(0x10);  // CTRL2
-        Wire.write(0x10);  // 0b00010000: TIE=1 (bit 4)
-        uint8_t rtc_result6 = Wire.endTransmission();
-        
-        // LED CODE 3: RTC configuration status
-        // Success (all I2C results == 0): 2x green blinks
-        // Failure (any I2C result != 0): 5x fast red blinks
-        if (rtc_result1 == 0 && rtc_result2 == 0 && rtc_result3 == 0 && 
-            rtc_result4 == 0 && rtc_result5 == 0 && rtc_result6 == 0) {
-          // RTC OK - 2x green (both LEDs)
-          for (int i = 0; i < 2; i++) {
-            digitalWrite(LED_RED, HIGH);
-            digitalWrite(LED_BLUE, HIGH);
-            delay(150);
-            digitalWrite(LED_RED, LOW);
-            digitalWrite(LED_BLUE, LOW);
-            delay(150);
-          }
-        } else {
-          // RTC FAILED - 5x fast red blinks
-          for (int i = 0; i < 5; i++) {
-            digitalWrite(LED_RED, HIGH);
-            delay(50);
-            digitalWrite(LED_RED, LOW);
-            delay(50);
-          }
-        }
-        delay(300);
-        
-        // Store shutdown reason for next boot (preserve Danger Zone flag)
-        NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
-        
-        // LED CODE 4: Final 3x slow red = Entering SYSTEMOFF NOW
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_RED, HIGH);
-          delay(300);
-          digitalWrite(LED_RED, LOW);
-          delay(300);
-        }
-        
-        // Enter SYSTEM OFF mode
-        uint32_t err_code = sd_power_system_off();
-        
-        // If we reach here, SoftDevice failed - try direct register
-        delay(100);
-        NRF_POWER->SYSTEMOFF = 1;
-        delay(100);
-        
-        // ERROR: SYSTEMOFF completely failed - continuous red LED
-        digitalWrite(LED_RED, HIGH);
-        while(1) { delay(1000); }
-        
-      } else {
-      // Voltage >= Critical threshold
-      if (in_danger_zone) {
-        // RECOVERY: Voltage rose above Critical - exit Danger Zone
-        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered to %dmV (Critical=%dmV)", vbat_mv, critical_mv);
-        MESH_DEBUG_PRINTLN("PWRMGT: Exiting Danger Zone - initiating system reset to re-enable SX1262");
-        
-        // Visual confirmation: 3x green-like blink (both LEDs)
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_RED, HIGH);
-          digitalWrite(LED_BLUE, HIGH);
-          delay(200);
-          digitalWrite(LED_RED, LOW);
-          digitalWrite(LED_BLUE, LOW);
-          delay(200);
-        }
-        
-        // Clear all flags (Danger Zone and Shutdown Reason)
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-        
-        delay(100);  // Let debug output complete
-        
-        // Perform software reset to cleanly re-initialize SX1262 and all systems
-        NVIC_SystemReset();
-        // Never returns
-      }
-      // else: Normal operation - voltage OK, not in Danger Zone
-    }
-  }
-    
-    // Dynamic interval: Use shorter checks in Danger Zone for safety
-    uint32_t checkInterval_ms = in_danger_zone ? DANGER_CHECK_INTERVAL_MS : NORMAL_CHECK_INTERVAL_MS;
-    vTaskDelay(pdMS_TO_TICKS(checkInterval_ms));
-  }
+  MESH_DEBUG_PRINTLN("Voltage Monitor Task disabled (SOC task handles UV checks)");
+  vTaskDelete(NULL);
 }
 
 // ===== Helper Functions =====

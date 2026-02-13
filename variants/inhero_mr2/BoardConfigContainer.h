@@ -227,6 +227,11 @@ public:
   float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
   
+  // INA228 UVLO methods (v0.2)
+  bool setUvloEnabled(bool enabled);  ///< Enable/disable INA228 UVLO alert (persistent)
+  bool getUvloEnabled() const;        ///< Get current UVLO enable state
+  void applyUvloSetting();            ///< Apply UVLO setting to INA228 hardware
+  
   // Voltage threshold helpers (chemistry-specific)
   static uint16_t getVoltageCriticalThreshold(BatteryType type);  ///< Get danger zone threshold (0% SOC)
   static uint16_t getVoltageHardwareCutoff(BatteryType type);     ///< Get hardware UVLO threshold (INA228 Alert)
@@ -241,6 +246,7 @@ public:
   bool getLEDsEnabled() const;       ///< Get current LED enable state
 
 private:
+  static void runVoltageMonitor();
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
   static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228 (v0.2 hardware) (v0.2)
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
@@ -265,12 +271,14 @@ private:
   char* MPPTENABLEKEY = "mpptEn";
   char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
   char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
+  char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   bool loadIna228CalibrationFactor(float& factor) const; // v0.2
+  bool loadUvloEnabled(bool& enabled) const; // v0.2
   
   // MPPT Statistics helper
   static void updateMpptStats();

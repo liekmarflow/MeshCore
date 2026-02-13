@@ -474,6 +474,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float factor = boardConfig.getIna228CalibrationFactor();
     snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
     return true;
+  } else if (strcmp(cmd, "uvlo") == 0) {
+    // Get INA228 UVLO enable state
+    bool enabled = boardConfig.getUvloEnabled();
+    snprintf(reply, maxlen, "UVLO: %s", enabled ? "ENABLED" : "DISABLED");
+    return true;
   } else if (strcmp(cmd, "leds") == 0) {
     // Get LED enable state (heartbeat + BQ stat LED)
     bool enabled = boardConfig.getLEDsEnabled();
@@ -511,7 +516,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   }
 
-  snprintf(reply, maxlen, "Err: Try board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|leds|batcap|energy>");
+  snprintf(reply, maxlen, "Err: Try board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|uvlo|leds|batcap|energy>");
   return true;
 }
 
@@ -637,6 +642,23 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Use 'on/1' or 'off/0'");
       return ret;
     }
+  } else if (strncmp(setCommand, "uvlo ", 5) == 0) {
+    // Enable/disable INA228 UVLO alert
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
+    bool enabled = (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0);
+    bool disabled = (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "FALSE") == 0);
+    
+    if (enabled || disabled) {
+      if (boardConfig.setUvloEnabled(enabled)) {
+        snprintf(ret, sizeof(ret), "UVLO %s (persistent)", enabled ? "ENABLED" : "DISABLED");
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Failed to save UVLO setting");
+      }
+      return ret;
+    } else {
+      snprintf(ret, sizeof(ret), "Err: Use 'true/1', 'false/0'");
+      return ret;
+    }
   } else if (strncmp(setCommand, "soc ", 4) == 0) {
     // Manually set SOC percentage (e.g. after reboot with known SOC)
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[4]));
@@ -650,7 +672,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|bqreset|leds|soc>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|bqreset|leds|uvlo|soc>");
   return ret;
 }
 
@@ -692,8 +714,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // For now, stopBackgroundTasks() should flush pending writes
     delay(100);  // Allow I/O to complete
     
-    // 3. Configure RTC to wake us up (60s testing / 12h production)
-    configureRTCWake(12);
+    // 3. Configure RTC to wake us up (3 minutes)
+    configureRTCWake(0);
   }
   
   // 4. Store shutdown reason for next boot
@@ -708,21 +730,14 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 }
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
-/// @param hours Wake-up interval in hours (12 = Danger Zone checks)
+/// @param hours Wake-up interval in hours (unused; forced to 3 minutes)
 void InheroMr2Board::configureRTCWake(uint32_t hours) {
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(true);
 #endif
-#if TESTING_MODE
-  // Testing Mode: 60 seconds for fast lab testing
-  uint16_t countdown = 60;
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 60 seconds (TESTING MODE)");
-#else
-  // Production Mode: Use actual hours parameter
-  if (hours > 18) hours = 18;  // Hardware limit: 65535 seconds
-  uint16_t countdown = hours * 3600;
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %d hours (%d seconds)", hours, countdown);
-#endif
+  (void)hours;
+  uint16_t countdown = 21600;  // 6 hours
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 6 hours (21600 seconds)");
   
   // === RTC Timer Configuration per Manual Section 4.8.2 ===
   // Step 1: Stop Timer and clear flags

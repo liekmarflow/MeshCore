@@ -65,29 +65,26 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 ## 1. Software-Monitoring (Adaptiv)
 
 ### Implementierung
-- **Task**: `voltageMonitorTask()` in `BoardConfigContainer.cpp`
-- **Messung**: BQ25798 15-bit ADC via I²C (batterie.voltage)
-- **Frequenz**: Dynamisch 10s/30s/60s
+- **Task**: `socUpdateTask()` (ruft `runVoltageMonitor()` pro Minute)
+- **Messung**: INA228 via I²C (batterie.voltage)
+- **Frequenz**: 60s
 
 ### Monitoring-Intervalle
 
-**Konfiguration:** Gesteuert über das Flag `TESTING_MODE` in `InheroMr2Board.h`
-- **Produktionsmodus** (`TESTING_MODE = false`): 1h normal / 12h Danger Zone
-- **Testmodus** (`TESTING_MODE = true`): 60s für beide Fälle (schnelle Labovalidierung)
+**Konfiguration:** Feste Intervalle
+- **Normalbetrieb**: 60s
+- **Danger Zone**: 6 Stunden (RTC-Wake)
 
 **Two-Stage Strategy (Power-Optimized):**
 
-| System State | Voltage (Li-Ion) | Interval (Production) | Interval (Testing) | Cost per Check | Rationale |
-|--------------|------------------|----------------------|-------------------|----------------|----------|
-| **Running (Normal)** | ≥ 3.4V | **1 hour** | 60 seconds | ~1µAh | System already awake, INA228 I²C read minimal cost |
-| **SYSTEMOFF (Danger Zone)** | < 3.4V | **12 hours** | 60 seconds | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
+| System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
+|--------------|------------------|----------|----------------|----------|
+| **Running (Normal)** | ≥ 3.4V | **60 seconds** | ~1µAh | System already awake, INA228 I²C read minimal cost |
+| **SYSTEMOFF (Danger Zone)** | < 3.4V | **6 hours** | ~50-150mAh | Full boot (nRF52 init, SPI/I2C, RadioLib, SX1262), expensive |
 
-**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin), aber Danger-Zone-Wakeups kosten durch den vollständigen Bootvorgang deutlich Energie. Das 12h-Intervall in der Danger Zone maximiert den Batterieerhalt.
+**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin), aber Danger-Zone-Wakeups kosten durch den vollständigen Bootvorgang deutlich Energie. Das 6h-Intervall in der Danger Zone maximiert den Batterieerhalt.
 
-**Aktive System-Teilintervalle** (wenn die Spannung im laufenden Betrieb absinkt):
-- WARNING (3.35-3.4V): 30s checks
-- CRITICAL (< 3.35V): 10s checks
-- **Action at < 3.4V**: `initiateShutdown()` → SYSTEMOFF + RTC timer 12h
+**Action at < 3.4V**: `initiateShutdown()` → SYSTEMOFF + RTC timer 6 hours
 
 **Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
 
@@ -373,7 +370,7 @@ oder
 **Methode**: `configureRTCWake()` in `InheroMr2Board.cpp` Zeile 704-737
 - **Tick Rate**: 1Hz (1 Sekunde pro Tick)
 - **Max Countdown**: 65535 Sekunden ≈ 18.2 Stunden
-- **Danger Zone Interval**: 12 Stunden (43200 Ticks)
+- **Danger Zone Interval**: 6 Stunden (21600 Ticks)
 - **Rationale**: Each wake costs ~50-150mAh (full boot), long interval maximizes battery life
 
 **Register**:
@@ -418,7 +415,7 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
    if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
      // TODO: Explicit filesystem sync when LittleFS is integrated
      delay(100);  // Allow I/O to complete
-     configureRTCWake(12);  // 12 Stunden (43200 Sekunden)
+     configureRTCWake(21600);  // 6 Stunden (21600 Sekunden)
    }
    ```
    
@@ -448,7 +445,7 @@ Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung fü
 // InheroMr2Board::begin() prüft Spannung bei Wake-up
 if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
   if (vbat_mv < critical_threshold) {
-    configureRTCWake(12);  // 12 Stunden (minimize boot cost)
+    configureRTCWake(21600);  // 6 Stunden (minimize boot cost)
     sd_power_system_off();
   }
   // Voltage recovered - resume at 0% SOC
@@ -462,7 +459,7 @@ if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
 // Prüft auch bei Cold Boot die Spannung
 else if (vbat_mv < critical_threshold) {
   MESH_DEBUG_PRINTLN("ColdBoot in danger zone - likely Hardware-UVLO");
-  configureRTCWake(12);  // 12h (minimize repeated boot attempts)
+  configureRTCWake(21600);  // 6h (minimize repeated boot attempts)
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
   sd_power_system_off();
 }
@@ -548,7 +545,84 @@ ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
 
 ---
 
-## 9. CLI-Befehle
+## 9. SX1262 Power Control (RadioLib)
+
+### Shutdown-Sequenz Erweiterung
+**Methode**: `initiateShutdown()` in `InheroMr2Board.cpp` + `BoardConfigContainer.cpp`
+
+Vor SYSTEMOFF wird die SX1262 LoRa-Radio korrekt in den Sleep-Modus versetzt:
+
+```cpp
+// In BoardConfigContainer.cpp before shutdown:
+extern RadiolibInterface radio_driver;  // Declared in target.h
+if (radio_driver.isRadioAvailable()) {
+  radio_driver.powerOff();  // RadioLib sleep command, NOT GPIO toggling
+}
+```
+
+**Wichtige Details**:
+- **Richtige Methode**: `radio_driver.powerOff()` via RadioLib library
+- **NICHT verwenden**: SPI SetSleep commands oder SX126X_POWER_EN GPIO toggling 
+  - Grund: SX126X_POWER_EN steuert die RF-Antennenweiche (DIO2), nicht die Power-Supply
+  - RF-Switch kann TX-Stromverbrauch beeinflussen, aber nicht den Sleep-Strom
+- **Stromverbrauch im Sleep**: ~0.66µA (korrekt) vs. 7.4mA (falsch ohne RadioLib powerOff)
+- **ADC Averaging**: 64 samples filtern TX-Spitzen, aber nur RadioLib powerOff stellt sicher, dass der Sleep-Mode aktiv ist
+
+**Sleep-Strom Messungen**:
+- **Mit RadioLib powerOff()**: ~0.66µA (Correct)
+- **Ohne (nur GPIO)**: ~7.4mA (High - Radio still partially active)
+- **Danger Zone Cost**: 21600s * 0.66µA ≈ 14mAh overhead (minimal)
+
+---
+
+## 10. UVLO CLI Integration
+
+### Persistent UVLO Setting
+**Dauerhafte Speicherung**: LittleFS preferences (`/prefs/uvloEn`)
+
+**Funktionen**:
+- `loadUvloEnabled()` - Lädt Einstellung beim Boot (Default: DISABLED für Feldtests)
+- `setUvloEnabled(bool)` - Setzt Einstellung und speichert persistent
+- `getUvloEnabled()` - Gibt aktuelle Einstellung zurück
+- `applyUvloSetting()` - Wendet chemie-spezifische UVLO-Schwellen an
+
+**Automatische Anwendung**:
+- Bei `BoardConfigContainer::begin()` (Boot)
+- Bei `setBatteryType()` (Batteriewechsel)
+
+**Chemie-spezifische Schwellen** (in `applyUvloSetting()`):
+| Chemie | Hardware UVLO (Alert) |
+|--------|----------------------|
+| **Li-Ion 1S** (default) | 3.1V |
+| **LiFePO4 1S** | 2.7V |
+| **LTO 2S** | 3.9V |
+
+### CLI-Integration
+**Getter**: `board.uvlo`
+```bash
+board.uvlo  # UVLO-Status abfragen
+            # Output: "ENABLED" oder "DISABLED"
+            # Code: InheroMr2Board.cpp getCustomGetter() Zeile 486
+```
+
+**Setter**: `set board.uvlo`
+```bash
+set board.uvlo 0|1|false|true  # UVLO-Einstellung setzen
+                               # 0/false = DISABLED (Standard für Feldtests)
+                               # 1/true = ENABLED (für kritische Anwendungen)
+                               # Wird persistent gespeichert
+                               # Code: InheroMr2Board.cpp setCustomSetter() Zeile 643
+```
+
+**Persistenz-Verhalten**:
+- ✅ Überlebt SYSTEMOFF
+- ✅ Überlebt Hardware-UVLO (RAM-Verlust)
+- ✅ Überlebt Firmware-Update (LittleFS bleibt)
+- Geladen beim Boot bei `BoardConfigContainer::begin()`
+
+---
+
+## 11. CLI-Befehle
 
 ### Getter (Implemented)
 ```bash
@@ -594,6 +668,11 @@ board.ibcal     # INA228 calibration factor
 board.leds      # LED enable status
                 # Output: "LEDs: ON (Heartbeat + BQ Stat)"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
+
+board.uvlo      # UVLO-Einstellung abfragen 🆕
+                # Output: "ENABLED" | "DISABLED"
+                # Chemie-spezifische Schwellen aktiv
+                # Code: InheroMr2Board.cpp - getCustomGetter() Zeile 486
 ```
 
 ### Setter (Implemented)
@@ -634,6 +713,13 @@ set board.soc <percent>     # Manually set SOC percentage
 
 set board.bqreset           # Reset BQ25798 and reload config
                             # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
+                            # 0/false = DISABLED (Standard für Feldtests)
+                            # 1/true = ENABLED (für kritische Anwendungen)
+                            # Wird persistent gespeichert
+                            # Chemie-spezifische Schwellen werden angewendet
+                            # Code: InheroMr2Board.cpp - setCustomSetter() Zeile 643
 ```
 
 ---
