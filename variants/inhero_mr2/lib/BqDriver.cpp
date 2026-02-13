@@ -160,6 +160,11 @@ const Telemetry* const BqDriver::getTelemetryData() {
   telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
 
   this->stopIbatADC();
+  
+  // Disable ADC to save power (~1.5mA according to datasheet)
+  // ADC stays enabled after one-shot conversion, consuming unnecessary power
+  this->setADCEnabled(false);
+  
   return &telemetryData;
 }
 
