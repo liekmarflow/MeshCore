@@ -156,9 +156,9 @@ void InheroMr2Board::begin() {
           // Only clear lower bits (SHUTDOWN_REASON) for clean state
           NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
           
-          // Configure RTC wake-up (60s testing / 12h production)
+          // Configure RTC wake-up (6h production)
           // voltageMonitorTask will send sleep command on next boot after init completes
-          configureRTCWake(12);
+          configureRTCWake(6);
           sd_power_system_off();
           // Never returns
         }
@@ -173,15 +173,15 @@ void InheroMr2Board::begin() {
       else if (vbat_mv < critical_threshold) {
         MESH_DEBUG_PRINTLN("ColdBoot in danger zone detected (%dmV < %dmV)", vbat_mv, critical_threshold);
         MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery at %dmV - voltage not stable yet", uvlo_threshold);
-        MESH_DEBUG_PRINTLN("Going to sleep for 1min to avoid motorboating");
+        MESH_DEBUG_PRINTLN("Going to sleep for 6h to avoid motorboating");
         
         delay(100);
         
         // Do NOT send sleep command here - would cause race condition with bootup
         // voltageMonitorTask will handle sleep after full system initialization
         
-        // Configure RTC wake-up before shutdown (60s testing / 12h production)
-        configureRTCWake(12);
+        // Configure RTC wake-up before shutdown (6h production)
+        configureRTCWake(6);
         
         // Store reason AND set Danger Zone flag (this was ColdBoot, no flag set yet)
         NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
@@ -716,8 +716,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // For now, stopBackgroundTasks() should flush pending writes
     delay(100);  // Allow I/O to complete
     
-    // 3. Configure RTC to wake us up (3 minutes)
-    configureRTCWake(0);
+    // 3. Configure RTC to wake us up (6 hours)
+    configureRTCWake(6);
   }
   
   // 4. Store shutdown reason for next boot
@@ -732,14 +732,20 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 }
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
-/// @param hours Wake-up interval in hours (unused; forced to 3 minutes)
+/// @param hours Wake-up interval in hours
 void InheroMr2Board::configureRTCWake(uint32_t hours) {
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(true);
 #endif
-  (void)hours;
-  uint16_t countdown = 21600;  // 6 hours
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in 6 hours (21600 seconds)");
+  uint32_t safe_hours = hours == 0 ? 6 : hours;
+  uint32_t total_seconds = safe_hours * 3600UL;
+  uint16_t countdown_ticks = static_cast<uint16_t>((total_seconds + 59UL) / 60UL);
+  if (countdown_ticks == 0) {
+    countdown_ticks = 1;
+  }
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %lu hours (%lu seconds)",
+                     static_cast<unsigned long>(safe_hours),
+                     static_cast<unsigned long>(total_seconds));
   
   // === RTC Timer Configuration per Manual Section 4.8.2 ===
   // Step 1: Stop Timer and clear flags
@@ -758,17 +764,17 @@ void InheroMr2Board::configureRTCWake(uint32_t hours) {
   Wire.write(0x00);  // Clear TF flag
   Wire.endTransmission();
   
-  // Step 2: Set Timer Value (60 seconds)
+  // Step 2: Set Timer Value (ticks at 1/60 Hz)
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_TIMER_VALUE_0);
-  Wire.write(countdown & 0xFF);        // Lower 8 bits
-  Wire.write((countdown >> 8) & 0x0F); // Upper 4 bits
+  Wire.write(countdown_ticks & 0xFF);        // Lower 8 bits
+  Wire.write((countdown_ticks >> 8) & 0x0F); // Upper 4 bits
   Wire.endTransmission();
   
-  // Step 3: Configure Timer (1 Hz clock, Single shot mode)
+  // Step 3: Configure Timer (1/60 Hz clock, Single shot mode)
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x06);  // TE=1 (Enable), TD=10 (1 Hz), TRPT=0 (Single shot)
+  Wire.write(0x07);  // TE=1 (Enable), TD=11 (1/60 Hz), TRPT=0 (Single shot)
   Wire.endTransmission();
   
   // Step 4: Enable Timer Interrupt
@@ -777,7 +783,7 @@ void InheroMr2Board::configureRTCWake(uint32_t hours) {
   Wire.write(0x10);  // TIE=1 (Timer Interrupt Enable, bit 4)
   Wire.endTransmission();
   
-  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%d seconds at 1 Hz)", countdown);
+  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%u ticks at 1/60 Hz)", countdown_ticks);
 
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(false);

@@ -76,13 +76,14 @@ namespace {
 
     uint16_t countdown = (uint16_t)val0 | ((uint16_t)(val1 & 0x0F) << 8);
 
-    bool timer_enabled = (ctrl1 & 0x04) != 0;   // TE
-    bool repeat_enabled = (ctrl1 & 0x80) != 0;  // TRPT
-    bool one_hz = (ctrl1 & 0x03) == 0x02;       // TD=10 (1 Hz)
+    bool timer_enabled = (ctrl1 & 0x04) != 0;    // TE
+    bool repeat_enabled = (ctrl1 & 0x80) != 0;   // TRPT
+    bool one_over_60_hz = (ctrl1 & 0x03) == 0x03; // TD=11 (1/60 Hz)
     bool interrupt_enabled = (ctrl2 & 0x10) != 0; // TIE
+    uint16_t expected_ticks = static_cast<uint16_t>((expected_seconds + 59U) / 60U);
 
-    return timer_enabled && repeat_enabled && one_hz && interrupt_enabled &&
-           countdown == expected_seconds;
+    return timer_enabled && repeat_enabled && one_over_60_hz && interrupt_enabled &&
+         countdown == expected_ticks;
   }
 
   void configureRtcPeriodicWake(uint16_t seconds) {
@@ -105,13 +106,17 @@ namespace {
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_TIMER_VALUE_0);
-    Wire.write(seconds & 0xFF);
-    Wire.write((seconds >> 8) & 0x0F);
+    uint16_t ticks = static_cast<uint16_t>((seconds + 59U) / 60U);
+    if (ticks == 0) {
+      ticks = 1;
+    }
+    Wire.write(ticks & 0xFF);
+    Wire.write((ticks >> 8) & 0x0F);
     Wire.endTransmission();
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL1);
-    Wire.write(0x86);  // TE=1, TD=10 (1 Hz), TRPT=1 (repeat)
+    Wire.write(0x87);  // TE=1, TD=11 (1/60 Hz), TRPT=1 (repeat)
     Wire.endTransmission();
 
     Wire.beginTransmission(RTC_I2C_ADDR);
@@ -314,7 +319,7 @@ void BoardConfigContainer::runVoltageMonitor() {
       Wire.write(0x00);
       rtc_result3 = Wire.endTransmission();
 
-  uint16_t countdown = 21600;  // 6 hours
+  uint16_t countdown = 360;  // 6 hours @ 1/60 Hz (ticks are minutes)
   Wire.beginTransmission(0x52);
   Wire.write(0x0A);
   Wire.write(countdown & 0xFF);
@@ -323,7 +328,7 @@ void BoardConfigContainer::runVoltageMonitor() {
 
   Wire.beginTransmission(0x52);
   Wire.write(0x0F);
-  Wire.write(0x06);  // 1 Hz, single shot
+  Wire.write(0x07);  // 1/60 Hz, single shot
   rtc_result5 = Wire.endTransmission();
 
   MESH_DEBUG_PRINTLN("RTC: Wake-up in 6 hours");
