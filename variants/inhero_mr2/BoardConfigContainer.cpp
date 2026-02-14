@@ -1090,8 +1090,9 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   const Telemetry* telem = getTelemetryData();
   float vbus_v = telem ? telem->solar.voltage / 1000.0f : 0.0f;
   float vbat_v = telem ? telem->batterie.voltage / 1000.0f : 0.0f;
-  int16_t ibat_ma = telem ? telem->batterie.current : 0;  // INA228 driver returns correctly signed values
+  float ibat_ma = telem ? telem->batterie.current : 0.0f;  // INA228 driver returns correctly signed values
   float temp_c = telem ? telem->batterie.temperature : 0.0f;
+  int32_t ibat_ma_int = (int32_t)((ibat_ma >= 0.0f) ? (ibat_ma + 0.5f) : (ibat_ma - 0.5f));
 
   // Build comprehensive diagnostic string
   snprintf(buffer, bufferSize,
@@ -1099,7 +1100,7 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
            "Vbus:%.2fV Vbat:%.2fV Ibat:%dmA Temp:%.1fC | "
            "TS: %s%s%s%s | R0F:0x%02X R15:0x%02X | VOC:%s/%s/%s",
            powerGood, !ce_disabled, hiz_enabled, mppt_enabled, chg_str, vbus_str, vindpm, iindpm, vbus_v,
-           vbat_v, ibat_ma, temp_c, ts_cold ? "COLD " : "", ts_cool ? "COOL " : "", ts_warm ? "WARM " : "",
+           vbat_v, ibat_ma_int, temp_c, ts_cold ? "COLD " : "", ts_cool ? "COOL " : "", ts_warm ? "WARM " : "",
            ts_hot ? "HOT" : "OK", reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
 }
 
@@ -1124,24 +1125,6 @@ bool BoardConfigContainer::begin() {
   }
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
-  
-  // Initialize BQ25798 (common for both v0.1 and v0.2)
-  if (bq.begin()) {
-    BQ_INITIALIZED = true;
-    bqDriverInstance = &bq;
-    MESH_DEBUG_PRINTLN("BQ25798 found. ");
-    
-    // Blue LED flash: BQ25798 initialized
-    if (leds_enabled) {
-      digitalWrite(LED_BLUE, HIGH);
-      delay(150);
-      digitalWrite(LED_BLUE, LOW);
-      delay(100);
-    }
-  } else {
-    MESH_DEBUG_PRINTLN("BQ25798 not found.");
-    BQ_INITIALIZED = false;
-  }
   
   // === MR2 Hardware (v0.2): INA228 Power Monitor with UVLO ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
@@ -1232,6 +1215,24 @@ bool BoardConfigContainer::begin() {
     INA228_INITIALIZED = false;
   }
   delay(10);
+
+  // Initialize BQ25798 (common for both v0.1 and v0.2)
+  if (bq.begin()) {
+    BQ_INITIALIZED = true;
+    bqDriverInstance = &bq;
+    MESH_DEBUG_PRINTLN("BQ25798 found. ");
+
+    // Blue LED flash: BQ25798 initialized
+    if (leds_enabled) {
+      digitalWrite(LED_BLUE, HIGH);
+      delay(150);
+      digitalWrite(LED_BLUE, LOW);
+      delay(100);
+    }
+  } else {
+    MESH_DEBUG_PRINTLN("BQ25798 not found.");
+    BQ_INITIALIZED = false;
+  }
   
   // === RV-3028 RTC Initialization (v0.2) ===
   bool rtc_initialized = false;
@@ -1504,31 +1505,33 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
 const Telemetry* BoardConfigContainer::getTelemetryData() {
   static Telemetry telemetry;
   
+  // Battery voltage/current ALWAYS from INA228 (no fallback to BQ25798)
+  // MR2 v0.2 hardware uses INA228 for precise battery monitoring
+  uint16_t batt_voltage = 0;
+  float batt_current = 0.0f;
+  int32_t batt_power = 0;
+  if (ina228DriverInstance != nullptr) {
+    batt_voltage = ina228DriverInstance->readVoltage_mV();
+    batt_current = ina228DriverInstance->readCurrent_mA_precise();
+    batt_power = (int32_t)((batt_voltage * batt_current) / 1000.0f);
+  }
+
   // Get base telemetry from BQ25798 (solar data + temperature)
   const Telemetry* bqData = bq.getTelemetryData();
   if (!bqData) {
     memset(&telemetry, 0, sizeof(Telemetry));
     return &telemetry;
   }
-  
+
   // Copy BQ25798 data (solar, system, temperature)
   telemetry.solar = bqData->solar;
   telemetry.system = bqData->system;
   telemetry.batterie.temperature = bqData->batterie.temperature;
-  
-  // Battery voltage/current ALWAYS from INA228 (no fallback to BQ25798)
-  // MR2 v0.2 hardware uses INA228 for precise battery monitoring
-  if (ina228DriverInstance != nullptr) {
-    telemetry.batterie.voltage = ina228DriverInstance->readVoltage_mV();
-    telemetry.batterie.current = ina228DriverInstance->readCurrent_mA();
-    telemetry.batterie.power = ((int32_t)telemetry.batterie.voltage * telemetry.batterie.current) / 1000;
-  } else {
-    // INA228 not initialized - return error values
-    telemetry.batterie.voltage = 0;
-    telemetry.batterie.current = 0;
-    telemetry.batterie.power = 0;
-  }
-  
+
+  telemetry.batterie.voltage = batt_voltage;
+  telemetry.batterie.current = batt_current;
+  telemetry.batterie.power = batt_power;
+
   return &telemetry;
 }
 

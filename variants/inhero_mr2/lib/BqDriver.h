@@ -63,7 +63,7 @@ typedef struct {
 /// Battery telemetry data
 typedef struct {
   uint16_t voltage; ///< Battery voltage in mV
-  int16_t current;  ///< Battery current in mA (positive = charging, negative = discharging)
+  float current;    ///< Battery current in mA (positive = charging, negative = discharging)
   int32_t power;    ///< Battery power in mW
   float temperature; ///< Battery temperature in °C
 } BattData;

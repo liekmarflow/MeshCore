@@ -156,9 +156,9 @@ const Telemetry* const BqDriver::getTelemetryData() {
   telemetryData.solar.mppt = getMPPTenable();
 
   telemetryData.batterie.voltage = getVBAT();
-  telemetryData.batterie.current = getIBAT();
-  telemetryData.batterie.power =
-      ((int32_t)telemetryData.batterie.voltage * telemetryData.batterie.current) / 1000;
+    telemetryData.batterie.current = (float)getIBAT();
+    telemetryData.batterie.power =
+      (int32_t)((telemetryData.batterie.voltage * telemetryData.batterie.current) / 1000.0f);
   telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
 
   this->stopIbatADC();

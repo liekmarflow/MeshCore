@@ -57,6 +57,10 @@
 #define INA228_ADC_AVG_4          0x01  // 4 samples average
 #define INA228_ADC_AVG_16         0x02  // 16 samples average
 #define INA228_ADC_AVG_64         0x03  // 64 samples average
+#define INA228_ADC_AVG_128        0x04  // 128 samples average
+#define INA228_ADC_AVG_256        0x05  // 256 samples average
+#define INA228_ADC_AVG_512        0x06  // 512 samples average
+#define INA228_ADC_AVG_1024       0x07  // 1024 samples average
 
 // ADC Configuration - Conversion Time (VBUSCT, VSHCT, VTCT)
 #define INA228_ADC_CT_50us        0x00  // 50 µs
