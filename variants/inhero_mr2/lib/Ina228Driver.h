@@ -12,9 +12,6 @@
  * - Chemistry-specific thresholds (Li-Ion, LiFePO4, LTO)
  */
 
-#ifndef INA228_DRIVER_H
-#define INA228_DRIVER_H
-
 #pragma once
 
 #include <Wire.h>
@@ -235,5 +232,3 @@ private:
   /// @brief Read 40-bit register (for energy/charge)
   int64_t readRegister40(uint8_t reg);
 };
-
-#endif // INA228_DRIVER_H

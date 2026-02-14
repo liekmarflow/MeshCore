@@ -28,7 +28,7 @@
 
 #include <Arduino.h>
 
-static SemaphoreHandle_t solarEventSem = NULL;
+inline SemaphoreHandle_t solarEventSem = NULL;
 
 // Solar MPPT task interval
 #define SOLAR_MPPT_TASK_INTERVAL_MS (15 * 60 * 1000)  // 15 minutes
@@ -292,13 +292,13 @@ private:
   // configureMCP() removed - v0.1 only, MR2 doesn't have MCP4652
   bool configureSolarOnlyInterrupts();
   static constexpr const char* PREFS_NAMESPACE = "inheromr2";
-  char* BATTKEY = "batType";
-  char* FROSTKEY = "frost";
-  char* MAXCHARGECURRENTKEY = "maxChrg";
-  char* MPPTENABLEKEY = "mpptEn";
-  char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
-  char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
-  char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
+  static constexpr const char* BATTKEY = "batType";
+  static constexpr const char* FROSTKEY = "frost";
+  static constexpr const char* MAXCHARGECURRENTKEY = "maxChrg";
+  static constexpr const char* MPPTENABLEKEY = "mpptEn";
+  static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
+  static constexpr const char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
+  static constexpr const char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;

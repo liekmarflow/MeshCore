@@ -168,9 +168,13 @@ void Ina228Driver::shutdown() {
 }
 
 void Ina228Driver::wakeup() {
-  // Re-enable continuous measurement mode
-  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all
-                        (INA228_ADC_AVG_256 << 0);            // 256 samples average (TX peak filtering)
+  // Re-enable continuous measurement mode with full ADC configuration
+  // Must restore conversion times from begin() - defaults are much shorter (50µs)
+  uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // MODE: Continuous all = 0xF
+                        (INA228_ADC_CT_2074us << 9)      |  // VBUSCT: 2074µs for voltage accuracy
+                        (INA228_ADC_CT_4120us << 6)      |  // VSHCT: 4120µs for current/SOC accuracy
+                        (INA228_ADC_CT_540us << 3)       |  // VTCT: 540µs (temp less critical)
+                        (INA228_ADC_AVG_256 << 0);          // AVG: 256 samples
   writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
 }
 

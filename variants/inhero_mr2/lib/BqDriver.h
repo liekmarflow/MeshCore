@@ -39,17 +39,6 @@
 #define R_NTC_25    10000.0f ///< NTC nominal value at 25°C in Ohms
 #define BETA_VAL    3380.0f  ///< Beta value of NCP15XH103F03RC NTC
 #define T_25_KELVIN 298.15f  ///< 25°C in Kelvin (273.15 + 25)
-// Temperature correction lookup table (Beta error compensation)
-// Calibrated from actual measurements with BME280 reference
-// Format: {Beta_calculated_temp, offset_to_apply}
-static const float TEMP_CORRECTION[][2] = {
-  {-30.0f, -7.0f},  // Extrapolated for extreme cold
-  {-15.0f, -6.6f},  // At -18.3°C real: measured -17.5, need -0.8 more
-  {5.0f,   -3.6f},  // At 1.4°C real: worked well before
-  {17.0f,  -2.8f},  // At 18.5°C real: measured 17.1, need +1.4 less negative
-  {25.0f,  -2.5f},  // Nominal, offset reduces
-  {50.0f,  -2.0f}   // Extrapolated for warm temps
-};
 #define IBUS_ADC_OFFSET_MA 27    ///< ADC calibration offset for solar current in mA
 
 /// Solar input telemetry data

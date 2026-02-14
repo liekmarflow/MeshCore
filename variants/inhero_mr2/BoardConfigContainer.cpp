@@ -557,6 +557,10 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
   while (true) {
     if (xSemaphoreTake(solarEventSem, xBlockTime) == pdTRUE) {
       // Interrupt triggered - solar event occurred
+      // Clear BQ25798 interrupt flags early to de-assert INT line and allow new interrupts
+      if (bqDriverInstance) {
+        bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
+      }
       delay(100);
       checkAndFixPgoodStuck();  // Check for stuck PGOOD
       checkAndFixSolarLogic();   // Re-enable MPPT if needed
@@ -597,13 +601,9 @@ void BoardConfigContainer::onBqInterrupt() {
 
   if (solarEventSem == NULL) return; // Safety check
   
-  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
-  // The BQ25798 requires reading register 0x1B to acknowledge interrupts and clear flags.
-  // Without this, the interrupt line stays asserted and no new interrupts will be generated.
-  // This must happen on EVERY interrupt, regardless of whether we process the event or not.
-  if (bqDriverInstance) {
-    bqDriverInstance->readReg(0x1B); // Read CHARGER_STATUS_0 (0x1B) to clear interrupt flags
-  }
+  // NOTE: Interrupt flag clearing (readReg 0x1B) is deferred to solarMpptTask
+  // to avoid I2C bus conflicts in ISR context. The INT line stays asserted until
+  // cleared, but the task wakes immediately via semaphore.
 
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
@@ -1562,13 +1562,13 @@ bool BoardConfigContainer::resetBQ() {
   uint16_t maxChargeCurrent_mA;
   
   if (!loadBatType(bat)) {
-    bat = BatteryType::LIION_1S;  // Default
+    bat = DEFAULT_BATTERY_TYPE;  // Safe: no charging until user configures
   }
   if (!loadFrost(frost)) {
-    frost = FrostChargeBehaviour::NO_REDUCE;  // Default (1)
+    frost = DEFAULT_FROST_BEHAVIOUR;  // Safe: no frost charging
   }
   if (!loadMaxChrgI(maxChargeCurrent_mA)) {
-    maxChargeCurrent_mA = 200;  // Default
+    maxChargeCurrent_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
   }
   
   // Apply configuration
@@ -1790,6 +1790,7 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
   prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(behaviour));
+  return true;
 }
 
 /// @brief Sets maximum charge current

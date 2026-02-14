@@ -170,6 +170,18 @@ const Telemetry* const BqDriver::getTelemetryData() {
   return &telemetryData;
 }
 
+// Temperature correction lookup table (Beta error compensation)
+// Calibrated from actual measurements with BME280 reference
+// Format: {Beta_calculated_temp, offset_to_apply}
+static const float TEMP_CORRECTION[][2] = {
+  {-30.0f, -7.0f},  // Extrapolated for extreme cold
+  {-15.0f, -6.6f},  // At -18.3°C real: measured -17.5, need -0.8 more
+  {5.0f,   -3.6f},  // At 1.4°C real: worked well before
+  {17.0f,  -2.8f},  // At 18.5°C real: measured 17.1, need +1.4 less negative
+  {25.0f,  -2.5f},  // Nominal, offset reduces
+  {50.0f,  -2.0f}   // Extrapolated for warm temps
+};
+
 /**
  * Calculates battery temperature in °C
  * Per BQ25798 datasheet Figure 9-12: REGN → RT1 → TS → (RT2||NTC) → GND
@@ -594,7 +606,7 @@ uint16_t BqDriver::getVBUS() {
   Adafruit_BusIO_Register vbus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vbus_reg.read(&val)) {
-    return 0.0f;
+    return 0;
   }
   return val; // in mV
 }
@@ -603,7 +615,7 @@ uint16_t BqDriver::getVBAT() {
   Adafruit_BusIO_Register vbat_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBAT_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vbat_reg.read(&val)) {
-    return 0.0f;
+    return 0;
   }
   return val; // in mV
 }
@@ -637,7 +649,7 @@ uint16_t BqDriver::getVSYS() {
   Adafruit_BusIO_Register vsys_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VSYS_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vsys_reg.read(&val)) {
-    return 0.0f;
+    return 0;
   }
   return val; // in mV
 }

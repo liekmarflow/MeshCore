@@ -112,11 +112,12 @@ void InheroMr2Board::begin() {
   MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
 
   // CRITICAL: readVBATDirect() sets ADC_CONFIG to 0x1000 (Single-Shot mode)
-  // We must restore it to 0xF003 (Continuous mode, 64 samples avg) for normal operation
+  // Restore to continuous mode (0xF003) as interim config until ina228.begin()
+  // sets the final high-accuracy config (0xFFCA with long conversion times)
   Wire.beginTransmission(0x40);
   Wire.write(0x01); // ADC_CONFIG register
   Wire.write(0xF0); // MSB: Continuous all channels (0xF)
-  Wire.write(0x03); // LSB: 64 samples averaging (0x3) - consistent with ina228.begin()
+  Wire.write(0x03); // LSB: 64 samples averaging (0x3) - interim, overridden by ina228.begin()
   uint8_t i2c_result = Wire.endTransmission();
   delay(50); // Longer delay for I2C bus to stabilize before BQ init
   MESH_DEBUG_PRINTLN("Early Boot: ADC_CONFIG restored to 0xF003 (result=%d)", i2c_result);
