@@ -2,13 +2,13 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Build Inhero MR1",
+			"label": "Build Inhero MR2",
 			"type": "shell",
 			"command": "platformio",
 			"args": [
 				"run",
 				"--environment",
-				"Inhero_MR1_repeater"
+				"Inhero_MR2_repeater"
 			],
 			"problemMatcher": [
 				"$gcc"

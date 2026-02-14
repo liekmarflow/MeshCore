@@ -1,8 +1,5 @@
 #pragma once
 
-//#define FIRMWARE_VERSION      "v1.12.0-MR1.1"
-//#define FIRMWARE_BUILD_DATE   "29 Jan 2026"
-
 #define RADIOLIB_STATIC_ONLY 1
 #include <RadioLib.h>
 #include <helpers/radiolib/RadioLibWrappers.h>

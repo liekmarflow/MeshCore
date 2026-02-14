@@ -484,7 +484,6 @@ uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
 // Uses BQ25798 register 0x3B (BQ25798_REG_VBAT_ADC from Adafruit library)
 ```
 
-**Wichtiger Hinweis:** Der MR-2 nutzt dieselbe BQ25798-Integration wie der MR-1, daher ist der Spannungsmessungs-Code identisch.
 
 **Voltage Thresholds** (Chemistry-Specific, 2-Level System):
 | Chemistry | Hardware UVLO (Alert) | Critical (0% SOC) | Hysteresis | ADC Filter |
@@ -925,7 +924,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ### Phase 1: Compilation ✅
 - **Datum**: 31. Januar 2026
 - **Status**: Erfolgreich
-- **Build**: PlatformIO, Inhero_MR1_repeater environment
+- **Build**: PlatformIO, Inhero_MR2_repeater environment
 - **Exit Code**: 0
 
 ### Phase 2: INA228 Kommunikation (TODO)
@@ -987,7 +986,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 **Problem**: INT pin blieb LOW nach Timer-Flag
 **Root Cause**: `Wire.write(0x00)` überschrieb TIE bit
 **Solution**: Read-Modify-Write, nur TF bit clearen
-**Code**: InheroMr1Board.cpp Zeile 688-703
+**Code**: InheroMr2Board.cpp
 **Fixed**: 31. Januar 2026
 
 ### Issue 3: Vereinfachte Hardware-Architektur

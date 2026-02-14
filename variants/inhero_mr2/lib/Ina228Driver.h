@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * INA228 Power Monitor Driver for Inhero MR-1 v0.2
+ * INA228 Power Monitor Driver for Inhero MR-2 v0.2
  * 
  * Features:
  * - Voltage, current, power monitoring

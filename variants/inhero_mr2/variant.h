@@ -16,10 +16,10 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#ifndef _VARIANT_INHERO_MR1_
-#define _VARIANT_INHERO_MR1_
+#ifndef _VARIANT_INHERO_MR2_
+#define _VARIANT_INHERO_MR2_
 
-#define INHERO_MR1
+#define INHERO_MR2
 
 /** Master clock frequency */
 #define VARIANT_MCK (64000000ul)
@@ -38,7 +38,7 @@ extern "C" {
 #endif // __cplusplus
 
 /*
- * Inhero MR-1 GPIO definitions
+ * Inhero MR-2 GPIO definitions
  */
 static const uint8_t WB_IO1 = 17;      // SLOT_A SLOT_B
 static const uint8_t WB_IO2 = 34;      // SLOT_A SLOT_B
@@ -80,7 +80,7 @@ static const uint8_t WB_SPI_MOSI = 30; // IO_SLOT
 /*
  * Buttons
  */
-// No user buttons on Inhero MR-1
+// No user buttons on Inhero MR-2
 
 /*
  * Analog pins

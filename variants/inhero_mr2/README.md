@@ -4,7 +4,6 @@
 
 - [Übersicht](#übersicht)
 - [Aktuelle Feature-Matrix](#aktuelle-feature-matrix)
-- [Hardware-Unterschiede zu MR-1](#hardware-unterschiede-zu-mr-1)
 - [Energieverwaltungsfunktionen (v0.2)](#energieverwaltungsfunktionen-v02)
 - [Firmware-Build](#firmware-build)
 - [CLI-Befehle](#cli-befehle)
@@ -33,17 +32,6 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
 | Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
-
-## Hardware-Unterschiede zu MR-1
-
-| Funktion | MR-1 (v0.1) | MR-2 (v0.2) |
-|---------|-------------|-------------|
-| Power Monitor | MCP4652 (Analog) | INA228 (Digital, I2C) |
-| UVLO Protection | TP2120 (Hardware only) | INA228 Alert + Software |
-| RTC | Keine | RV-3028-C7 |
-| Coulomb Counter | Nein | Ja (INA228) |
-| Wake-up | Nein | Ja (RTC Timer) |
-| Battery SOC | Voltage-based | Coulomb Counting + Voltage |
 
 ## Energieverwaltungsfunktionen (v0.2)
 
@@ -271,4 +259,3 @@ board.ibcal
 
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
 - [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Veraltet: historisches Auto-Learning-Konzept
-- [../inhero_mr1/README.md](../inhero_mr1/README.md) - Legacy-Hardware v0.1

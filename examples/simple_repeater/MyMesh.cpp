@@ -247,8 +247,8 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     }
     sensors.querySensors(perm_mask, telemetry);
 
-#ifdef INHERO_MR1
-    // MR-1 specific telemetry
+#ifdef INHERO_MR2
+    // MR-2 specific telemetry
     if (perm_mask & TELEM_PERM_ENVIRONMENT) {
       board.queryBoardTelemetry(telemetry);
     }
