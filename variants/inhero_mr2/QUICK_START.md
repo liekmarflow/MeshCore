@@ -97,7 +97,8 @@ Hinweis: `set board.frost` hat bei LTO keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
-- Empfohlen sind typische 12V-Panels mit ca. 18V MPP (Voc meist 20-22V).
+- Typische Panels sind 5V oder 6V (MPP darunter); 12V-Panels sind nicht notwendig.
+- Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung hoehere Akkuspannungen laden.
 - 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
 - Wattklasse: mindestens 1W, typisch 2W.
 - Bei 1W-Panels wird eine Akkukapazitaet von >7Ah empfohlen.
@@ -115,7 +116,7 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 
 ## Verhalten bei Danger-Zone und UVLO
 - **Danger-Zone (Critical / 0% SOC):** Die Firmware geht in den Schutzmodus und plant seltene RTC-Wakes, um die Zelle zu schonen und Selbstentladung zu minimieren.
-- **Unter UVLO-Schwelle:** Die Hardware schaltet hart ab (INA228 Alert -> TPS62840 EN). Das Board bleibt definitiv aus, bis die Spannung wieder sicher ueber der Schwelle liegt. Das ist ein reiner Akkuschutz und kein normaler Sleep-Modus.
+- **Unter UVLO-Schwelle (latched):** Die Hardware schaltet hart ab (INA228 Alert -> TPS62840 EN). Das Board bleibt dann aus und kommt nie wieder von selbst hoch. Das ist ein reiner Akkuschutz und kein normaler Sleep-Modus.
 
 ## CLI-Beispiele (kompakt)
 ```bash
