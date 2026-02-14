@@ -404,9 +404,15 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
     // Balance info (mAh) - rolling windows (no midnight reset)
     float last_24h_net = socStats->last_24h_net_mah;
+    float last_24h_charged = socStats->last_24h_charged_mah;
+    float last_24h_discharged = socStats->last_24h_discharged_mah;
     const char* status = socStats->living_on_battery ? "BAT" : "SOL";
     float avg3d = socStats->avg_3day_daily_net_mah;
+    float avg3d_charged = socStats->avg_3day_daily_charged_mah;
+    float avg3d_discharged = socStats->avg_3day_daily_discharged_mah;
     float avg7d = socStats->avg_7day_daily_net_mah;
+    float avg7d_charged = socStats->avg_7day_daily_charged_mah;
+    float avg7d_discharged = socStats->avg_7day_daily_discharged_mah;
     uint16_t ttl = boardConfig.getTTL_Hours();
 
     // MPPT info
@@ -414,11 +420,13 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
     // Compact format: 24h/3d/7d Status MPPT% [TTL]
     if (ttl > 0) {
-      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh %s M:%.0f%% TTL:%dh", last_24h_net, avg3d, avg7d, status,
-               mppt_pct, ttl);
+      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%% TTL:%dh",
+               last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
+               avg7d_charged, avg7d_discharged, status, mppt_pct, ttl);
     } else {
-      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh %s M:%.0f%%", last_24h_net, avg3d, avg7d, status,
-               mppt_pct);
+      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%%",
+               last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
+               avg7d_charged, avg7d_discharged, status, mppt_pct);
     }
     return true;
   } else if (strcmp(cmd, "cinfo") == 0) {

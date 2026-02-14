@@ -86,8 +86,14 @@ typedef struct {
   
   // Rolling window statistics (calculated from hourly buffer)
   float last_24h_net_mah;        ///< Net balance over last 24 hours
+  float last_24h_charged_mah;    ///< Total charged over last 24 hours
+  float last_24h_discharged_mah; ///< Total discharged over last 24 hours
   float avg_3day_daily_net_mah;  ///< Average daily net over last 3 days (72h)
+  float avg_3day_daily_charged_mah;    ///< Average daily charged over last 3 days
+  float avg_3day_daily_discharged_mah; ///< Average daily discharged over last 3 days
   float avg_7day_daily_net_mah;  ///< Average daily net over last 7 days (168h)
+  float avg_7day_daily_charged_mah;    ///< Average daily charged over last 7 days
+  float avg_7day_daily_discharged_mah; ///< Average daily discharged over last 7 days
   uint16_t ttl_hours;            ///< Time To Live - hours until battery empty (0 = not calculated)
   bool living_on_battery;        ///< True if net deficit over last 24h
 } BatterySOCStats;

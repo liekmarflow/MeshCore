@@ -1999,12 +1999,20 @@ void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize
 void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSize) const {
   // Last 24h net balance (mAh)
   float last_24h_net = socStats.last_24h_net_mah;
+  float last_24h_charged = socStats.last_24h_charged_mah;
+  float last_24h_discharged = socStats.last_24h_discharged_mah;
+  float avg3d_charged = socStats.avg_3day_daily_charged_mah;
+  float avg3d_discharged = socStats.avg_3day_daily_discharged_mah;
   const char* status = socStats.living_on_battery ? "BATTERY" : "SOLAR";
   
-  snprintf(buffer, bufferSize, "24h:%+.1fmAh %s 3dAvg:%+.1fmAh", 
+  snprintf(buffer, bufferSize, "24h:%+.1fmAh C:%.1f D:%.1f %s 3d:%+.1fmAh C:%.1f D:%.1f",
            last_24h_net,
+           last_24h_charged,
+           last_24h_discharged,
            status,
-           socStats.avg_3day_daily_net_mah);
+           socStats.avg_3day_daily_net_mah,
+           avg3d_charged,
+           avg3d_discharged);
 }
 
 /// @brief Get Time To Live in hours
@@ -2442,6 +2450,8 @@ void BoardConfigContainer::calculateRollingStats() {
   
   // Last 24h net: solar - discharged (positive = surplus, negative = deficit)
   socStats.last_24h_net_mah = sum_24h_solar - sum_24h_discharged;
+  socStats.last_24h_charged_mah = sum_24h_charged;
+  socStats.last_24h_discharged_mah = sum_24h_discharged;
   socStats.living_on_battery = (socStats.last_24h_net_mah < 0.0f);
   
   // Calculate 3-day average daily net (72 hours)
@@ -2464,8 +2474,12 @@ void BoardConfigContainer::calculateRollingStats() {
   if (valid_hours_72h >= 24) {  // Need at least 24h of data
     float net_72h = sum_72h_solar - sum_72h_discharged;
     socStats.avg_3day_daily_net_mah = net_72h / 3.0f;  // Divide by 3 days
+    socStats.avg_3day_daily_charged_mah = sum_72h_charged / 3.0f;
+    socStats.avg_3day_daily_discharged_mah = sum_72h_discharged / 3.0f;
   } else {
     socStats.avg_3day_daily_net_mah = 0.0f;
+    socStats.avg_3day_daily_charged_mah = 0.0f;
+    socStats.avg_3day_daily_discharged_mah = 0.0f;
   }
   
   // Calculate 7-day average daily net (168 hours)
@@ -2488,8 +2502,12 @@ void BoardConfigContainer::calculateRollingStats() {
   if (valid_hours_168h >= 24) {  // Need at least 24h of data
     float net_168h = sum_168h_solar - sum_168h_discharged;
     socStats.avg_7day_daily_net_mah = net_168h / 7.0f;  // Divide by 7 days
+    socStats.avg_7day_daily_charged_mah = sum_168h_charged / 7.0f;
+    socStats.avg_7day_daily_discharged_mah = sum_168h_discharged / 7.0f;
   } else {
     socStats.avg_7day_daily_net_mah = 0.0f;
+    socStats.avg_7day_daily_charged_mah = 0.0f;
+    socStats.avg_7day_daily_discharged_mah = 0.0f;
   }
   
   MESH_DEBUG_PRINTLN("SOC: Rolling stats - 24h net: %+.1fmAh, 3d avg: %+.1fmAh/day, 7d avg: %+.1fmAh/day",
