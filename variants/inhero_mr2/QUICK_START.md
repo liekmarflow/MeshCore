@@ -1,0 +1,156 @@
+# Inhero MR2 Quick-Start (v0.2)
+
+Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
+
+## 1) Temperaturfuehler (TS/NTC) vorbereiten
+- Entweder den 3-poligen Akkuanschluss mit TS/NTC nutzen oder die Onboard-NTC-Loetbruecke auf der Rueckseite schliessen.
+- Firmware-NTC-Typ: NCP15XH103F03RC (10k @ 25C, Beta 3380).
+- Zweck: Der Charger nutzt den TS-Pin fuer JEITA/Frost-Logik.
+
+## 2) Antennen anschliessen
+- Nie ohne Antenne betreiben, sonst Gefahr fuer das RF-Frontend.
+
+## 3) Akku anschliessen
+- Ein Ladestand >90% wird empfohlen, damit die SOC-Berechnung stabil startet.
+
+## 4) Repeater per USB konfigurieren
+- Repeater per USB-Kabel mit dem Rechner verbinden.
+- Auf https://flasher.meshcore.co.uk/ -> Repeater-Setup konfigurieren (LoRa-Settings, Name, Admin-Passwort usw.).
+- Dadurch werden die Grundparameter im Geraet gesetzt.
+
+## 5) CLI oeffnen
+- https://flasher.meshcore.co.uk/ -> Console
+- oder MeshCore-App -> Manage -> Command-Line
+- Hier werden die Board-spezifischen Commands gesetzt.
+
+## 6) Akkuchemie setzen
+- Command:
+  - set board.bat liion1s
+  - oder set board.bat lifepo1s
+  - oder set board.bat lto2s
+- Legt Ladeparameter und UVLO-Schwellen fest.
+
+## 7) Akkukapazitaet setzen
+- Command: set board.batcap <mAh>
+- Beispiel: set board.batcap 10000
+- Wichtig fuer korrekte SOC-Berechnung.
+
+## 8) Maximalen Ladestrom setzen
+- Command: set board.imax <mA>
+- Bereich laut Firmware: 10 bis 1000 mA.
+- Begrenzt den Ladestrom fuer schwache USB-Quellen.
+
+## 9) Frost-Ladestromabsenkung einstellen
+- Command: set board.frost <0%|20%|40%|100%>
+- Steuert die JEITA-Reduktion bei Kaelte.
+- Hinweis: Bei LTO ist JEITA deaktiviert (Frost ohne Wirkung).
+
+## 10) MPPT aktivieren
+- Command: set board.mppt <0|1>
+- 1 = MPPT an, 0 = MPPT aus.
+- Fuer Solar-Eingang typischerweise aktivieren.
+
+## 11) UVLO latched aktivieren/deaktivieren
+- Command: set board.uvlo <0|1|true|false>
+- 1/true = aktiv, 0/false = deaktiviert.
+- Die Einstellung ist persistent und nutzt chemie-spezifische Schwellen.
+
+## 12) LEDs aktivieren/deaktivieren
+- Command: set board.leds <on|off> oder set board.leds <1|0>
+- Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
+
+## 13) Akku voll laden (SOC-Sync)
+- Den Akku einmal komplett ueber USB aufladen, damit der SOC sauber synchronisiert.
+
+## Zusatzhinweise (Praxis)
+- Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `board.bat`, ob die Einstellung gespeichert wurde.
+- Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
+- Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `board.togglehiz` fuer eine manuelle Neuqualifikation.
+- Bei falschen Stromwerten kann `set board.ibcal <mA>` die INA228-Strommessung kalibrieren.
+- `board.uvlo` zeigt, ob UVLO latched aktiv ist; fuer Feldtests ist oft DISABLED gesetzt.
+
+## Beispielwerte je Akkuchemie (Startpunkt)
+Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
+
+### Li-Ion 1S (3.7V nominal)
+```bash
+set board.bat liion1s
+set board.imax 500
+set board.frost 20%
+```
+
+### LiFePO4 1S (3.2V nominal)
+```bash
+set board.bat lifepo1s
+set board.imax 300
+set board.frost 40%
+```
+
+### LTO 2S (2x 2.3V nominal)
+```bash
+set board.bat lto2s
+set board.imax 700
+set board.frost 0%
+```
+
+Hinweis: `set board.frost` hat bei LTO keine Wirkung (JEITA deaktiviert).
+
+## Solarpanel-Hinweise
+- Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
+- Empfohlen sind typische 12V-Panels mit ca. 18V MPP (Voc meist 20-22V).
+- 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
+- Wattklasse: mindestens 1W, typisch 2W.
+- Bei 1W-Panels wird eine Akkukapazitaet von >7Ah empfohlen.
+- Gilt nur bei Suedausrichtung, vertikaler Montage und unverschattetem Standort.
+- Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazitaet fuer "Winterueberleben" erhoehen.
+
+## CLI-Beispiele (kompakt)
+```bash
+# Akkuchemie und Kapazitaet
+set board.bat liion1s
+set board.batcap 10000
+
+# Ladeparameter
+set board.imax 500
+set board.frost 20%
+set board.mppt 1
+
+# UVLO und LEDs
+set board.uvlo 1
+set board.leds off
+
+# Statuschecks
+board.bat
+board.imax
+board.frost
+board.mppt
+board.uvlo
+board.leds
+board.soc
+board.telem
+board.stats
+board.balance
+board.cinfo
+board.diag
+board.conf
+```
+
+## Getter-Kurzinfos (alle relevanten Board-Getter)
+- `board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
+- `board.hwver` - Hardware-Version (MR2 immer v0.2).
+- `board.frost` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
+- `board.imax` - Maximaler Ladestrom in mA.
+- `board.mppt` - MPPT-Status (0/1).
+- `board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
+- `board.leds` - LED-Status (Heartbeat + BQ-Stat).
+- `board.soc` - State of Charge in Prozent.
+- `board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
+- `board.stats` - Energie-Bilanz (24h/3d/7d) und MPPT-Anteil.
+- `board.balance` - Tagesbilanz und 3d-Avg, ggf. TTL in Stunden.
+- `board.cinfo` - Ladegeraet-Status (Charger State + Flags).
+- `board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
+- `board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
+- `board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
+- `board.ibcal` - INA228-Kalibrierfaktor (1.0 = default).
+- `board.learning` - Auto-Learning-Status (derzeit veraltet, aber abfragbar).
+- `board.relearn` - Auto-Learning-Flag reset (nur falls wieder aktiviert).
