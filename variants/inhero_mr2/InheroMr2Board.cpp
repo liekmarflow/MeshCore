@@ -317,6 +317,7 @@ bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
   uint8_t solarChannel = batteryChannel + 1;
 
   const BatterySOCStats* socStats = boardConfig.getSOCStats();
+  bool hasValidSoc = (socStats && socStats->soc_valid);
   float socPercent = boardConfig.getStateOfCharge();
   // Requested precision: one decimal place
   socPercent = roundf(socPercent * 10.0f) / 10.0f;
@@ -327,9 +328,11 @@ bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
 
   // Battery channel
   // Field order:
-  // 1) VBAT[V], 2) SOC[%], 3) IBAT[A], 4) TBAT[°C], 5) TTL[d] (optional)
+  // 1) VBAT[V], 2) SOC[%] (optional), 3) IBAT[A], 4) TBAT[°C], 5) TTL[d] (optional)
   telemetry.addVoltage(batteryChannel, telemetryData->batterie.voltage / 1000.0f);
-  telemetry.addPercentage(batteryChannel, socPercent);
+  if (hasValidSoc) {
+    telemetry.addPercentage(batteryChannel, socPercent);
+  }
   telemetry.addCurrent(batteryChannel, telemetryData->batterie.current / 1000.0f);
   telemetry.addTemperature(batteryChannel, telemetryData->batterie.temperature);
 
