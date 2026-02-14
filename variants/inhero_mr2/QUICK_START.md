@@ -113,6 +113,10 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 | LiFePO4 1S | 2.7V | 2.9V | +0.2V |
 | LTO 2S | 3.9V | 4.2V | +0.3V |
 
+## Verhalten bei Danger-Zone und UVLO
+- **Danger-Zone (Critical / 0% SOC):** Die Firmware geht in den Schutzmodus und plant seltene RTC-Wakes, um die Zelle zu schonen und Selbstentladung zu minimieren.
+- **Unter UVLO-Schwelle:** Die Hardware schaltet hart ab (INA228 Alert -> TPS62840 EN). Das Board bleibt definitiv aus, bis die Spannung wieder sicher ueber der Schwelle liegt. Das ist ein reiner Akkuschutz und kein normaler Sleep-Modus.
+
 ## CLI-Beispiele (kompakt)
 ```bash
 # Akkuchemie und Kapazitaet
