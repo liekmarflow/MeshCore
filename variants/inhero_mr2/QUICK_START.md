@@ -104,6 +104,15 @@ Hinweis: `set board.frost` hat bei LTO keine Wirkung (JEITA deaktiviert).
 - Gilt nur bei Suedausrichtung, vertikaler Montage und unverschattetem Standort.
 - Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazitaet fuer "Winterueberleben" erhoehen.
 
+## Spannungsschwellen je Akkuchemie
+Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
+
+| Akkuchemie | Hardware-UVLO (Alert) | Kritisch (0% SOC) | Hysterese |
+|---|---|---|---|
+| Li-Ion 1S | 3.1V | 3.4V | +0.3V |
+| LiFePO4 1S | 2.7V | 2.9V | +0.2V |
+| LTO 2S | 3.9V | 4.2V | +0.3V |
+
 ## CLI-Beispiele (kompakt)
 ```bash
 # Akkuchemie und Kapazitaet
