@@ -810,36 +810,18 @@ void InheroMr2Board::rtcInterruptHandler() {
 
 // ===== Helper Functions =====
 
-/// @brief Find next available channel number in CayenneLPP packet
-/// @param lpp CayenneLPP packet to analyze
-/// @return Next free channel number (starts at 200 if no channels used yet)
-/// @note This method parses the LPP buffer to find the highest channel number in use,
-///       then returns the next available channel. Used by queryBoardTelemetry() to
-///       append board-specific telemetry without channel conflicts.
-uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
-  uint8_t max_channel = 0;
-  uint8_t cursor = 0;
-  uint8_t* buffer = lpp.getBuffer();
-  uint8_t size = lpp.getSize();
-
-  while (cursor < size) {
-    if (cursor + 1 >= size) break;
-
-    uint8_t channel = buffer[cursor];
-    if (channel > max_channel) max_channel = channel;
-
-    uint8_t type = buffer[cursor + 1];
-    uint8_t data_len = 0;
-
-    switch (type) {
+/// @brief Helper function to get LPP data length for a given type
+/// @param type LPP data type
+/// @return Data length in bytes, or 0 if unknown type
+static uint8_t getLPPDataLength(uint8_t type) {
+  switch (type) {
     case LPP_DIGITAL_INPUT:
     case LPP_DIGITAL_OUTPUT:
     case LPP_PRESENCE:
     case LPP_RELATIVE_HUMIDITY:
     case LPP_PERCENTAGE:
     case LPP_SWITCH:
-      data_len = 1;
-      break;
+      return 1;
 
     case LPP_ANALOG_INPUT:
     case LPP_ANALOG_OUTPUT:
@@ -852,35 +834,64 @@ uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
     case LPP_POWER:
     case LPP_DIRECTION:
     case LPP_CONCENTRATION:
-      data_len = 2;
-      break;
+      return 2;
 
     case LPP_COLOUR:
-      data_len = 3;
-      break;
+      return 3;
 
+    case LPP_GENERIC_SENSOR:
     case LPP_FREQUENCY:
     case LPP_DISTANCE:
     case LPP_ENERGY:
     case LPP_UNIXTIME:
-      data_len = 4;
-      break;
+      return 4;
 
     case LPP_ACCELEROMETER:
     case LPP_GYROMETER:
-      data_len = 6;
-      break;
+      return 6;
 
     case LPP_GPS:
-      data_len = 9;
-      break;
+      return 9;
+
+    case LPP_POLYLINE:
+      return 8;  // minimum size
 
     default:
-      return (max_channel < 200) ? 200 : max_channel + 1;
-    }
+      return 0;  // Unknown type
+  }
+}
 
-    cursor += (2 + data_len);
+/// @brief Find next available channel number in CayenneLPP packet
+/// @param lpp CayenneLPP packet to analyze
+/// @return Next free channel number (highest used channel + 1)
+/// @note This method parses the LPP buffer to find the highest channel number in use,
+///       then returns the next available channel. Used by queryBoardTelemetry() to
+///       append board-specific telemetry without channel conflicts.
+uint8_t InheroMr2Board::findNextFreeChannel(CayenneLPP& lpp) {
+  uint8_t max_channel = 0;
+  uint8_t cursor = 0;
+  uint8_t* buffer = lpp.getBuffer();
+  uint8_t size = lpp.getSize();
+
+  while (cursor < size) {
+    // Need at least 2 bytes: channel + type
+    if (cursor + 1 >= size) break;
+
+    uint8_t channel = buffer[cursor];
+    uint8_t type = buffer[cursor + 1];
+    uint8_t data_len = getLPPDataLength(type);
+
+    // Unknown type - can't determine length, stop parsing
+    if (data_len == 0) break;
+
+    // Update max channel
+    if (channel > max_channel) max_channel = channel;
+
+    // Move to next entry
+    cursor += 2 + data_len;
   }
 
-  return (max_channel < 200) ? 200 : max_channel + 1;
+  // Return next channel after the highest parsed one.
+  // If packet is empty, start at channel 1.
+  return max_channel + 1;
 }
