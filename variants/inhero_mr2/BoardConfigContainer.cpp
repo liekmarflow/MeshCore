@@ -42,7 +42,7 @@
 #endif
 
 #define RTC_SLEEP_SECONDS  (6 * 60 * 60)   // h * m * s
-//#define RTC_SLEEP_SECONDS  (2 * 60)   //  m * s 2 min for testing
+//#define RTC_SLEEP_SECONDS  (1 * 60)   //  m * s 1 min for testing
 
 // rtc_clock is defined in target.cpp
 extern GuardedRTCClock rtc_clock;
