@@ -37,6 +37,9 @@
 #include <nrf_wdt.h>
 #include <nrf_soc.h>  // For sd_power_system_off() and NRF_POWER
 
+#define RTC_SLEEP_SECONDS  (6 * 60 * 60)   // h * m * s
+//#define RTC_SLEEP_SECONDS  (2 * 60)   //  m * s 2 min for testing
+
 // rtc_clock is defined in target.cpp
 extern GuardedRTCClock rtc_clock;
 
@@ -46,13 +49,8 @@ namespace {
     return ((mesh::RTCClock&)rtc_clock).getCurrentTime();
   }
 
-  uint16_t getRtcExpectedCountdownSeconds();
   bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds);
   void configureRtcPeriodicWake(uint16_t seconds);
-
-  uint16_t getRtcExpectedCountdownSeconds() {
-    return 21600;  // 6 hours
-  }
 
   bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds) {
     Wire.beginTransmission(RTC_I2C_ADDR);
@@ -233,10 +231,9 @@ void BoardConfigContainer::runVoltageMonitor() {
 
   if (now_ms < next_check_ms) {
     if (now_ms >= next_rtc_check_ms) {
-      uint16_t expected_seconds = getRtcExpectedCountdownSeconds();
-      if (!isRtcPeriodicWakeConfigured(expected_seconds)) {
-        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", expected_seconds);
-        configureRtcPeriodicWake(expected_seconds);
+      if (!isRtcPeriodicWakeConfigured(RTC_SLEEP_SECONDS)) {
+        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", RTC_SLEEP_SECONDS);
+        configureRtcPeriodicWake(RTC_SLEEP_SECONDS);
       }
       next_rtc_check_ms = now_ms + (60UL * 1000UL);
     }
@@ -244,10 +241,9 @@ void BoardConfigContainer::runVoltageMonitor() {
   }
 
   if (now_ms >= next_rtc_check_ms) {
-    uint16_t expected_seconds = getRtcExpectedCountdownSeconds();
-    if (!isRtcPeriodicWakeConfigured(expected_seconds)) {
-      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", expected_seconds);
-      configureRtcPeriodicWake(expected_seconds);
+    if (!isRtcPeriodicWakeConfigured(RTC_SLEEP_SECONDS)) {
+      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", RTC_SLEEP_SECONDS);
+      configureRtcPeriodicWake(RTC_SLEEP_SECONDS);
     }
     next_rtc_check_ms = now_ms + (60UL * 1000UL);
   }
@@ -300,7 +296,7 @@ void BoardConfigContainer::runVoltageMonitor() {
       Wire.write(0x00);
       rtc_result3 = Wire.endTransmission();
 
-  uint16_t countdown = 360;  // 6 hours @ 1/60 Hz (ticks are minutes)
+  uint16_t countdown = (RTC_SLEEP_SECONDS + 59U) / 60U;  // convert seconds to minutes (1/60 Hz ticks)
   Wire.beginTransmission(0x52);
   Wire.write(0x0A);
   Wire.write(countdown & 0xFF);
@@ -312,7 +308,7 @@ void BoardConfigContainer::runVoltageMonitor() {
   Wire.write(0x07);  // 1/60 Hz, single shot
   rtc_result5 = Wire.endTransmission();
 
-  MESH_DEBUG_PRINTLN("RTC: Wake-up in 6 hours");
+  MESH_DEBUG_PRINTLN("RTC: Wake-up in %u minutes (%us)", countdown, RTC_SLEEP_SECONDS);
 
       Wire.beginTransmission(0x52);
       Wire.write(0x10);
