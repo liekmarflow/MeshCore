@@ -36,9 +36,13 @@
 
 #define R_PULLUP    5600.0f  ///< Upper resistor RT1 in Ohms
 #define R_PARALLEL  27000.0f ///< Lower parallel resistor RT2 in Ohms
-#define R_NTC_25    10000.0f ///< NTC nominal value at 25°C in Ohms
-#define BETA_VAL    3380.0f  ///< Beta value of NCP15XH103F03RC NTC
-#define T_25_KELVIN 298.15f  ///< 25°C in Kelvin (273.15 + 25)
+
+// Steinhart-Hart coefficients for NCP15XH103F03RC NTC (10kΩ, B=3380)
+// Fitted from Murata datasheet R-T table at -20°C, 25°C, 85°C
+// Max error vs. datasheet: ±0.36°C over -40..+125°C range
+#define SH_A  8.7248136876e-04f  ///< Steinhart-Hart coefficient A
+#define SH_B  2.5405556775e-04f  ///< Steinhart-Hart coefficient B
+#define SH_C  1.8122847672e-07f  ///< Steinhart-Hart coefficient C
 #define IBUS_ADC_OFFSET_MA 27    ///< ADC calibration offset for solar current in mA
 
 /// Solar input telemetry data

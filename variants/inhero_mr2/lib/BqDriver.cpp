@@ -170,20 +170,11 @@ const Telemetry* const BqDriver::getTelemetryData() {
   return &telemetryData;
 }
 
-// Temperature correction lookup table (Beta error compensation)
-// Calibrated from actual measurements with BME280 reference
-// Format: {Beta_calculated_temp, offset_to_apply}
-static const float TEMP_CORRECTION[][2] = {
-  {-30.0f, -7.0f},  // Extrapolated for extreme cold
-  {-15.0f, -6.6f},  // At -18.3°C real: measured -17.5, need -0.8 more
-  {5.0f,   -3.6f},  // At 1.4°C real: worked well before
-  {17.0f,  -2.8f},  // At 18.5°C real: measured 17.1, need +1.4 less negative
-  {25.0f,  -2.5f},  // Nominal, offset reduces
-  {50.0f,  -2.0f}   // Extrapolated for warm temps
-};
-
 /**
- * Calculates battery temperature in °C
+ * Calculates battery temperature in °C using Steinhart-Hart equation.
+ * Uses coefficients derived from Murata NCP15XH103F03RC datasheet R-T table.
+ * Max error vs. datasheet: ±0.36°C over -40..+125°C range.
+ *
  * Per BQ25798 datasheet Figure 9-12: REGN → RT1 → TS → (RT2||NTC) → GND
  * @param ts_pct Voltage at TS pin in percentage of REGN (e.g., 70.5 for 70.5%)
  *               Special values: -1.0 = I2C error, -2.0 = ADC not ready/invalid
@@ -224,41 +215,12 @@ float BqDriver::calculateBatteryTemp(float ts_pct) {
 
   float r_ntc = 1.0f / (g_total - g_rt2);
 
-  // Apply Beta equation: R = R0 × exp(B × (1/T - 1/T0))
-  // Inverted: 1/T = 1/T0 + (1/B) × ln(R/R0)
-  float inv_T = (1.0f / T_25_KELVIN) + (1.0f / BETA_VAL) * logf(r_ntc / R_NTC_25);
+  // Apply Steinhart-Hart equation: 1/T = A + B·ln(R) + C·(ln(R))³
+  float ln_r = logf(r_ntc);
+  float inv_T = SH_A + SH_B * ln_r + SH_C * ln_r * ln_r * ln_r;
 
   // Convert Kelvin to Celsius
-  float temp_c = (1.0f / inv_T) - 273.15f;
-  
-  // Apply temperature-dependent offset correction using linear interpolation
-  // Compensates for Beta equation non-linearity
-  float offset = -4.0f;  // Default
-  
-  const int table_size = sizeof(TEMP_CORRECTION) / sizeof(TEMP_CORRECTION[0]);
-  
-  if (temp_c <= TEMP_CORRECTION[0][0]) {
-    offset = TEMP_CORRECTION[0][1];  // Below lowest temp
-  } else if (temp_c >= TEMP_CORRECTION[table_size-1][0]) {
-    offset = TEMP_CORRECTION[table_size-1][1];  // Above highest temp
-  } else {
-    // Linear interpolation between table points
-    for (int i = 0; i < table_size - 1; i++) {
-      if (temp_c >= TEMP_CORRECTION[i][0] && temp_c <= TEMP_CORRECTION[i+1][0]) {
-        float t1 = TEMP_CORRECTION[i][0];
-        float t2 = TEMP_CORRECTION[i+1][0];
-        float o1 = TEMP_CORRECTION[i][1];
-        float o2 = TEMP_CORRECTION[i+1][1];
-        float ratio = (temp_c - t1) / (t2 - t1);
-        offset = o1 + ratio * (o2 - o1);
-        break;
-      }
-    }
-  }
-  
-  temp_c += offset;
-
-  return temp_c;
+  return (1.0f / inv_T) - 273.15f;
 }
 
 // Getter/Setter for NTC Control 0 (0x17)
