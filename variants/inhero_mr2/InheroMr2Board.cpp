@@ -681,9 +681,17 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Calibration failed (zero current?)");
     }
     return ret;
-  } else if (strncmp(setCommand, "tccal ", 6) == 0) {
-    // NTC temperature calibration: set board.tccal <bme_temp_C> or set board.tccal reset
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+  } else if (strncmp(setCommand, "tccal", 5) == 0) {
+    // NTC temperature calibration:
+    //   set board.tccal          → auto-read BME280 as reference
+    //   set board.tccal <temp_C>  → manual reference value
+    //   set board.tccal reset     → reset to 0.00
+    const char* rest = &setCommand[5];
+
+    // Skip optional space
+    if (*rest == ' ') rest++;
+
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(rest));
 
     // Check for reset command
     if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
@@ -695,21 +703,33 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       return ret;
     }
 
-    float actual_temp_c = atof(value);
+    float new_offset;
 
-    // Validate reasonable temperature range (-40 to +85 °C)
-    if (actual_temp_c < -40.0f || actual_temp_c > 85.0f) {
-      snprintf(ret, sizeof(ret), "Err: Temp out of range (-40 to +85 C)");
-      return ret;
-    }
-
-    // Perform calibration: read NTC, compute offset, store
-    float new_offset = boardConfig.performTcCalibration(actual_temp_c);
-
-    if (new_offset > -900.0f) {
-      snprintf(ret, sizeof(ret), "TC calibrated: offset=%+.2f C", new_offset);
+    if (value[0] == '\0') {
+      // No argument: auto-read BME280 as reference (averages 5 samples each)
+      float bme_avg = 0.0f;
+      new_offset = boardConfig.performTcCalibration(&bme_avg);
+      if (new_offset > -900.0f) {
+        snprintf(ret, sizeof(ret), "TC auto-cal: BME=%.1f offset=%+.2f C", bme_avg, new_offset);
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Auto-cal failed (BME280/NTC error?)");
+      }
     } else {
-      snprintf(ret, sizeof(ret), "Err: TC calibration failed (NTC read error?)");
+      // Manual reference value provided
+      float actual_temp_c = atof(value);
+
+      // Validate reasonable temperature range (-40 to +85 °C)
+      if (actual_temp_c < -40.0f || actual_temp_c > 85.0f) {
+        snprintf(ret, sizeof(ret), "Err: Temp out of range (-40 to +85 C)");
+        return ret;
+      }
+
+      new_offset = boardConfig.performTcCalibration(actual_temp_c);
+      if (new_offset > -900.0f) {
+        snprintf(ret, sizeof(ret), "TC calibrated: offset=%+.2f C", new_offset);
+      } else {
+        snprintf(ret, sizeof(ret), "Err: TC calibration failed (NTC read error?)");
+      }
     }
     return ret;
   } else if (strcmp(setCommand, "bqreset") == 0) {

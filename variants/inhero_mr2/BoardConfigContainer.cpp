@@ -37,6 +37,10 @@
 #include <nrf_wdt.h>
 #include <nrf_soc.h>  // For sd_power_system_off() and NRF_POWER
 
+#if ENV_INCLUDE_BME280
+#include <Adafruit_BME280.h>
+#endif
+
 #define RTC_SLEEP_SECONDS  (6 * 60 * 60)   // h * m * s
 //#define RTC_SLEEP_SECONDS  (2 * 60)   //  m * s 2 min for testing
 
@@ -2281,7 +2285,7 @@ float BoardConfigContainer::getTcCalOffset() const {
 }
 
 /// @brief Perform NTC temperature calibration using a reference temperature
-/// Reads current raw NTC temperature, computes offset = reference - raw, stores it.
+/// Averages 5 NTC readings to reduce ADC noise, computes offset = reference - avg, stores it.
 /// @param actual_temp_c Reference temperature in °C (e.g. from BME280)
 /// @return Computed offset in °C, or -999.0 on error
 float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
@@ -2289,29 +2293,43 @@ float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
     return -999.0f;
   }
   
-  // Temporarily remove any existing offset to get raw NTC reading
+  // Temporarily remove any existing offset to get raw NTC readings
   float old_offset = tcCalOffset;
   tcCalOffset = 0.0f;
   
-  // Read current raw NTC temperature from BQ25798
-  const Telemetry* bqData = bqDriverInstance->getTelemetryData();
-  if (!bqData) {
+  // Average multiple NTC readings to reduce ADC noise
+  const int NUM_SAMPLES = 5;
+  const int SAMPLE_DELAY_MS = 200;
+  float ntc_sum = 0.0f;
+  int valid_count = 0;
+  
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    if (i > 0) delay(SAMPLE_DELAY_MS);
+    
+    const Telemetry* bqData = bqDriverInstance->getTelemetryData();
+    if (!bqData) continue;
+    
+    float raw = bqData->batterie.temperature;
+    // Skip error codes
+    if (raw <= -800.0f || raw >= 98.0f) continue;
+    
+    ntc_sum += raw;
+    valid_count++;
+  }
+  
+  if (valid_count < 3) {
     tcCalOffset = old_offset;  // Restore old offset
+    MESH_DEBUG_PRINTLN("TC Cal: Only %d/%d valid NTC readings", valid_count, NUM_SAMPLES);
     return -999.0f;
   }
   
-  float raw_ntc_temp = bqData->batterie.temperature;
-  
-  // Check for error codes from calculateBatteryTemp
-  if (raw_ntc_temp <= -800.0f || raw_ntc_temp >= 98.0f) {
-    tcCalOffset = old_offset;  // Restore old offset
-    return -999.0f;  // NTC read error
-  }
+  float raw_ntc_avg = ntc_sum / valid_count;
   
   // Compute offset: calibrated = raw + offset  →  offset = reference - raw
-  float new_offset = actual_temp_c - raw_ntc_temp;
+  float new_offset = actual_temp_c - raw_ntc_avg;
   
-  MESH_DEBUG_PRINTLN("TC Cal: BME=%.2f NTC_raw=%.2f offset=%.2f", actual_temp_c, raw_ntc_temp, new_offset);
+  MESH_DEBUG_PRINTLN("TC Cal: ref=%.2f NTC_avg=%.2f (%d samples) offset=%.2f", 
+                     actual_temp_c, raw_ntc_avg, valid_count, new_offset);
   
   // Store persistently
   if (!setTcCalOffset(new_offset)) {
@@ -2320,6 +2338,68 @@ float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
   }
   
   return new_offset;
+}
+
+/// @brief Perform NTC temperature calibration using on-board BME280 as reference
+/// Averages 5 BME280 readings, then delegates to performTcCalibration(float).
+/// @param bme_temp_out Optional: receives the averaged BME temperature used for calibration
+/// @return Computed offset in °C, or -999.0 on error
+float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
+  // Average multiple BME280 readings to reduce noise
+  const int NUM_SAMPLES = 5;
+  const int SAMPLE_DELAY_MS = 200;
+  float bme_sum = 0.0f;
+  int valid_count = 0;
+  
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    float t = readBmeTemperature();
+    if (t <= -900.0f) continue;
+    bme_sum += t;
+    valid_count++;
+    if (i < NUM_SAMPLES - 1) delay(SAMPLE_DELAY_MS);
+  }
+  
+  if (valid_count < 3) {
+    MESH_DEBUG_PRINTLN("TC Cal: Only %d/%d valid BME readings", valid_count, NUM_SAMPLES);
+    return -999.0f;
+  }
+  
+  float bme_avg = bme_sum / valid_count;
+  MESH_DEBUG_PRINTLN("TC Cal: BME avg=%.2f (%d samples)", bme_avg, valid_count);
+  
+  if (bme_temp_out) {
+    *bme_temp_out = bme_avg;
+  }
+  
+  return performTcCalibration(bme_avg);
+}
+
+/// @brief Read BME280 temperature directly via I2C (temporary instance, no core code changes)
+/// @return Temperature in °C, or -999.0 if BME280 not available
+float BoardConfigContainer::readBmeTemperature() {
+#if ENV_INCLUDE_BME280
+  Adafruit_BME280 bme;
+  if (!bme.begin(0x76, &Wire)) {
+    MESH_DEBUG_PRINTLN("TC Cal: BME280 not found at 0x76");
+    return -999.0f;
+  }
+  bme.setSampling(Adafruit_BME280::MODE_FORCED,
+                  Adafruit_BME280::SAMPLING_X1,
+                  Adafruit_BME280::SAMPLING_X1,
+                  Adafruit_BME280::SAMPLING_X1,
+                  Adafruit_BME280::FILTER_OFF,
+                  Adafruit_BME280::STANDBY_MS_1000);
+  if (!bme.takeForcedMeasurement()) {
+    MESH_DEBUG_PRINTLN("TC Cal: BME280 forced measurement failed");
+    return -999.0f;
+  }
+  float temp = bme.readTemperature();
+  MESH_DEBUG_PRINTLN("TC Cal: BME280 reads %.2f C", temp);
+  return temp;
+#else
+  MESH_DEBUG_PRINTLN("TC Cal: BME280 not compiled in (ENV_INCLUDE_BME280=0)");
+  return -999.0f;
+#endif
 }
 
 /// @brief Load UVLO enabled setting from preferences

@@ -257,7 +257,9 @@ public:
   // NTC Temperature Calibration methods
   bool setTcCalOffset(float offset_c);           ///< Store temperature calibration offset in °C (persistent)
   float getTcCalOffset() const;                  ///< Get current temperature calibration offset
-  float performTcCalibration(float actual_temp_c); ///< Calibrate NTC using reference temp, returns stored offset
+  float performTcCalibration(float actual_temp_c); ///< Calibrate NTC using manual reference temp
+  float performTcCalibration(float* bme_temp_out = nullptr); ///< Calibrate NTC using BME280 as auto-reference
+  static float readBmeTemperature();               ///< Read BME280 temperature directly via I2C
   
   // INA228 UVLO methods (v0.2)
   bool setUvloEnabled(bool enabled);  ///< Enable/disable INA228 UVLO alert (persistent)
