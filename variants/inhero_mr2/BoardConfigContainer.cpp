@@ -897,7 +897,19 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  snprintf(buffer, bufferSize, "%s / %s", powerGood, statusString);
+  // Show time since last automatic HIZ toggle (from checkAndFixPgoodStuck)
+  if (lastHizToggleTime == 0) {
+    snprintf(buffer, bufferSize, "%s / %s HIZ:never", powerGood, statusString);
+  } else {
+    uint32_t agoSec = (millis() - lastHizToggleTime) / 1000;
+    if (agoSec < 60) {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%ds ago", powerGood, statusString, agoSec);
+    } else if (agoSec < 3600) {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dm ago", powerGood, statusString, agoSec / 60);
+    } else {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dh%dm ago", powerGood, statusString, agoSec / 3600, (agoSec % 3600) / 60);
+    }
+  }
 }
 
 /// @brief Manual HIZ toggle with status report for debugging stuck PGOOD
@@ -935,6 +947,11 @@ void BoardConfigContainer::toggleHizAndCheck(char* buffer, uint32_t bufferSize) 
   // Check if toggle was successful
   bool success = (hizBefore != hizAfter);
   const char* result = success ? (powerGood ? "OK" : "!PG") : "FAIL";
+
+  // Update HIZ toggle timestamp so board.cinfo reflects manual toggles too
+  if (success) {
+    lastHizToggleTime = millis();
+  }
 
   snprintf(buffer, bufferSize, "HIZ toggled: VBUS=%.1fV PG=%s", vbusVoltage / 1000.0f, result);
 }
