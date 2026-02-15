@@ -157,6 +157,7 @@ TaskHandle_t BoardConfigContainer::socUpdateTaskHandle = NULL;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
+float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -1230,6 +1231,15 @@ bool BoardConfigContainer::begin() {
     BQ_INITIALIZED = false;
   }
   
+  // Load NTC temperature calibration offset (applies to all BQ temperature readings)
+  float tc_offset = 0.0f;
+  if (loadTcCalOffset(tc_offset)) {
+    tcCalOffset = tc_offset;
+    MESH_DEBUG_PRINTLN("TC calibration offset loaded: %+.2f C", tc_offset);
+  } else {
+    MESH_DEBUG_PRINTLN("TC using default calibration (0.0)");
+  }
+  
   // === RV-3028 RTC Initialization (v0.2) ===
   bool rtc_initialized = false;
   Wire.beginTransmission(0x52);  // RV-3028 I2C address
@@ -1519,10 +1529,10 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
     return &telemetry;
   }
 
-  // Copy BQ25798 data (solar, system, temperature)
+  // Copy BQ25798 data (solar, system, temperature with calibration offset)
   telemetry.solar = bqData->solar;
   telemetry.system = bqData->system;
-  telemetry.batterie.temperature = bqData->batterie.temperature;
+  telemetry.batterie.temperature = bqData->batterie.temperature + tcCalOffset;
 
   telemetry.batterie.voltage = batt_voltage;
   telemetry.batterie.current = batt_current;
@@ -2210,6 +2220,106 @@ float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
 /// @return Pointer to INA228 driver or nullptr if not initialized
 Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
+}
+
+// ===== NTC Temperature Calibration =====
+
+/// @brief Load NTC temperature calibration offset from preferences
+/// @param offset Output parameter (°C)
+/// @return true if loaded successfully, false if using default (0.0)
+bool BoardConfigContainer::loadTcCalOffset(float& offset) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  if (prefs.getString(TCCAL_KEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      offset = atof(buffer);
+      
+      // Validate offset is in reasonable range (±20°C)
+      if (offset >= -20.0f && offset <= 20.0f) {
+        return true;
+      }
+    }
+  }
+  
+  // Default: no offset
+  offset = 0.0f;
+  return false;
+}
+
+/// @brief Set NTC temperature calibration offset and save to preferences
+/// @param offset_c Calibration offset in °C (-20 to +20)
+/// @return true if saved successfully
+bool BoardConfigContainer::setTcCalOffset(float offset_c) {
+  // Clamp to reasonable range
+  if (offset_c < -20.0f) offset_c = -20.0f;
+  if (offset_c > 20.0f) offset_c = 20.0f;
+  
+  // Apply to runtime variable
+  tcCalOffset = offset_c;
+  
+  // Save to preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "%.2f", offset_c);
+  
+  if (prefs.putString(TCCAL_KEY, buffer)) {
+    MESH_DEBUG_PRINTLN("TC calibration offset saved: %.2f °C", offset_c);
+    return true;
+  }
+  
+  return false;
+}
+
+/// @brief Get current NTC temperature calibration offset
+/// @return Current offset in °C (0.0 = no calibration)
+float BoardConfigContainer::getTcCalOffset() const {
+  return tcCalOffset;
+}
+
+/// @brief Perform NTC temperature calibration using a reference temperature
+/// Reads current raw NTC temperature, computes offset = reference - raw, stores it.
+/// @param actual_temp_c Reference temperature in °C (e.g. from BME280)
+/// @return Computed offset in °C, or -999.0 on error
+float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
+  if (!bqDriverInstance) {
+    return -999.0f;
+  }
+  
+  // Temporarily remove any existing offset to get raw NTC reading
+  float old_offset = tcCalOffset;
+  tcCalOffset = 0.0f;
+  
+  // Read current raw NTC temperature from BQ25798
+  const Telemetry* bqData = bqDriverInstance->getTelemetryData();
+  if (!bqData) {
+    tcCalOffset = old_offset;  // Restore old offset
+    return -999.0f;
+  }
+  
+  float raw_ntc_temp = bqData->batterie.temperature;
+  
+  // Check for error codes from calculateBatteryTemp
+  if (raw_ntc_temp <= -800.0f || raw_ntc_temp >= 98.0f) {
+    tcCalOffset = old_offset;  // Restore old offset
+    return -999.0f;  // NTC read error
+  }
+  
+  // Compute offset: calibrated = raw + offset  →  offset = reference - raw
+  float new_offset = actual_temp_c - raw_ntc_temp;
+  
+  MESH_DEBUG_PRINTLN("TC Cal: BME=%.2f NTC_raw=%.2f offset=%.2f", actual_temp_c, raw_ntc_temp, new_offset);
+  
+  // Store persistently
+  if (!setTcCalOffset(new_offset)) {
+    tcCalOffset = old_offset;  // Restore on failure
+    return -999.0f;
+  }
+  
+  return new_offset;
 }
 
 /// @brief Load UVLO enabled setting from preferences

@@ -254,6 +254,11 @@ public:
   float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
   
+  // NTC Temperature Calibration methods
+  bool setTcCalOffset(float offset_c);           ///< Store temperature calibration offset in °C (persistent)
+  float getTcCalOffset() const;                  ///< Get current temperature calibration offset
+  float performTcCalibration(float actual_temp_c); ///< Calibrate NTC using reference temp, returns stored offset
+  
   // INA228 UVLO methods (v0.2)
   bool setUvloEnabled(bool enabled);  ///< Enable/disable INA228 UVLO alert (persistent)
   bool getUvloEnabled() const;        ///< Get current UVLO enable state
@@ -286,6 +291,7 @@ private:
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
+  static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
 
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
@@ -299,6 +305,7 @@ private:
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
   static constexpr const char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
   static constexpr const char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
+  static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
@@ -306,6 +313,7 @@ private:
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   bool loadIna228CalibrationFactor(float& factor) const; // v0.2
   bool loadUvloEnabled(bool& enabled) const; // v0.2
+  bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
   
   // MPPT Statistics helper
   static void updateMpptStats();

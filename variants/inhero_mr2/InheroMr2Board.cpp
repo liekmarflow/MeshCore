@@ -514,6 +514,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float factor = boardConfig.getIna228CalibrationFactor();
     snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
     return true;
+  } else if (strcmp(cmd, "tccal") == 0) {
+    // Get current NTC temperature calibration offset
+    float offset = boardConfig.getTcCalOffset();
+    snprintf(reply, maxlen, "TC offset: %+.2f C (0.00=default)", offset);
+    return true;
   } else if (strcmp(cmd, "uvlo") == 0) {
     // Get INA228 UVLO enable state
     bool enabled = boardConfig.getUvloEnabled();
@@ -558,7 +563,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
   snprintf(reply, maxlen,
            "Err: Try "
-           "board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|uvlo|leds|batcap|"
+           "board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|tccal|uvlo|leds|batcap|"
            "energy>");
   return true;
 }
@@ -676,6 +681,37 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Calibration failed (zero current?)");
     }
     return ret;
+  } else if (strncmp(setCommand, "tccal ", 6) == 0) {
+    // NTC temperature calibration: set board.tccal <bme_temp_C> or set board.tccal reset
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+
+    // Check for reset command
+    if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
+      if (boardConfig.setTcCalOffset(0.0f)) {
+        snprintf(ret, sizeof(ret), "TC calibration reset to 0.00 (default)");
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Failed to reset TC calibration");
+      }
+      return ret;
+    }
+
+    float actual_temp_c = atof(value);
+
+    // Validate reasonable temperature range (-40 to +85 °C)
+    if (actual_temp_c < -40.0f || actual_temp_c > 85.0f) {
+      snprintf(ret, sizeof(ret), "Err: Temp out of range (-40 to +85 C)");
+      return ret;
+    }
+
+    // Perform calibration: read NTC, compute offset, store
+    float new_offset = boardConfig.performTcCalibration(actual_temp_c);
+
+    if (new_offset > -900.0f) {
+      snprintf(ret, sizeof(ret), "TC calibrated: offset=%+.2f C", new_offset);
+    } else {
+      snprintf(ret, sizeof(ret), "Err: TC calibration failed (NTC read error?)");
+    }
+    return ret;
   } else if (strcmp(setCommand, "bqreset") == 0) {
     // Perform BQ25798 software reset and reload config from FS
     bool success = boardConfig.resetBQ();
@@ -729,7 +765,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|bqreset|leds|uvlo|soc>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|tccal|bqreset|leds|uvlo|soc>");
   return ret;
 }
 
