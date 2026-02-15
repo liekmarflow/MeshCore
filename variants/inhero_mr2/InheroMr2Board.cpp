@@ -257,6 +257,18 @@ bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
   // This is critical - without stopping tasks, OTA will fail
   BoardConfigContainer::stopBackgroundTasks();
 
+  // Put LoRa radio to sleep BEFORE starting BLE
+  // Without this, the main loop continues calling the_mesh.loop() which does
+  // SPI transactions to the SX1262. These SPI transfers briefly disable interrupts
+  // and can interfere with the SoftDevice's BLE event processing during the
+  // critical DFU bootloader handoff (response ACK + disconnect + reset).
+  // Symptom: first OTA attempt fails, bootloader restarts, second attempt works.
+  radio_driver.powerOff();
+  delay(10);  // Let SPI bus settle after radio sleep command
+
+  // Detach RTC interrupt to prevent I2C activity in tick() during OTA
+  detachInterrupt(digitalPinToInterrupt(RTC_INT_PIN));
+
   // Use standard NRF52Board OTA implementation (same as RAK4631)
   // Config the peripheral connection with maximum bandwidth
   // more SRAM required by SoftDevice
