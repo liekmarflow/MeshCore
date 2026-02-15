@@ -30,25 +30,12 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <bluefruit.h>
 #include <nrf_soc.h>
 
 // Static declarations
-static BLEDfu bledfu;
 static BoardConfigContainer boardConfig;
 volatile bool InheroMr2Board::rtc_irq_pending = false;
-
-// Static callback functions
-static void connect_callback(uint16_t conn_handle) {
-  (void)conn_handle;
-  MESH_DEBUG_PRINTLN("BLE client connected");
-}
-
-static void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
-  (void)conn_handle;
-  (void)reason;
-  MESH_DEBUG_PRINTLN("BLE client disconnected");
-}
+volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 
 // ===== Public Methods =====
 
@@ -219,6 +206,11 @@ void InheroMr2Board::tick() {
   // This ensures the main loop is running properly
   BoardConfigContainer::feedWatchdog();
 
+  // Deferred OTA DFU reset: wait for CLI reply to be sent, then enter bootloader
+  if (ota_dfu_reset_at != 0 && millis() >= ota_dfu_reset_at) {
+    enterOTADfu();  // disables SoftDevice & interrupts, sets GPREGRET, resets — does not return
+  }
+
   if (rtc_irq_pending) {
     rtc_irq_pending = false;
 
@@ -250,69 +242,23 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
 }
 
 bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
-  // Note: 600s watchdog timeout allows OTA to complete (typically 2-5 min)
-  // No need to disable watchdog as timeout is sufficient
+  // Skip the in-app BLE DFU (unstable on nRF52 in MeshCore environment) and
+  // jump directly into the Adafruit bootloader's OTA DFU mode.
+  // enterOTADfu() sets GPREGRET=0xA8, disables SoftDevice & interrupts, then resets.
+  // The bootloader handles BLE advertising and firmware transfer natively.
+  MESH_DEBUG_PRINTLN("OTA: Scheduling Adafruit bootloader DFU mode...");
 
-  // Stop all background tasks and clean up peripherals before OTA
-  // This is critical - without stopping tasks, OTA will fail
-  BoardConfigContainer::stopBackgroundTasks();
+  // Read BLE MAC address from nRF52 hardware registers (no Bluefruit needed)
+  uint32_t addr0 = NRF_FICR->DEVICEADDR[0];
+  uint32_t addr1 = NRF_FICR->DEVICEADDR[1];
+  snprintf(reply, 64, "OK DFU - mac: %02X:%02X:%02X:%02X:%02X:%02X",
+           (addr1 >> 8) & 0xFF, addr1 & 0xFF,
+           (addr0 >> 24) & 0xFF, (addr0 >> 16) & 0xFF, (addr0 >> 8) & 0xFF, addr0 & 0xFF);
 
-  // Put LoRa radio to sleep BEFORE starting BLE
-  // Without this, the main loop continues calling the_mesh.loop() which does
-  // SPI transactions to the SX1262. These SPI transfers briefly disable interrupts
-  // and can interfere with the SoftDevice's BLE event processing during the
-  // critical DFU bootloader handoff (response ACK + disconnect + reset).
-  // Symptom: first OTA attempt fails, bootloader restarts, second attempt works.
-  radio_driver.powerOff();
-  delay(10);  // Let SPI bus settle after radio sleep command
-
-  // Detach RTC interrupt to prevent I2C activity in tick() during OTA
-  detachInterrupt(digitalPinToInterrupt(RTC_INT_PIN));
-
-  // Use standard NRF52Board OTA implementation (same as RAK4631)
-  // Config the peripheral connection with maximum bandwidth
-  // more SRAM required by SoftDevice
-  // Note: All config***() function must be called before begin()
-  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  Bluefruit.configPrphConn(92, BLE_GAP_EVENT_LENGTH_MIN, 16, 16);
-
-  Bluefruit.begin(1, 0);
-  // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
-  Bluefruit.setTxPower(4);
-  // Set the BLE device name
-  Bluefruit.setName("InheroMR2_OTA");
-
-  Bluefruit.Periph.setConnectCallback(connect_callback);
-  Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
-
-  // To be consistent OTA DFU should be added first if it exists
-  bledfu.begin();
-
-  // Set up and start advertising
-  // Advertising packet
-  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-  Bluefruit.Advertising.addTxPower();
-  Bluefruit.Advertising.addName();
-
-  /* Start Advertising
-    - Enable auto advertising if disconnected
-    - Interval:  fast mode = 20 ms, slow mode = 152.5 ms
-    - Timeout for fast mode is 30 seconds
-    - Start(timeout) with timeout = 0 will advertise forever (until connected)
-
-    For recommended advertising interval
-    https://developer.apple.com/library/content/qa/qa1931/_index.html
-  */
-  Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
-  Bluefruit.Advertising.setFastTimeout(30);   // number of seconds in fast mode
-  Bluefruit.Advertising.start(0);             // 0 = Don't stop advertising after n seconds
-
-  uint8_t mac_addr[6];
-  memset(mac_addr, 0, sizeof(mac_addr));
-  Bluefruit.getAddr(mac_addr);
-  snprintf(reply, 64, "OK - mac: %02X:%02X:%02X:%02X:%02X:%02X", mac_addr[5], mac_addr[4], mac_addr[3],
-           mac_addr[2], mac_addr[1], mac_addr[0]);
+  // Schedule deferred reset into bootloader DFU mode.
+  // Return immediately so the CLI handler can send the reply first.
+  // tick() will handle cleanup (stop tasks, radio off) and reset after the delay.
+  ota_dfu_reset_at = millis() + 3000;  // 3s delay to ensure reply is transmitted
 
   return true;
 }

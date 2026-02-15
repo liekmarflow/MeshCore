@@ -113,4 +113,5 @@ public:
 private:
   uint8_t findNextFreeChannel(CayenneLPP& lpp);
   static volatile bool rtc_irq_pending;
+  static volatile uint32_t ota_dfu_reset_at;  ///< millis() timestamp for deferred DFU reset (0 = inactive)
 };
