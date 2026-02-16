@@ -57,7 +57,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 |------------|----------|-----|-----|---------|
 | **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ Shunt, 1A max, Coulomb Counter |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
-| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC |
+| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS has ~±30mA error at low currents) |
 | **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
 
 ---
@@ -477,11 +477,11 @@ else {
 **Direct ADC Read** (boardConfig noch nicht ready):
 ```cpp
 // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
-// Must read directly from BQ25798 ADC registers
-uint16_t vbat_mv = BqDriver::readVBATDirect(&Wire);
+// Must read directly from INA228 ADC registers (24-bit, ±0.1% accuracy)
+uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
 
-// BqDriver::readVBATDirect() - Static method in lib/BqDriver.cpp
-// Uses BQ25798 register 0x3B (BQ25798_REG_VBAT_ADC from Adafruit library)
+// Ina228Driver::readVBATDirect() - Static method in lib/Ina228Driver.cpp
+// Uses INA228 One-Shot ADC for fresh, accurate measurement
 ```
 
 

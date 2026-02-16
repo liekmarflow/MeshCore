@@ -136,7 +136,6 @@ bool BqDriver::checkAndClearPgFlag() {
 /// @return Pointer to internal Telemetry struct (valid until next call)
 const Telemetry* const BqDriver::getTelemetryData() {
   telemetryData = { 0 };
-  this->startIbatADC();
   bool success = this->startADCOneShot();
 
   if (!success) {
@@ -148,21 +147,16 @@ const Telemetry* const BqDriver::getTelemetryData() {
   delay(250);
   
   telemetryData.solar.voltage = getVBUS();
-  telemetryData.solar.current = getIBUS() - IBUS_ADC_OFFSET_MA;
+  telemetryData.solar.current = getIBUS();
   if (telemetryData.solar.current < 0) {
     telemetryData.solar.current = 0;
   }
   telemetryData.solar.power = ((int32_t)telemetryData.solar.voltage * telemetryData.solar.current) / 1000;
   telemetryData.solar.mppt = getMPPTenable();
 
-  telemetryData.batterie.voltage = getVBAT();
-    telemetryData.batterie.current = (float)getIBAT();
-    telemetryData.batterie.power =
-      (int32_t)((telemetryData.batterie.voltage * telemetryData.batterie.current) / 1000.0f);
+  // Note: Battery voltage/current (VBAT/IBAT) are measured by INA228, not BQ25798
   telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
 
-  this->stopIbatADC();
-  
   // Disable ADC to save power (~1.5mA according to datasheet)
   // ADC stays enabled after one-shot conversion, consuming unnecessary power
   this->setADCEnabled(false);
@@ -443,22 +437,6 @@ bool BqDriver::startADCOneShot() {
   return adc_ctrl_reg.write(0xC0);
 }
 
-/// @brief Disables IBAT ADC discharge current measurement
-/// @return true if successful
-bool BqDriver::stopIbatADC() {
-  Adafruit_BusIO_Register ctrl5_reg = Adafruit_BusIO_Register(ih_i2c_dev, 0x14);
-  Adafruit_BusIO_RegisterBits en_ibat_bit = Adafruit_BusIO_RegisterBits(&ctrl5_reg, 1, 5);
-  return en_ibat_bit.write(0);
-}
-
-/// @brief Enables IBAT ADC discharge current measurement
-/// @return true if successful
-bool BqDriver::startIbatADC() {
-  Adafruit_BusIO_Register ctrl5_reg = Adafruit_BusIO_Register(ih_i2c_dev, 0x14);
-  Adafruit_BusIO_RegisterBits en_ibat_bit = Adafruit_BusIO_RegisterBits(&ctrl5_reg, 1, 5);
-  return en_ibat_bit.write(1);
-}
-
 // Implementierungen für ADC Control (0x2E)
 bool BqDriver::getADCEnabled() {
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
@@ -535,9 +513,6 @@ bool BqDriver::setIBUSADCDisable(bool disable) {
   return ibus_dis_bits.write((uint8_t)disable);
 }
 
-// Ähnlich für die anderen Disable-Bits in 0x2F (Bit 6: IBAT, 5: VBUS, 4: VBAT, 3: VSYS, 2: TS, 1: TDIE)
-// Kopiere den Pattern und passe Bit-Position an, z.B. für getIBATADCDisable(): Bits(1, 6)
-
 // Für ADC Function Disable 1 (0x30): Bit 7: DP, 6: DM, 5: VAC2, 4: VAC1
 // Ähnlich implementieren.
 
@@ -552,18 +527,6 @@ int16_t BqDriver::getIBUS() {
   return val;                 // in mA
 }
 
-int16_t BqDriver::getIBAT() {
-  Adafruit_BusIO_Register ibat_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_IBAT_ADC, 2, MSBFIRST);
-  uint16_t raw;
-  if (!ibat_reg.read(&raw)) { // MSB first
-    return 0;
-  }
-  int16_t val = (int16_t)raw; // 2's complement for signed
-  return val;                 // in mA
-}
-
-// Ähnlich für getIBAT(): Gleiches wie oben.
-
 uint16_t BqDriver::getVBUS() {
   Adafruit_BusIO_Register vbus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
   uint16_t val;
@@ -571,40 +534,6 @@ uint16_t BqDriver::getVBUS() {
     return 0;
   }
   return val; // in mV
-}
-
-uint16_t BqDriver::getVBAT() {
-  Adafruit_BusIO_Register vbat_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBAT_ADC, 2, MSBFIRST);
-  uint16_t val;
-  if (!vbat_reg.read(&val)) {
-    return 0;
-  }
-  return val; // in mV
-}
-
-/// @brief Read VBAT directly via I2C without requiring driver initialization
-/// @param wire Pointer to TwoWire instance
-/// @return Battery voltage in millivolts, or 0 if read fails
-/// @note Static method for early boot use before BqDriver::begin() is called
-uint16_t BqDriver::readVBATDirect(TwoWire* wire) {
-  const uint8_t BQ_I2C_ADDR = 0x6B;
-  // Use BQ25798_REG_VBAT_ADC from Adafruit library (via #include)
-  
-  wire->beginTransmission(BQ_I2C_ADDR);
-  wire->write(BQ25798_REG_VBAT_ADC);  // 0x3B
-  if (wire->endTransmission(false) != 0) {
-    return 0;  // I2C communication failed
-  }
-  
-  wire->requestFrom(BQ_I2C_ADDR, (uint8_t)2);
-  if (wire->available() < 2) {
-    return 0;  // Not enough data available
-  }
-  
-  uint8_t msb = wire->read();
-  uint8_t lsb = wire->read();
-  
-  return (msb << 8) | lsb;  // BQ25798 returns voltage directly in mV
 }
 
 uint16_t BqDriver::getVSYS() {

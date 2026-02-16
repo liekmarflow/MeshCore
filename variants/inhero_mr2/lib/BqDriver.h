@@ -43,12 +43,13 @@
 #define SH_A  8.7248136876e-04f  ///< Steinhart-Hart coefficient A
 #define SH_B  2.5405556775e-04f  ///< Steinhart-Hart coefficient B
 #define SH_C  1.8122847672e-07f  ///< Steinhart-Hart coefficient C
-#define IBUS_ADC_OFFSET_MA 27    ///< ADC calibration offset for solar current in mA
 
 /// Solar input telemetry data
+/// @note Solar current from BQ25798 IBUS ADC has significant error at low currents (~±30mA).
+///       Values are approximate - treat as estimates, not precise measurements.
 typedef struct {
   uint16_t voltage; ///< Solar voltage in mV
-  int16_t current;  ///< Solar current in mA
+  int16_t current;  ///< Solar current in mA (approximate, BQ25798 IBUS ADC has ~±30mA error at low currents)
   int32_t power;    ///< Solar power in mW
   bool mppt;        ///< MPPT enabled status
 } SolarData;
@@ -189,15 +190,6 @@ public:
   bool setTsIgnore(bool ignore);
 
   const Telemetry* const getTelemetryData();
-  
-  /// @brief Read VBAT directly via I2C (no initialization required)
-  /// @param wire Pointer to TwoWire instance (default: &Wire)
-  /// @return Battery voltage in mV, or 0 if read fails
-  /// @note Static method for early boot use before driver initialization
-  static uint16_t readVBATDirect(TwoWire* wire = &Wire);
-
-  bool stopIbatADC();
-  bool startIbatADC();
 
   // Charger Status
   bool getChargerStatusPowerGood();
@@ -238,9 +230,6 @@ private:
   bool getIBUSADCDisable();
   bool setIBUSADCDisable(bool disable);
 
-  bool getIBATADCDisable();
-  bool setIBATADCDisable(bool disable);
-
   bool getVBUSADCDisable();
   bool setVBUSADCDisable(bool disable);
 
@@ -267,9 +256,7 @@ private:
   bool setVAC1ADCDisable(bool disable);
 
   int16_t getIBUS();
-  int16_t getIBAT();
   uint16_t getVBUS();
-  uint16_t getVBAT();
   uint16_t getVSYS();
 
   float getTS();   // TS voltage in % of REGN
