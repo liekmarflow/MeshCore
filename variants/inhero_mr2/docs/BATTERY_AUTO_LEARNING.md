@@ -15,7 +15,7 @@ Das MR-2 v0.2 Board enthielt ein Auto-Learning-Konzept zur automatischen Kalibri
 ## Hardwarevoraussetzungen
 
 - **INA228 Power Monitor** - 24-bit ADC mit ±0.1% Genauigkeit
-- **20mΩ Shunt-Widerstand** - präzise Strommessung (0.5W, ±1%)
+- **100mΩ Shunt-Widerstand** - präzise Strommessung (0.16W @ 1A, ±1%)
 - **BQ25798 Charger** - CHARGE_DONE-Status für 100% SOC-Erkennung
 - **RV-3028-C7 RTC** - Wake-up-Management während Shutdown
 - **LittleFS-Dateisystem** - persistente Speicherung von Kapazität und Learning-Status
@@ -235,7 +235,7 @@ set board.batcap 10000
 
 ### Genauigkeit
 - **INA228 ADC:** 24-bit, ±0.1% Genauigkeit
-- **Shunt-Widerstand:** 20mΩ ±1% (0.5W)
+- **Shunt-Widerstand:** 100mΩ ±1%
 - **Temperaturkompensation:** ±50ppm/°C
 - **Typische Messabweichung:** <2% bei 20°C
 

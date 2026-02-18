@@ -29,6 +29,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
 | RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
+| SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
 | Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
@@ -56,8 +57,13 @@ Die Firmware nutzt feste Intervalle:
 
 ### Coulomb Counter & Auto-Learning (veraltet)
 - **Echtzeit-SOC-Tracking** via INA228 (±0.1% Genauigkeit)
-- **20mΩ Shunt-Widerstand** (1A max Strom)
+- **100mΩ Shunt-Widerstand** (1.6A max Strom)
 - **Auto-Learning-Status:** veraltet / aktuell nicht aktiv in dieser Firmware
+
+### SOC→Li-Ion mV Mapping (Workaround)
+- **Problem**: MeshCore überträgt nur `getBattMilliVolts()`, keinen SOC%. Die Companion App nutzt eine Li-Ion-Kurve zur SOC-Berechnung — falsche Anzeige bei LiFePO4/LTO.
+- **Lösung**: Bei validem Coulomb-Counting-SOC wird eine äquivalente Li-Ion 1S OCV (3000–4200 mV) zurückgegeben, sodass die App den korrekten SOC% anzeigt.
+- **TODO**: Entfernen, sobald MeshCore die native Übertragung des SOC% unterstützt.
 - **Zwei-Methoden-Auto-Learning** zur Kapazitätskalibrierung (historisches Konzept):
    * **Methode 1:** Voller Entladezyklus (100% → 10% Danger Zone, ~29 Tage @ 13mA)
    * **Methode 2:** USB-C-Ladung aus der Danger Zone (0% → 100%, ~Stunden)

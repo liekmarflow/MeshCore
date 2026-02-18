@@ -1184,7 +1184,7 @@ bool BoardConfigContainer::begin() {
     }
     
     // Try to initialize
-    if (ina228.begin(20.0f)) {  // 20mΩ shunt resistor
+    if (ina228.begin(100.0f)) {  // 100mΩ shunt resistor (optimal SNR for 10mA standby / 1A max)
       INA228_INITIALIZED = true;
       ina228DriverInstance = &ina228;
       
@@ -1202,13 +1202,22 @@ bool BoardConfigContainer::begin() {
         delay(100);
       }
       
-      // Load and apply current calibration factor
+      // Load and apply current calibration factor (gain)
       float calib_factor = 1.0f;
       if (loadIna228CalibrationFactor(calib_factor)) {
         ina228.setCalibrationFactor(calib_factor);
         MESH_DEBUG_PRINTLN("INA228 calibration factor loaded: %.4f", calib_factor);
       } else {
         MESH_DEBUG_PRINTLN("INA228 using default calibration (1.0)");
+      }
+      
+      // Load and apply current offset correction (additive)
+      float current_offset = 0.0f;
+      if (loadIna228CurrentOffset(current_offset)) {
+        ina228.setCurrentOffset(current_offset);
+        MESH_DEBUG_PRINTLN("INA228 current offset loaded: %+.2f mA", current_offset);
+      } else {
+        MESH_DEBUG_PRINTLN("INA228 using default offset (0.0)");
       }
       delay(10);
       
@@ -2241,6 +2250,89 @@ float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
 /// @return Pointer to INA228 driver or nullptr if not initialized
 Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
+}
+
+// ===== INA228 Current Offset Calibration =====
+
+/// @brief Load INA228 current offset from preferences (v0.2)
+/// @param offset Output parameter in mA
+/// @return true if loaded successfully, false if using default (0.0)
+bool BoardConfigContainer::loadIna228CurrentOffset(float& offset) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  if (prefs.getString(INA228_OFFSET_KEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      offset = atof(buffer);
+      
+      // Validate offset is in reasonable range (±50mA)
+      if (offset >= -50.0f && offset <= 50.0f) {
+        return true;
+      }
+    }
+  }
+  
+  // Default: no offset
+  offset = 0.0f;
+  return false;
+}
+
+/// @brief Set INA228 current offset and save to preferences (v0.2)
+/// @param offset_mA Offset in mA (-50 to +50)
+/// @return true if saved successfully
+bool BoardConfigContainer::setIna228CurrentOffset(float offset_mA) {
+  // Clamp to reasonable range
+  if (offset_mA < -50.0f) offset_mA = -50.0f;
+  if (offset_mA > 50.0f) offset_mA = 50.0f;
+  
+  // Apply to INA228 driver
+  if (ina228DriverInstance) {
+    ina228DriverInstance->setCurrentOffset(offset_mA);
+  }
+  
+  // Save to preferences
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "%.2f", offset_mA);
+  
+  if (prefs.putString(INA228_OFFSET_KEY, buffer)) {
+    MESH_DEBUG_PRINTLN("INA228 current offset saved: %+.2f mA", offset_mA);
+    return true;
+  }
+  
+  return false;
+}
+
+/// @brief Get current INA228 offset correction (v0.2)
+/// @return Current offset in mA (0.0 = no correction)
+float BoardConfigContainer::getIna228CurrentOffset() const {
+  if (ina228DriverInstance) {
+    return ina228DriverInstance->getCurrentOffset();
+  }
+  return 0.0f;
+}
+
+/// @brief Perform INA228 current offset calibration and store result (v0.2)
+/// @param actual_current_ma Actual battery current in mA (from reference meter, signed)
+/// @return Calculated offset in mA, or 0.0 on error
+/// @note Best performed at LOW current where offset error dominates (e.g., idle/sleep current)
+float BoardConfigContainer::performIna228OffsetCalibration(float actual_current_ma) {
+  if (!ina228DriverInstance) {
+    return 0.0f;
+  }
+  
+  // Perform offset calibration
+  float offset = ina228DriverInstance->calibrateCurrentOffset(actual_current_ma);
+  
+  // Store persistently
+  if (!setIna228CurrentOffset(offset)) {
+    return 0.0f;
+  }
+  
+  return offset;
 }
 
 // ===== NTC Temperature Calibration =====

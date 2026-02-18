@@ -254,6 +254,11 @@ public:
   float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
   
+  // INA228 Current Offset Calibration (v0.2)
+  bool setIna228CurrentOffset(float offset_mA);  ///< Store INA228 current offset in mA (persistent)
+  float getIna228CurrentOffset() const;           ///< Get current INA228 offset correction
+  float performIna228OffsetCalibration(float actual_current_ma); ///< Calibrate offset and store
+  
   // NTC Temperature Calibration methods
   bool setTcCalOffset(float offset_c);           ///< Store temperature calibration offset in °C (persistent)
   float getTcCalOffset() const;                  ///< Get current temperature calibration offset
@@ -306,6 +311,7 @@ private:
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
   static constexpr const char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
+  static constexpr const char* INA228_OFFSET_KEY = "ina228Off";   // v0.2: INA228 current offset in mA
   static constexpr const char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
@@ -314,6 +320,7 @@ private:
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   bool loadIna228CalibrationFactor(float& factor) const; // v0.2
+  bool loadIna228CurrentOffset(float& offset) const; // v0.2: current offset
   bool loadUvloEnabled(bool& enabled) const; // v0.2
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
   

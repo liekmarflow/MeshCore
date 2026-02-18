@@ -10,7 +10,7 @@
 #include "../../../src/MeshCore.h"  // For MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
-  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
+  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f), _current_offset_mA(0.0f) {}
 
 bool Ina228Driver::begin(float shunt_resistor_mohm) {
   _shunt_mohm = shunt_resistor_mohm;
@@ -57,9 +57,10 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   MESH_DEBUG_PRINTLN("INA228 begin(): ADC_CONFIG set to 0x%04X", adc_config);
 
   // Calculate current LSB: Max expected current / 2^19 (20-bit ADC)
-  // With 20mΩ shunt and ±40.96mV ADC range: Max = 40.96mV / 0.02Ω = 2.048A
-  // Using 2.0A for safety margin, LSB = 2.0A / 524288 ≈ 3.81 µA
-  _current_lsb = 2.0f / 524288.0f;  // in Amperes (max ±2A)
+  // With 100mΩ shunt and ±163.84mV ADC range (ADCRANGE=0): Max = 163.84mV / 0.1Ω = 1.6384A
+  // Using 1.6384A, LSB = 1.6384A / 524288 ≈ 3.125 µA
+  // At 10mA standby: V_shunt = 1mV → SNR greatly improved vs. 20mΩ (200µV)
+  _current_lsb = 1.6384f / 524288.0f;  // in Amperes (max ±1.6384A)
 
   // Calculate shunt calibration value
   // SHUNT_CAL = 13107.2 × 10^6 × CURRENT_LSB × R_SHUNT
@@ -67,19 +68,17 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   float shunt_ohm = _shunt_mohm / 1000.0f;
   _base_shunt_cal = (uint16_t)(13107.2e6 * _current_lsb * shunt_ohm);
   
-  // CRITICAL: Per INA228 datasheet section 7.3.1.1:
-  // "the value of SHUNT_CAL must be multiplied by 4 for ADCRANGE = 1"
-  // We use ADCRANGE = 1 (±40.96mV) for better resolution with 20mΩ shunt
-  _base_shunt_cal *= 4;
+  // ADCRANGE = 0 (±163.84mV): No multiplier needed (×4 only required for ADCRANGE=1)
   
   // Apply calibration factor to SHUNT_CAL (if set)
   uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * _calibration_factor);
   writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
   delay(5);
 
-  // Configure INA228: ADC range ±40.96mV for better resolution with 20mΩ shunt
-  // At 2A: V_shunt = 2A × 0.02Ω = 40mV (fits in ±40.96mV range)
-  uint16_t config = INA228_CONFIG_ADCRANGE;  // Use ±40.96mV range (bit 4)
+  // Configure INA228: ADCRANGE = 0 (±163.84mV, default) for 100mΩ shunt
+  // At 1A: V_shunt = 100mV (61% of full-scale) — sufficient headroom
+  // At 10mA: V_shunt = 1mV — 5× better SNR than 20mΩ (was 200µV)
+  uint16_t config = 0;  // ADCRANGE=0 (±163.84mV range, bit 4 = 0)
   writeRegister16(INA228_REG_CONFIG, config);
   delay(5);
 
@@ -144,7 +143,9 @@ int16_t Ina228Driver::readCurrent_mA() {
   // Sign convention: INVERT because shunt is oriented for battery perspective
   // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
-  return (int16_t)(-current_a * 1000.0f);  // Convert to mA, inverted sign
+  float current_mA = -current_a * 1000.0f;  // Convert to mA, inverted sign
+  current_mA += _current_offset_mA;  // Apply software offset correction
+  return (int16_t)(current_mA);
 }
 
 float Ina228Driver::readCurrent_mA_precise() {
@@ -157,7 +158,9 @@ float Ina228Driver::readCurrent_mA_precise() {
   // Sign convention: INVERT because shunt is oriented for battery perspective
   // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
-  return -current_a * 1000.0f;  // Convert to mA with full precision, inverted sign
+  float current_mA = -current_a * 1000.0f;  // Convert to mA with full precision, inverted sign
+  current_mA += _current_offset_mA;  // Apply software offset correction
+  return current_mA;
 }
 
 void Ina228Driver::shutdown() {
@@ -457,4 +460,44 @@ void Ina228Driver::setCalibrationFactor(float factor) {
 
 float Ina228Driver::getCalibrationFactor() const {
   return _calibration_factor;
+}
+
+void Ina228Driver::setCurrentOffset(float offset_mA) {
+  _current_offset_mA = offset_mA;
+}
+
+float Ina228Driver::getCurrentOffset() const {
+  return _current_offset_mA;
+}
+
+float Ina228Driver::calibrateCurrentOffset(float actual_current_ma) {
+  // Read current value (with existing gain calibration, but without offset)
+  // Temporarily remove offset for raw measurement
+  float saved_offset = _current_offset_mA;
+  _current_offset_mA = 0.0f;
+  
+  // Read multiple samples for better accuracy
+  float sum = 0.0f;
+  const int num_samples = 4;
+  for (int i = 0; i < num_samples; i++) {
+    sum += readCurrent_mA_precise();
+    delay(50);
+  }
+  float measured_mA = sum / num_samples;
+  
+  // Offset = actual - measured
+  // Example: actual = -9.8mA, measured = -7.2mA → offset = -9.8 - (-7.2) = -2.6mA
+  float offset = actual_current_ma - measured_mA;
+  
+  // Clamp to reasonable range (±50mA offset should cover any hardware offset)
+  if (offset < -50.0f) offset = -50.0f;
+  if (offset > 50.0f) offset = 50.0f;
+  
+  // Apply the new offset
+  _current_offset_mA = offset;
+  
+  MESH_DEBUG_PRINTLN("INA228 offset calibration: measured=%.2fmA, actual=%.2fmA, offset=%+.2fmA",
+                     measured_mA, actual_current_ma, offset);
+  
+  return offset;
 }

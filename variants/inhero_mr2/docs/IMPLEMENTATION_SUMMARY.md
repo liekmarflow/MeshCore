@@ -44,6 +44,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
 | RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
+| SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | Auto-Learning (Method 1/2) | Deprecated | Aktuell nicht umgesetzt/aktiv |
 | Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
@@ -55,7 +56,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 ### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
 |------------|----------|-----|-----|---------|
-| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 20mΩ Shunt, 1A max, Coulomb Counter |
+| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 100mΩ Shunt, 1.6A max, Coulomb Counter |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS has ~±30mA error at low currents) |
 | **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
@@ -110,9 +111,9 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 ### INA228 Integration
 - **Driver**: `lib/Ina228Driver.cpp` (255 Zeilen, vollständig implementiert)
 - **Init**: `BoardConfigContainer::begin()` Zeile 592-641
-  - 20mΩ Shunt-Kalibrierung
+  - 100mΩ Shunt-Kalibrierung
   - CURRENT_LSB = 1A / 524288 ≈ 1.91µA
-  - ADC Range ±40.96mV (optimal für 1A @ 20mΩ)
+  - ADC Range ±163.84mV (ADCRANGE=0, optimal für 1A @ 100mΩ)
   - **ADC Averaging**: 64 samples (filters TX voltage peaks, prevents false UVLO)
   - Chemie-spezifischer UVLO-Alert setzen
 
@@ -753,7 +754,7 @@ set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
 | `updateBatterySOC()` | BoardConfigContainer.cpp | ~1400+ | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | ~1500+ | 7-Day Energy Balance Tracking |
 | `calculateTTL()` | BoardConfigContainer.cpp | ~1600+ | Time To Live Forecast |
-| `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 12-47 | 20mΩ Calibration, ADC Config |
+| `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 12-47 | 100mΩ Calibration, ADC Config |
 | `Ina228Driver::shutdown()` | lib/Ina228Driver.cpp | 79-83 | Power-down Mode |
 
 ---
@@ -934,7 +935,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - Verify communication stability
 
 ### Phase 3: INA228 Calibration (TODO)
-- Shunt: 20mΩ ± 1%
+- Shunt: 100mΩ ± 1%
 - Current LSB: 1.91µA
 - Test: 100mA load → 100mA reading
 - Test: 500mA load → 500mA reading
@@ -993,6 +994,14 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 **Design**: Einheitliche Hardware-Plattform
 **Vorteil**: Einfacherer, wartbarerer Code
 **Implementierung**: Direkter Zugriff auf INA228/RTC
+
+### Issue 4: SOC-Anzeige in Companion App (Workaround)
+**Problem**: Das MeshCore-Protokoll überträgt aktuell nur die Batteriespannung (`getBattMilliVolts()`), keinen direkten SOC-Prozentwert. Die Companion App interpretiert die empfangene Spannung über eine fest hinterlegte Li-Ion-Entladekurve und leitet daraus den SOC% ab. Bei LiFePO4- und LTO-Chemien, deren Spannungsprofile erheblich von Li-Ion abweichen, führt das zu falschen Prozentanzeigen.
+**Workaround**: Wenn ein valider Coulomb-Counting-SOC vorliegt (`soc_valid == true`), gibt `getBattMilliVolts()` nicht die echte Batteriespannung zurück, sondern eine aus dem SOC rückgerechnete Li-Ion 1S OCV (Open Circuit Voltage, 3000–4200 mV). Damit interpretiert die App den Wert korrekt — unabhängig von der tatsächlichen Zellchemie.
+**Lookup-Tabelle**: Standard Li-Ion NMC/NCA OCV, 11 Stützstellen (0–100% in 10%-Schritten) mit stückweiser linearer Interpolation.
+**Fallback**: Solange kein valider SOC vorliegt (z.B. vor dem ersten „Charging Done"), wird die echte Batteriespannung zurückgegeben.
+**Code**: `InheroMr2Board::getBattMilliVolts()` + `socToLiIonMilliVolts()` in InheroMr2Board.cpp
+**TODO**: Diesen Workaround entfernen, sobald MeshCore die Übertragung des tatsächlichen SOC% (neben oder anstelle der Batterie-mV) unterstützt. Dann soll `getBattMilliVolts()` wieder die echte Spannung liefern.
 
 ---
 

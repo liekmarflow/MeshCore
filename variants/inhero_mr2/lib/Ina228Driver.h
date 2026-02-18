@@ -204,6 +204,26 @@ public:
   /// @return Current calibration factor (1.0 = no calibration)
   float getCalibrationFactor() const;
 
+  /// @brief Set software current offset correction in mA
+  /// @param offset_mA Additive offset applied AFTER hardware reading (in mA)
+  /// @note Corrects constant ADC/hardware offset that cannot be fixed via SHUNT_CAL (gain).
+  ///       The offset is ADDED to the raw reading: corrected = raw + offset.
+  ///       Example: If INA reads -7.2mA but actual is -9.8mA, offset = -2.6mA.
+  ///       Call this at startup with value loaded from persistent storage.
+  void setCurrentOffset(float offset_mA);
+
+  /// @brief Get current offset correction value
+  /// @return Current offset in mA (0.0 = no offset correction)
+  float getCurrentOffset() const;
+
+  /// @brief Calibrate current offset using known reference current
+  /// @param actual_current_ma Actual battery current measured by reference meter (in mA, signed)
+  /// @return Calculated offset in mA, or 0.0 if calibration not possible
+  /// @note The offset = actual - measured. This corrects the constant ADC bias.
+  ///       For best results, calibrate at LOW current where offset dominates.
+  ///       Gain calibration (SHUNT_CAL) should be done separately at HIGH current.
+  float calibrateCurrentOffset(float actual_current_ma);
+
   /// @brief Read battery voltage directly via I2C without requiring driver initialization
   /// @param wire Pointer to TwoWire instance
   /// @param i2c_addr I2C address (default INA228_I2C_ADDR_DEFAULT)
@@ -219,6 +239,7 @@ private:
   float _current_lsb;  // Current LSB in A (constant per datasheet)
   uint16_t _base_shunt_cal;  // Original SHUNT_CAL value (before calibration)
   float _calibration_factor;  // Current calibration factor (1.0 = no correction)
+  float _current_offset_mA;   // Software offset correction in mA (0.0 = no correction)
 
   /// @brief Write 16-bit register
   bool writeRegister16(uint8_t reg, uint16_t value);

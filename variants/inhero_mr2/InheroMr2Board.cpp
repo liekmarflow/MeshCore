@@ -233,12 +233,72 @@ void InheroMr2Board::tick() {
 }
 
 uint16_t InheroMr2Board::getBattMilliVolts() {
+  // WORKAROUND: The MeshCore protocol currently only transmits battery voltage
+  // (via getBattMilliVolts), not a direct SOC percentage. The companion app then
+  // interprets this voltage using a hardcoded Li-Ion discharge curve to derive SOC%.
+  // This gives wrong readings for LiFePO4/LTO chemistries whose voltage profiles
+  // differ significantly from Li-Ion.
+  //
+  // Solution: When we have a valid Coulomb-counted SOC, we reverse-map it to
+  // the Li-Ion 1S OCV (Open Circuit Voltage) that the app expects.
+  // This way the app always displays our accurate chemistry-independent SOC.
+  //
+  // TODO: Remove this workaround once MeshCore supports transmitting the actual
+  // SOC percentage alongside (or instead of) battery millivolts. At that point,
+  // this function should return the real battery voltage again.
+
+  const BatterySOCStats* socStats = boardConfig.getSOCStats();
+  if (socStats && socStats->soc_valid) {
+    return socToLiIonMilliVolts(boardConfig.getStateOfCharge());
+  }
+
+  // Fallback: no valid Coulomb-counting SOC yet — return real voltage
   const Telemetry* telemetry = boardConfig.getTelemetryData();
   if (!telemetry) {
     return 0;
   }
-
   return telemetry->batterie.voltage;
+}
+
+/// @brief Maps a SOC percentage (0-100%) to a fake Li-Ion 1S OCV in millivolts.
+/// @details Uses a standard Li-Ion NMC/NCA OCV lookup table with piecewise-linear
+///          interpolation. The companion app will reverse-map these voltages back
+///          to the same SOC%, giving correct battery level display regardless of
+///          the actual cell chemistry (Li-Ion, LiFePO4, LTO).
+/// @param soc_percent State of Charge in percent (0.0 – 100.0)
+/// @return Equivalent Li-Ion 1S voltage in millivolts (3000 – 4200)
+uint16_t InheroMr2Board::socToLiIonMilliVolts(float soc_percent) {
+  // Clamp input to valid range
+  if (soc_percent <= 0.0f) return 3000;
+  if (soc_percent >= 100.0f) return 4200;
+
+  // Standard Li-Ion 1S OCV table (NMC/NCA, 10% steps)
+  // Index 0 = 0% SOC, Index 10 = 100% SOC
+  static const uint16_t LI_ION_OCV_TABLE[] = {
+    3000,  // 0%
+    3300,  // 10%
+    3450,  // 20%
+    3530,  // 30%
+    3600,  // 40%
+    3670,  // 50%
+    3740,  // 60%
+    3820,  // 70%
+    3920,  // 80%
+    4050,  // 90%
+    4200   // 100%
+  };
+
+  // Piecewise-linear interpolation between 10% steps
+  float index_f = soc_percent / 10.0f;       // 0.0 – 10.0
+  uint8_t idx_lo = (uint8_t)index_f;          // lower table index
+  if (idx_lo >= 10) idx_lo = 9;               // safety clamp
+  uint8_t idx_hi = idx_lo + 1;
+
+  float frac = index_f - (float)idx_lo;       // fractional part (0.0 – 1.0)
+  float mv = (float)LI_ION_OCV_TABLE[idx_lo]
+           + frac * (float)(LI_ION_OCV_TABLE[idx_hi] - LI_ION_OCV_TABLE[idx_lo]);
+
+  return (uint16_t)(mv + 0.5f);               // round to nearest mV
 }
 
 bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
@@ -460,6 +520,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     float factor = boardConfig.getIna228CalibrationFactor();
     snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
     return true;
+  } else if (strcmp(cmd, "iboffset") == 0) {
+    // Get current INA228 current offset correction
+    float offset = boardConfig.getIna228CurrentOffset();
+    snprintf(reply, maxlen, "INA228 offset: %+.2f mA (0.00=default)", offset);
+    return true;
   } else if (strcmp(cmd, "tccal") == 0) {
     // Get current NTC temperature calibration offset
     float offset = boardConfig.getTcCalOffset();
@@ -509,7 +574,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
   snprintf(reply, maxlen,
            "Err: Try "
-           "board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|tccal|uvlo|leds|batcap|"
+           "board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|"
            "energy>");
   return true;
 }
@@ -627,6 +692,34 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Calibration failed (zero current?)");
     }
     return ret;
+  } else if (strncmp(setCommand, "iboffset ", 9) == 0) {
+    // INA228 current offset calibration:
+    //   set board.iboffset <actual_current_mA>  → calibrate offset using reference meter
+    //   set board.iboffset reset                → reset offset to 0.00
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[9]));
+
+    // Check for reset command
+    if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
+      if (boardConfig.setIna228CurrentOffset(0.0f)) {
+        snprintf(ret, sizeof(ret), "INA228 offset reset to +0.00 mA (default)");
+      } else {
+        snprintf(ret, sizeof(ret), "Err: Failed to reset offset");
+      }
+      return ret;
+    }
+
+    float actual_current_ma = atof(value);
+
+    // Validate reasonable current range (-2000 to +2000 mA)
+    if (actual_current_ma < -2000.0f || actual_current_ma > 2000.0f) {
+      snprintf(ret, sizeof(ret), "Err: Current out of range (-2000 to +2000 mA)");
+      return ret;
+    }
+
+    // Perform offset calibration and store
+    float offset = boardConfig.performIna228OffsetCalibration(actual_current_ma);
+    snprintf(ret, sizeof(ret), "INA228 offset: %+.2f mA", offset);
+    return ret;
   } else if (strncmp(setCommand, "tccal", 5) == 0) {
     // NTC temperature calibration:
     //   set board.tccal          → auto-read BME280 as reference
@@ -731,7 +824,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|tccal|bqreset|leds|uvlo|soc>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc>");
   return ret;
 }
 
