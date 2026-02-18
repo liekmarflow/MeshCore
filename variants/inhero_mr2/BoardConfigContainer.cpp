@@ -2076,6 +2076,8 @@ void BoardConfigContainer::syncSOCToFull() {
   
   // Set baseline to 0 (we just reset the counter)
   socStats.ina228_baseline_mah = 0;
+  socStats.offset_accumulated_mah = 0.0f;  // Reset offset compensation accumulator
+  socStats.last_soc_update_ms = millis();   // Reset time reference
   
   // Mark as fully charged
   socStats.current_soc_percent = 100.0f;
@@ -2111,9 +2113,12 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
   float remaining_mah = (soc_percent / 100.0f) * socStats.capacity_mah;
   
   // Calculate baseline: charge_mah = baseline + net_charge
-  // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline)
-  // Therefore: baseline = charge - (remaining - capacity)
+  // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline + offset_accum)
+  // Therefore: baseline = charge - (remaining - capacity) + offset_accum
+  // But since we reset offset_accum to 0, baseline absorbs it:
   socStats.ina228_baseline_mah = current_charge_mah - (remaining_mah - socStats.capacity_mah);
+  socStats.offset_accumulated_mah = 0.0f;  // Reset offset compensation accumulator
+  socStats.last_soc_update_ms = millis();   // Reset time reference
   
   // Set SOC and mark as valid
   socStats.current_soc_percent = soc_percent;
@@ -2611,6 +2616,23 @@ void BoardConfigContainer::updateBatterySOC() {
   // Positive = charging (into battery), Negative = discharging (from battery)
   float charge_mah = ina228DriverInstance->readCharge_mAh();
   
+  // === Current Offset Compensation ===
+  // The INA228 hardware CHARGE register accumulates the raw ADC current including
+  // any constant input offset voltage (Vos). This offset causes a phantom current
+  // that accumulates over time, drifting the Coulomb count.
+  // We compensate by tracking the offset × time and applying it to all delta/net calculations.
+  uint32_t now_ms = millis();
+  float offset_delta_mah = 0.0f;
+  
+  if (socStats.last_soc_update_ms > 0) {
+    uint32_t elapsed_ms = now_ms - socStats.last_soc_update_ms;
+    // offset_mA × dt_hours = offset_mA × (elapsed_ms / 3600000)
+    float offset_mA = ina228DriverInstance->getCurrentOffset();
+    offset_delta_mah = offset_mA * ((float)elapsed_ms / 3600000.0f);
+    socStats.offset_accumulated_mah += offset_delta_mah;
+  }
+  socStats.last_soc_update_ms = now_ms;
+  
   // Update current hour statistics (track charged/discharged charge in mAh)
   // This runs ALWAYS, independent of SOC validity
   static float last_charge_mah = 0.0f;
@@ -2624,6 +2646,10 @@ void BoardConfigContainer::updateBatterySOC() {
   } else {
     float delta_mah = charge_mah - last_charge_mah;
     last_charge_mah = charge_mah;
+    
+    // Apply offset compensation to delta
+    // The hardware delta is offset-biased; add the software offset correction
+    delta_mah += offset_delta_mah;
     
     // Handle potential counter wrap or reset (ignore huge jumps > 10Ah)
     if (delta_mah > 10000.0f || delta_mah < -10000.0f) {
@@ -2662,7 +2688,8 @@ void BoardConfigContainer::updateBatterySOC() {
   
   // Net charge since last baseline reset (using CHARGE register in mAh)
   // Driver inverted: positive = charged into battery, negative = discharged from battery
-  float net_charge_mah = charge_mah - socStats.ina228_baseline_mah;
+  // Apply accumulated offset compensation to correct hardware CHARGE register drift
+  float net_charge_mah = (charge_mah - socStats.ina228_baseline_mah) + socStats.offset_accumulated_mah;
   
   // Remaining capacity = Initial capacity + net charge (positive=charged adds, negative=discharged subtracts)
   float remaining_mah = socStats.capacity_mah + net_charge_mah;

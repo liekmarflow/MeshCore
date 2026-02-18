@@ -72,6 +72,8 @@ typedef struct {
   float current_soc_percent;   ///< Current State of Charge in % (0-100)
   bool soc_valid;              ///< True after first "Charging Done" sync
   float ina228_baseline_mah;   ///< INA228 CHARGE reading at last 100% sync (mAh)
+  float offset_accumulated_mah; ///< Accumulated current offset compensation (mAh, reset with baseline)
+  uint32_t last_soc_update_ms;  ///< millis() of last updateBatterySOC() call (for offset dt)
   
   // Hourly statistics (168-hour rolling buffer for 7 days)
   HourlyBatteryStats hours[HOURLY_STATS_HOURS];
