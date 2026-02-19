@@ -127,7 +127,7 @@ public:
     // Type         ChgV  NomV  UVLO  Danger  ChgEn
     { BAT_UNKNOWN,  0.0f, 0.0f, 2000, 2000,  false }, // SAFETY: Safe low thresholds, no charging
     { LTO_2S,       5.4f, 5.0f, 3900, 4200,  true  }, // LTO 2S: 2.7V/cell (300mV UVLO margin)
-    { LIFEPO4_1S,   3.5f, 3.2f, 2500, 2900,  true  }, // LiFePO4: 400mV UVLO margin
+    { LIFEPO4_1S,   3.5f, 3.2f, 2700, 2900,  true  }, // LiFePO4: 200mV UVLO margin
     { LIION_1S,     4.1f, 3.7f, 3100, 3400,  true  }  // Li-Ion: 300mV UVLO margin
   };
 

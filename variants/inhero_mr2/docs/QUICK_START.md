@@ -67,6 +67,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
 - Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `board.togglehiz` fuer eine manuelle Neuqualifikation.
 - Bei falschen Stromwerten kann `set board.ibcal <mA>` die INA228-Strommessung kalibrieren.
+- Bei konstantem Strom-Offset (z.B. INA228 zeigt immer 2mA zu viel) hilft `set board.iboffset <mA>` fuer eine Offset-Korrektur.
 - `board.uvlo` zeigt, ob UVLO latched aktiv ist; fuer Feldtests ist oft DISABLED gesetzt.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
@@ -140,10 +141,10 @@ board.fmax
 board.mppt
 board.uvlo
 board.leds
-board.soc
+board.batcap
 board.telem
 board.stats
-board.balance
+board.energy
 board.cinfo
 board.diag
 board.conf
@@ -157,14 +158,14 @@ board.conf
 - `board.mppt` - MPPT-Status (0/1).
 - `board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
 - `board.leds` - LED-Status (Heartbeat + BQ-Stat).
-- `board.soc` - State of Charge in Prozent.
+- `board.batcap` - Batteriekapazität in mAh (set/default).
 - `board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
-- `board.stats` - Energie-Bilanz (24h/3d/7d) und MPPT-Anteil.
-- `board.balance` - Tagesbilanz und 3d-Avg, ggf. TTL in Stunden.
+- `board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
+- `board.energy` - INA228 Coulomb Counter (Rohdaten, Base, Net).
 - `board.cinfo` - Ladegeraet-Status (Charger State + Flags).
 - `board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
 - `board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
 - `board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
 - `board.ibcal` - INA228-Kalibrierfaktor (1.0 = default).
-- `board.learning` - Auto-Learning-Status (derzeit veraltet, aber abfragbar).
-- `board.relearn` - Auto-Learning-Flag reset (nur falls wieder aktiviert).
+- `board.iboffset` - INA228-Strom-Offset in mA (0.00 = default).
+- `board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).

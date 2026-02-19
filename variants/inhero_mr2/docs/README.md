@@ -27,7 +27,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 |---------|--------|---------|
 | Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
-| RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
+| RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 6h (Produktion) |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
@@ -48,7 +48,7 @@ Die Firmware nutzt feste Intervalle:
 2. **Hardware-UVLO** - INA228 Alert → TPS62840 EN (absoluter Schutz auf Hardware-Ebene)
 3. **SX1262 Power Control** - RadioLib `powerOff()` vor SYSTEMOFF (richtige Sleep-Methode)
 
-**Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~50-150mAh (vollständiger Systemstart). Die Strategie maximiert die Batterielaufzeit.
+**Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~0.03mAh (vollständiger Systemstart ~10s @ ~10mA). Die Strategie maximiert die Batterielaufzeit.
 
 ### Spannungsschwellen (Li-Ion 1S)
 - **Hardware-Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-Sample-Averaging filtert TX-Spitzen)
@@ -106,21 +106,24 @@ board.mppt      # MPPT-Status abfragen
                 # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
 
 board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
-                # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<I>mA
-                # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/245mA
-                # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/245mA
+                # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/~<I>mA
+                # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/~245mA
+                # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/~245mA
                 # Komponenten:
                 # - B: Battery (Voltage/Current/Temperature/SOC)
-                # - S: Solar (Voltage/Current)
+                # - S: Solar (Voltage/Current, ~ = Schätzwert)
 
 board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
-                # Ausgabe: <24h>/<3d>/<7d>mAh <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
-                # Beispiel: +125.0/+45.0/+38.0mAh SOL M:85%
-                # Beispiel: -30.0/-45.0/-40.0mAh BAT M:45% TTL:72h
+                # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3dC:<3d> 3dD:<3d> 7dC:<7d> 7dD:<7d> <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
+                # Beispiel: +125.0/+45.0/+38.0mAh C:200.0 D:75.0 3dC:150.0 3dD:105.0 7dC:140.0 7dD:102.0 SOL M:85%
+                # Beispiel: -30.0/-45.0/-40.0mAh C:10.0 D:40.0 3dC:5.0 3dD:50.0 7dC:8.0 7dD:48.0 BAT M:45% TTL:72h
                 # Komponenten:
                 # - +125.0: Last 24h net balance (charge - discharge) in mAh
                 # - +45.0: 3-day average net balance in mAh
                 # - +38.0: 7-day average net balance in mAh
+                # - C/D: Charged/Discharged mAh (24h)
+                # - 3dC/3dD: 3-day average charged/discharged mAh
+                # - 7dC/7dD: 7-day average charged/discharged mAh
                 # - SOL: Running on solar (self-sufficient)
                 # - BAT: Living on battery (deficit mode)
                 # - M:85%: MPPT enabled percentage (7-day average)
@@ -169,6 +172,22 @@ board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
                 # Ausgabe: INA228 calibration: <factor> (1.0=default)
                 # Used to correct current measurement errors
 
+board.iboffset  # INA228-Strom-Offset abfragen (v0.2-Feature)
+                # Ausgabe: INA228 offset: <+/-offset> mA (0.00=default)
+                # Korrigiert einen konstanten Offset der Strommessung
+
+board.batcap    # Batteriekapazität abfragen (v0.2-Feature)
+                # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
+                # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
+
+board.energy    # INA228 Coulomb Counter abfragen (v0.2-Feature)
+                # Ausgabe bei validem SOC: <charge>mAh (Base: <baseline>mAh, Net: <net>mAh)
+                # Ausgabe ohne SOC-Sync: <charge>mAh (SOC not synced)
+                # Fehler: Err: INA228 not initialized
+
+board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen (v0.2-Feature)
+                # Ausgabe: TC offset: <+/-offset> C (0.00=default)
+
 board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
                 # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
                 # Shows whether heartbeat LED and BQ25798 stat LED are enabled
@@ -200,6 +219,24 @@ set board.ibcal <current_mA>   # INA228-Stromsensor kalibrieren (v0.2-Feature)
                                # Ausgabe: INA228 calibrated: factor=0.9850
                                # Oder: set board.ibcal reset
                                # Setzt Kalibrierung auf Standardwert 1.0 zurück
+
+set board.iboffset <current_mA> # INA228-Strom-Offset kalibrieren (v0.2-Feature)
+                               # Range: -2000 to +2000 mA
+                               # Berechnet Offset: offset = actual - ina228_reading
+                               # Beispiel: set board.iboffset 0.0
+                               # (bei bekanntem 0mA-Zustand, korrigiert Nullpunktfehler)
+                               # Ausgabe: INA228 offset: +1.25 mA
+                               # Oder: set board.iboffset reset
+                               # Setzt Offset auf +0.00 mA zurück
+
+set board.tccal [<temp_C>]     # NTC-Temperatur kalibrieren (v0.2-Feature)
+                               # Drei Modi:
+                               # 1) set board.tccal         → Auto-Kalibrierung via BME280
+                               #    Ausgabe: TC auto-cal: BME=<temp> offset=<+/-offset> C
+                               # 2) set board.tccal <temp_C> → Manueller Referenzwert (-40 bis +85°C)
+                               #    Ausgabe: TC calibrated: offset=<+/-offset> C
+                               # 3) set board.tccal reset    → Offset auf 0.00 zurücksetzen
+                               #    Ausgabe: TC calibration reset to 0.00 (default)
 
 set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS neu laden
                                # Performs software reset and reconfigures
@@ -240,26 +277,62 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 2. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
    - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1 (60s Cooldown)
 
-### INA228-Stromkalibrierung (v0.2)
-Bei Messdifferenzen zwischen INA228 und Referenzmessgerät:
-```bash
-# Messe echten Strom mit DMM während konstantem Load: 100.5mA
-# INA228 zeigt: 102.3mA
-# Kalibriere mit tatsächlichem Wert:
-set board.ibcal 100.5
-# Ausgabe: INA228 calibrated: factor=0.9824
+### INA228-Kalibrierung (v0.2)
 
-# Prüfe Ergebnis:
-board.ibcal
-# Ausgabe: INA228 calibration: 0.9824 (1.0=default)
+Die INA228-Strommessung kann zwei Arten von Fehlern aufweisen:
+- **Offset-Fehler** (additiv): Konstante Abweichung, unabhängig vom Strom
+- **Skalierungsfehler** (multiplikativ): Proportionale Abweichung, wächst mit dem Strom
+
+Für eine saubere Kalibrierung wird **zuerst der Offset** und **dann der Skalierungsfaktor** korrigiert.
+
+#### Schritt 1: Offset-Kalibrierung (iboffset)
+
+Im Ruhezustand des Repeaters (kein USB-Kabel, kein Solar) ein Multimeter in den Batteriekreis hängen und den Ruhestrom vergleichen:
+
+```bash
+# Multimeter zeigt: -9.5 mA (Entladestrom im Ruhezustand)
+# INA228 zeigt:     -8.0 mA
+# → Konstanter Offset von +1.5 mA
+
+# Offset kalibrieren: den tatsächlichen DMM-Wert angeben
+set board.iboffset -9.5
+# Ausgabe: INA228 offset: -1.50 mA
+
+# Prüfen:
+board.iboffset
+# Ausgabe: INA228 offset: -1.50 mA (0.00=default)
 ```
 
-**Kalibrationsprozess:**
-1. Anlegen einer bekannten Last (z.B. USB-C Charge mit DMM)
-2. DMM-Messung als Referenz nehmen
-3. `set board.ibcal <actual_mA>` aufrufen
-4. Faktor wird berechnet: `factor = actual / ina228_reading`
-5. Faktor persistent gespeichert und auf alle zukünftigen Messungen angewendet
+#### Schritt 2: Skalierungsfaktor-Kalibrierung (ibcal)
+
+Nun ein USB-Ladekabel anschließen und den Ladestrom auf einen bekannten Wert begrenzen:
+
+```bash
+# Ladestrom begrenzen für saubere Messung:
+set board.imax 100
+
+# Multimeter zeigt: 95 mA (Ladestrom)
+# INA228 zeigt:     93 mA (nach Offset-Korrektur)
+# → Proportionaler Fehler von ~2%
+
+# Skalierungsfaktor kalibrieren: den tatsächlichen DMM-Wert angeben
+set board.ibcal 95
+# Ausgabe: INA228 calibrated: factor=1.0215
+
+# Prüfen:
+board.ibcal
+# Ausgabe: INA228 calibration: 1.0215 (1.0=default)
+```
+
+#### Zusammenfassung
+
+| Kalibrierung | Korrigiert | Formel | Reihenfolge |
+|---|---|---|---|
+| `iboffset` | Konstanter Nullpunktfehler | `corrected = raw + offset` | **Zuerst** |
+| `ibcal` | Proportionaler Skalierungsfehler | `corrected = raw × factor` | **Danach** |
+
+Beide Werte werden persistent gespeichert und bei jedem Boot geladen.
+Zurücksetzen mit `set board.iboffset reset` bzw. `set board.ibcal reset`.
 
 ## Siehe auch
 
