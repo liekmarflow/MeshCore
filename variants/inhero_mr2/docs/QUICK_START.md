@@ -43,12 +43,14 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 9) Frost-Ladestromabsenkung einstellen
 - Command: set board.fmax <0%|20%|40%|100%>
-- Begrenzt den maximalen Ladestrom bei Frost auf X% von board.imax.
-- 0% = Laden bei Kaelte komplett gesperrt.
-- 20% = max. 20% von imax (z.B. 500mA → 100mA bei Frost).
-- 40% = max. 40% von imax (z.B. 500mA → 200mA bei Frost).
+- Begrenzt den maximalen Ladestrom im T-Cool-Bereich (0°C bis -5°C) auf X% von board.imax.
+- 0% = Laden im T-Cool-Bereich gesperrt.
+- 20% = max. 20% von imax (z.B. 500mA → 100mA bei 0°C bis -5°C).
+- 40% = max. 40% von imax (z.B. 500mA → 200mA bei 0°C bis -5°C).
 - 100% = keine Reduktion, voller Ladestrom auch bei Kaelte.
-- Hinweis: Bei LTO ist JEITA deaktiviert (fmax ohne Wirkung).
+- Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
+- Wichtig: Nur das Laden wird eingeschraenkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
+- Hinweis: Bei LTO ist JEITA deaktiviert (fmax ohne Wirkung, laedt auch bei Frost).
 
 ## 10) MPPT aktivieren
 - Command: set board.mppt <0|1>

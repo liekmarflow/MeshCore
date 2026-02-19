@@ -97,11 +97,16 @@ get board.hwver     # Hardware-Version abfragen
 
 get board.fmax      # Frost-Ladeverhalten abfragen
                     # Ausgabe: 0% | 20% | 40% | 100%
-                    # Wert = maximaler Ladestrom bei Frost, relativ zu board.imax
-                    # 40% bei imax=500mA → max. 200mA Ladestrom bei Kaelte
-                    # 0% = Laden bei Frost komplett gesperrt
-                    # 100% = keine Reduktion (voller Strom auch bei Kaelte)
-                    # LTO batteries: N/A (JEITA disabled)
+                    # Wert = maximaler Ladestrom im T-Cool-Bereich (0°C bis -5°C),
+                    # relativ zu board.imax
+                    # 40% bei imax=500mA → max. 200mA Ladestrom bei 0°C bis -5°C
+                    # 0% = Laden im T-Cool-Bereich gesperrt
+                    # 100% = keine Reduktion (voller Strom auch bei Kälte)
+                    # Unter -5°C (T-Cold): Laden immer komplett gesperrt (JEITA)
+                    # Hinweis: Nur das Laden wird eingeschränkt. Bei ausreichend
+                    # Solar wird das Board weiterhin mit Solarstrom betrieben —
+                    # der Akku wird weder ge- noch entladen.
+                    # LTO batteries: N/A (JEITA disabled, lädt auch bei Frost)
 
 get board.imax      # Maximalen Ladestrom abfragen
                     # Ausgabe: <current>mA (z.B. 200mA)
@@ -204,11 +209,16 @@ set board.bat <type>           # Batterietyp setzen
 
 set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Options: 0% | 20% | 40% | 100%
-                               # Begrenzt Ladestrom bei Frost auf X% von board.imax
-                               # 0% = Laden bei Frost gesperrt
-                               # 20% = max. 20% von imax bei Kaelte
-                               # 40% = max. 40% von imax bei Kaelte
+                               # Begrenzt Ladestrom im T-Cool-Bereich (0°C bis -5°C)
+                               # auf X% von board.imax
+                               # 0% = Laden im T-Cool-Bereich gesperrt
+                               # 20% = max. 20% von imax bei 0°C bis -5°C
+                               # 40% = max. 40% von imax bei 0°C bis -5°C
                                # 100% = keine Reduktion
+                               # Unter -5°C (T-Cold): Laden immer gesperrt (JEITA)
+                               # Hinweis: Nur das Laden wird eingeschränkt. Bei
+                               # ausreichend Solar läuft das Board weiterhin auf
+                               # Solarstrom — der Akku wird weder ge- noch entladen.
                                # N/A for LTO batteries (JEITA disabled)
 
 set board.imax <current>       # Maximalen Ladestrom in mA setzen
