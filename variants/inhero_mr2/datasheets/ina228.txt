@@ -1,0 +1,5270 @@
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+INA228 85-V, 20-Bit, Ultra-Precise Power/Energy/Charge Monitor With I2C Interface
+
+
+1 Features
+
+• High-resolution, 20-bit delta-sigma ADC
+
+• Current monitoring accuracy:
+
+– Offset voltage: ±1 µV (maximum)
+
+– Offset drift: ±0.01 µV/°C (maximum)
+
+– Gain error: ±0.05% (maximum)
+
+– Gain error drift: ±20 ppm/°C (maximum)
+
+– Common mode rejection: 154 dB (minimum)
+
+• Power monitoring accuracy:
+
+– 0.5% full scale, –40°C to +125°C (maximum)
+
+• Energy and charge accuracy:
+
+– 1.0% full scale (maximum)
+
+• Fast alert response: 75 μs
+
+• Wide common-mode range: –0.3 V to +85 V
+
+• Bus voltage sense input: 0 V to 85 V
+
+• Shunt full-scale differential range:
+
+±163.84 mV / ±40.96 mV
+
+• Input bias current: 2.5 nA (maximum)
+
+• Temperature sensor: ±1°C (maximum at 25°C)
+
+• Programmable resistor temperature compensation
+
+• Programmable conversion time and averaging
+
+• 2.94-MHz high-speed I2C interface with 16 pin-
+selectable addresses
+
+• Operates from a 2.7-V to 5.5-V supply:
+
+– Operational current: 640 µA (typical)
+
+– Shutdown current: 5 µA (maximum)
+
+2 Applications
+
+• DC/DC converters and power inverters
+
+• Industrial battery packs
+
+• Power-over-ethernet (PoE)
+
+• Telecom equipment
+
+• Enterprise servers
+
+3 Description
+
+The INA228 is an ultra-precise digital power monitor
+with a 20-bit delta-sigma ADC specifically designed
+for current-sensing applications. The device can
+measure a full-scale differential input of ±163.84 mV
+or ±40.96 mV across a resistive shunt sense element
+with common-mode voltage support from –0.3 V to
+
++85 V.
+
+The INA228 reports current, bus voltage, temperature,
+power, energy and charge accumulation while
+employing a precision ±0.5% integrated oscillator,
+all  while performing the needed calculations in the
+background. The integrated temperature sensor is
+
+±1°C accurate for die temperature measurement
+and is useful in monitoring the system ambient
+temperature.
+
+The low offset and gain drift design of the INA228
+allows the device to be used in precise systems
+that do not undergo multi-temperature calibration
+during manufacturing. Further, the very low offset
+voltage and noise allow for use in mA to kA
+sensing applications and provide a wide dynamic
+range without significant power dissipation losses
+on the sensing shunt element. The low input bias
+current of the device permits the use of larger current-
+sense  resistors,  thus  providing  accurate  current
+measurements in the micro-amp range.
+
+The device allows for selectable ADC conversion
+times from 50 µs to 4.12 ms as well as sample
+averaging from 1x to 1024x, which further helps
+reduce the noise of the measured data.
+
+Device Information(1)
+
+PART NUMBER    PACKAGE   BODY SIZE (NOM)
+
+INA228       VSSOP (10)     3.00 mm × 3.00 mm
+
+(1)  For all available packages, see the package option
+addendum at the end of the data sheet.
+
+VS
+
+
+IN+
+IN-
+
+VBUS
+
+MUX
+
+Reference
+
+20 Bit
+ADC
+
+Oscillator
+
+Power
+
+Voltage Current
+Power Energy
+Charge  Temp
+
+Out-of-range
+Threshold
+
+I²C
+
++
+
+–
+
+SCL
+SDA
+A0
+A1
+
+ALERT
+
+GND
+
+Simplified Block Diagram
+
+An IMPORTANT NOTICE at the end of this data sheet addresses availability, warranty, changes, use in 
+safety-critical applications,
+intellectual property matters and other important disclaimers. PRODUCTION DATA.
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table of Contents
+
+
+1 Features                         1
+
+2 Applications                       1
+
+3 Description                       1
+
+4 Revision History                    2
+
+5 Pin Configuration and Functions           3
+
+6 Specifications                      3
+
+6.1 Absolute Maximum Ratings             3
+
+6.2 ESD Ratings                     4
+
+6.3 Recommended Operating Conditions        4
+
+6.4 Thermal Information                 4
+
+6.5 Electrical Characteristics              5
+
+6.6 Timing Requirements (I2C)             7
+
+6.7 Timing Diagram                   7
+
+6.8 Typical Characteristics               8
+
+7 Detailed Description                 12
+
+7.1 Overview                      12
+
+7.2 Functional Block Diagram             12
+
+7.3 Feature Description                12
+
+7.4 Device Functional Modes             18
+
+7.5 Programming                    18
+
+7.6 Register Maps                   21
+
+8 Application and Implementation           30
+
+8.1 Application Information               30
+
+8.2 Typical Application                 35
+
+9 Power Supply Recommendations          39
+
+10 Layout                         39
+
+10.1 Layout Guidelines                 39
+
+10.2 Layout Example                  39
+
+11 Device and Documentation Support        40
+
+11.1 Receiving Notification of Documentation Updates 40
+
+11.2 Support Resources                40
+
+11.3 Trademarks                    40
+
+11.4 Electrostatic Discharge Caution         40
+
+11.5 Glossary                      40
+
+12 Mechanical, Packaging, and Orderable
+Information                      40
+
+4 Revision History
+
+NOTE: Page numbers for previous revisions may differ from page numbers in the current version.
+
+Changes from Revision * (January 2021) to Revision A (May 2022)                   Page
+
+•  Updated the numbering format for tables, figures, and cross-references throughout the document   
+   1
+
+•  Updated the figures and equations throughput the document to align with the commercial data 
+sheet     1
+
+•  Changed Power-supply rejection ratio parameter name to Shunt offset voltage vs power supply in 
+the
+
+Electrical Characteristics table                                            5
+
+•  Added VBUS offset voltage vs power supply typical values to the Electrical Characteristics table 
+       5
+
+•  Added register field settings for the typical ADC conversion times.                        5
+
+•  Added content to the High-Precision Delta-Sigma ADC section                         13
+
+•  Changed the Shunt Calibration (SHUNT_CAL) register 14-0 bit name from CURRLSB to SHUNT_CAL   21
+
+•  Changed the Device ID (DEVICE_ID) register reset value                            21
+
+•  Changed the equation definition list in Equation 2                                30
+
+2   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+5 Pin Configuration and Functions
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+A1     1          10     IN+
+
+A0     2           9     IN–
+
+ALERT     3           8     VBUS
+
+SDA     4           7     GND
+
+SCL     5           6     VS
+
+
+PIN
+
+NO.      NAME
+
+Not to scale
+
+Figure 5-1. DGS Package 10-Pin VSSOP Top View
+Table 5-1. Pin Functions
+
+TYPE                       DESCRIPTION
+
+
+1        A1
+
+2        A0
+
+3       ALERT
+
+4        SDA
+
+5        SCL
+
+6        VS
+
+7        GND
+
+8        VBUS
+
+9        IN–
+
+10        IN+
+
+Digital input
+Digital input
+Digital output
+
+Digital input/output
+Digital input
+Power supply
+Ground
+
+Analog input
+Analog input
+
+Analog input
+
+I2C address pin. Connect to GND, SCL, SDA, or VS.
+I2C address pin. Connect to GND, SCL, SDA, or VS.
+Open-drain alert output, default state is active low.
+Open-drain bidirectional I2C data.
+
+I2C clock input.
+
+Power supply, 2.7 V to 5.5 V.
+Ground.
+
+Bus voltage input.
+
+Negative input to the device. For high-side applications, connect to load side of sense resistor. 
+For
+low-side applications, connect to ground side of sense resistor.
+
+Positive input to the device. For high-side applications, connect to power supply side of sense
+resistor. For low-side applications, connect to load side of sense resistor.
+
+
+6 Specifications
+
+6.1 Absolute Maximum Ratings
+
+over operating free-air temperature range (unless otherwise noted)(1)
+
+MIN      MAX   UNIT
+
+
+VS
+
+V , V
+
+(2)
+
+Supply voltage
+Differential         (VIN₊) – (VIN–)
+
+6    V
+
+–40       40    V
+
+
+IN+
+
+VVBUS
+VALERT
+VIO
+
+IIN
+IOUT
+TJ
+
+Tstg
+
+IN–
+
+Common-mode
+
+ALERT
+SDA, SCL
+
+Input current into any pin
+Digital output current
+Junction temperature
+Storage temperature
+
+–0.3       85    V
+
+–0.3       85    V
+
+–0.3    VS + 0.3    V
+
+–0.3        6    V
+
+5   mA
+
+10   mA
+
+150   °C
+
+–65      150    °C
+
+(1)  Stresses beyond those listed under Absolute Maximum Rating may cause permanent damage to the 
+device. These are stress
+ratings only, which do not imply functional operation of the device at these or any other 
+conditions beyond those indicated
+
+under Recommended Operating Condition. Exposure to absolute-maximum-rated conditions for extended 
+periods may affect device
+reliability.
+
+(2)  VIN+ and VIN– are the voltages at the IN+ and IN– pins, respectively.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   3
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+6.2 ESD Ratings
+
+
+V₍ESD₎   Electrostatic discharge
+
+Human body model (HBM), per ANSI/ESDA/JEDEC JS-001, all
+pins(1)
+
+Charged device model (CDM), per JEDEC specification JESD22-
+C101, all pins(2)
+
+VALUE
+
+±2000
+
+±1000
+
+UNIT
+
+V
+
+(1)  JEDEC document JEP155 states that 500-V HBM allows safe manufacturing with a standard ESD 
+control process.
+
+(2)  JEDEC document JEP157 states that 250-V CDM allows safe manufacturing with a standard ESD 
+control process.
+
+
+6.3 Recommended Operating Conditions
+
+over operating free-air temperature range (unless otherwise noted)
+
+MIN    NOM    MAX  UNIT
+
+
+VCM
+VS
+TA
+
+Common-mode input range
+Operating supply range
+Ambient temperature
+
+–0.3           85   V
+
+2.7          5.5   V
+
+–40          125   °C
+
+
+6.4 Thermal Information
+
+THERMAL METRIC(1)
+
+INA228
+DGS (VSSOP)
+
+10 PINS
+
+UNIT
+
+
+RθJA
+
+RθJC(top)
+RθJB
+ΨJT
+
+YJB
+
+RθJC(bot)
+
+Junction-to-ambient thermal resistance
+Junction-to-case              (top) thermal resistance
+Junction-to-board thermal resistance
+Junction-to-top characterization parameter
+Junction-to-board characterization parameter
+Junction-to-case (bottom) thermal resistance
+
+177.6
+
+66.4
+
+99.5
+
+9.7
+
+97.6
+
+N/A
+
+°C/W
+
+°C/W
+
+°C/W
+
+°C/W
+
+°C/W
+
+°C/W
+
+(1)  For more information about traditional and new thermal metrics, see the Semiconductor and IC 
+Package Thermal Metrics application
+report.
+
+4   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+6.5 Electrical Characteristics
+
+at TA = 25 °C, VS = 3.3 V, VSENSE = VIN₊ – VIN– = 0 V, VCM = VIN– = 48 V (unless otherwise noted)
+
+PARAMETER               TEST CONDITIONS         MIN   TYP   MAX  UNIT
+
+INPUT
+
+VCM    Common-mode input range       TA = –40°C to +125°C               –0.3         85   V
+VVBUS   Bus voltage input range                                   0         85   V
+
+CMRR  Common-mode rejection        –0.3 V < VCM < 85 V, TA = –40°C to +125°C     154    170        
+dB
+
+TA = –40°C to +125°C, ADCRANGE = 0    –163.84       163.84  mV
+
+
+VDIFF
+
+Vos
+
+dVₒs/dT
+PSRR
+
+Vos_bus
+dVₒs/dT
+PSRR
+IB
+ZVBUS
+IVBUS
+RDIFF
+
+Shunt voltage input range
+
+Shunt offset voltage
+Shunt offset voltage drift
+
+Shunt offset voltage vs power supply
+VBUS offset voltage
+
+VBUS offset voltage drift
+
+VBUS offset voltage vs power supply
+Input bias current
+
+VBUS pin input impedance
+VBUS pin leakage current
+Input differential impedance
+
+TA = –40°C to +125°C, ADCRANGE = 1
+VCM = 48 V, TCT > 280 µs
+
+VCM = 0 V, TCT > 280 µs
+TA = –40°C to +125°C
+
+VS = 2.7 V to 5.5 V, TA = –40°C to +125°C
+VBUS = 20 mV
+
+TA = –40°C to +125°C
+VS = 2.7 V to 5.5 V
+
+Either input, IN+ or IN–, VCM = 85 V
+Active mode
+
+Shutdown mode, VBUS = 85 V
+Active             mode, VIN₊ – VIN– < 164 mV
+
+–40.96       40.96
+
+±0.3   ±1
+
+±0.3   ±1
+
+±2   ±10
+
+±0.05  ±0.5
+
+±1  ±2.5
+
+±4   ±20
+
+±0.25
+
+0.1   2.5
+
+0.8    1    1.2
+
+10
+
+92
+
+mV
+µV
+µV
+nV/°C
+µV/V
+mV
+µV/°C
+mV/V
+nA
+MΩ
+
+nA
+kΩ
+
+DC ACCURACY
+
+GSERR   Shunt voltage gain error        VCM = 24 V                         ±0.01   ±0.05   %
+GS_DRFT  Shunt voltage gain error drift                                          ±20  ppm/°C
+
+GBERR  VBUS voltage gain error                                     ±0.01   ±0.05   %
+
+GB_DRFT  VBUS voltage gain error drift                                         ±20  ppm/°C
+
+PTME   Power total measurement error (TME)  TA = –40°C to +125°C, at full scale                   
+±0.5   %
+
+ETME   Energy and charge TME        at full scale power                            ±1   %
+ADC                                                         resolution                              
+              20        Bits
+
+Shunt voltage, ADCRANGE = 0              312.5       nV
+
+Shunt voltage, ADCRANGE = 1             78.125       nV
+
+
+TCT
+
+INL
+DNL
+
+1 LSB step size
+
+ADC conversion-time(1)
+
+Integral Non-Linearity
+Differential Non-Linearity
+
+Bus voltage
+Temperature
+
+Conversion time field = 0h
+Conversion time field = 1h
+Conversion time field = 2h
+Conversion time field = 3h
+Conversion time field = 4h
+Conversion time field = 5h
+Conversion time field = 6h
+Conversion time field = 7h
+
+195.3125
+
+7.8125
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+±2
+
+0.2
+
+µV
+m°C
+
+µs
+
+m%
+LSB
+
+CLOCK SOURCE
+
+FOSC   Internal oscillator frequency                                      1       MHz
+
+TA = 25°C                              ±0.5   %
+
+
+FOSC_TOL Internal oscillator frequency tolerance
+
+TA = –40°C to +125°C
+
+±1  %
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   5
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+6.5 Electrical Characteristics (continued)
+
+at TA = 25 °C, VS = 3.3 V, VSENSE = VIN₊ – VIN– = 0 V, VCM = VIN– = 48 V (unless otherwise noted)
+
+PARAMETER               TEST CONDITIONS         MIN   TYP   MAX  UNIT
+TEMPERATURE SENSOR
+
+Measurement range                                   –40        +125   °C
+
+TA = 25°C                        ±0.15    ±1   °C
+
+
+Temperature accuracy
+
+POWER SUPPLY
+
+TA = –40°C to +125°C
+
+±0.2    ±2  °C
+
+
+VS
+IQ
+IQSD
+TPOR
+
+Supply voltage
+Quiescent    current
+
+Quiescent current, shutdown
+Device start-up time
+
+VSENSE = 0 V
+
+VSENSE = 0 V, TA = –40°C to +125°C
+
+Shutdown mode
+Power-up   (NPOR)
+From shutdown mode
+
+2.7        5.5   V
+
+640   750  µA
+
+1.1  mA
+
+2.8    5  µA
+
+300
+
+µs
+
+60
+
+DIGITAL INPUT / OUTPUT
+
+VIH    Logic input level, high         SDA, SCL                     1.2         5.5   V
+
+VIL    Logic input level, low                                  GND         0.4   V
+
+VOL    Logic output level, low         IOL = 3 mA                    GND         0.4   V
+
+IIO_LEAK  Digital leakage input current      0 ≤ VIN ≤ VS                    –1          1   µA
+
+(1)  Subject to oscillator accuracy and drift
+
+6   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+6.6 Timing Requirements (I2C)
+
+I2C BUS (FAST MODE)
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+MIN    NOM    MAX  UNIT
+
+
+F(SCL)
+
+t(BUF)
+t(HDSTA)
+
+t(SUSTA)
+t(SUSTO)
+t(HDDAT)
+t(SUDAT)
+t(LOW)
+t(HIGH)
+
+tF
+tF
+tR
+
+I2C clock frequency
+
+Bus free time between STOP and START conditions
+
+Hold time after a repeated START condition. After this period, the first
+clock is generated.
+
+Repeated START condition setup time
+STOP condition setup time
+
+Data hold time
+Data setup time
+
+SCL clock low period
+SCL      clock high period
+Data fall time
+
+Clock fall time
+Clock rise time
+
+1          400
+
+600
+
+100
+
+100
+
+100
+
+10          900
+
+100
+
+1300
+
+600
+
+300
+
+300
+
+300
+
+kHz
+ns
+
+ns
+
+ns
+ns
+ns
+ns
+ns
+ns
+ns
+ns
+ns
+
+I2C BUS (HIGH-SPEED MODE)
+
+F₍SCL₎     I2C clock frequency                               10          2940   kHz
+
+t₍BUF₎     Bus free time between STOP and START conditions               160               ns
+
+
+t(HDSTA)
+
+t(SUSTA)
+t(SUSTO)
+t(HDDAT)
+t(SUDAT)
+t(LOW)
+t(HIGH)
+
+tF
+tF
+tR
+
+Hold time after a repeated START condition. After this period, the first
+clock is generated.
+
+Repeated START condition setup time
+STOP condition setup time
+
+Data hold time
+Data setup time
+
+SCL clock low period
+SCL      clock high period
+Data fall time
+
+Clock fall time
+Clock rise time
+
+100              ns
+
+100              ns
+
+100              ns
+
+10          125   ns
+
+20              ns
+
+200              ns
+
+60              ns
+
+80  ns
+
+40  ns
+
+40  ns
+
+
+6.7 Timing Diagram
+
+t(LOW)
+
+tR         tF                t(HDSTA)
+
+
+SCL
+
+t(HDSTA)
+
+t(HIGH) t(SUSTA)
+
+t(HDDAT)     t(SUDAT)
+
+t
+
+(SUSTO)
+
+
+SDA
+
+t(BUF)
+
+P   S
+
+S                   P
+
+Figure 6-1. I2C Timing Diagram
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   7
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+6.8 Typical Characteristics
+
+at TA = 25 °C, VVS = 3.3 V, VCM = 48 V, VSENSE = 0, and VVBUS = 48 V (unless otherwise noted)
+
+
+VCM = 48 V
+
+Figure 6-2. Shunt Input Offset Voltage Production Distribution
+
+VCM = 0 V
+
+Figure 6-3. Shunt Input Offset Voltage Production Distribution
+
+
+Figure 6-4. Shunt Input Offset Voltage vs. Temperature
+
+Figure 6-5. Common-Mode Rejection Ratio Production
+Distribution
+
+
+Figure 6-6. Shunt Input Common-Mode Rejection Ratio vs.
+
+Temperature
+
+VCM = 24 V
+
+Figure 6-7. Shunt Input Gain Error Production Distribution
+
+8   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+6.8 Typical Characteristics (continued)
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+at TA = 25 °C, VVS = 3.3 V, VCM = 48 V, VSENSE = 0, and VVBUS = 48 V (unless otherwise noted)
+
+
+VCM = 24 V
+
+Figure 6-8. Shunt Input Gain Error vs. Temperature
+
+Figure 6-9. Shunt Input Gain Error vs. Common-Mode Voltage
+
+
+VVBUS = 20 mV
+
+Figure 6-10. Bus Input Offset Voltage Production Distribution
+
+VVBUS = 20 mV
+
+Figure 6-11. Bus Input Offset Voltage vs. Temperature
+
+Figure 6-12. Bus Input Gain Error Production Distribution      Figure 6-13. Bus Input Gain Error 
+vs. Temperature
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   9
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+6.8 Typical Characteristics (continued)
+
+at TA = 25 °C, VVS = 3.3 V, VCM = 48 V, VSENSE = 0, and VVBUS = 48 V (unless otherwise noted)
+
+
+Figure 6-14. Input Bias Current vs. Differential Input Voltage
+
+Figure 6-15. Input Bias Current (IB+ or IB–) vs. Common-Mode
+Voltage
+
+Figure 6-16. Input Bias Current vs. Temperature      Figure 6-17. Input Bias Current vs. 
+Temperature, Shutdown
+
+
+Figure 6-18. Active IQ vs. Temperature
+
+Figure 6-19. Active IQ vs. Supply Voltage
+
+10   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+6.8 Typical Characteristics (continued)
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+at TA = 25 °C, VVS = 3.3 V, VCM = 48 V, VSENSE = 0, and VVBUS = 48 V (unless otherwise noted)
+
+
+680
+
+Figure 6-20. Shutdown IQ vs. Supply Voltage
+
+150
+
+Figure 6-21. Shutdown IQ vs. Temperature
+
+
+660
+
+Continuous I2C Write Commands
+
+120
+
+
+640
+
+Idle SDA, Clocking SCL
+
+90
+
+60
+
+620
+
+30
+
+
+600
+
+1        10       100       1000  3000
+
+Frequency (kHz)
+
+Figure 6-22. Active IQ vs. Clock Frequency
+
+0
+
+1        10       100       1000  3000
+
+Frequency (kHz)
+
+Figure 6-23. Shutdown IQ vs. Clock Frequency
+
+Figure 6-24. Internal Clock Frequency vs. Power Supply     Figure 6-25. Internal Clock Frequency 
+vs. Temperature
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   11
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+7 Detailed Description
+
+7.1 Overview
+
+The INA228 device is a digital current sense amplifier with an I2C digital interface. It measures 
+shunt voltage,
+bus voltage and internal temperature while calculating current, power, energy and charge necessary 
+for
+accurate decision making in precisely controlled systems. Programmable registers allow flexible 
+configuration
+for measurement precision as well as continuous or triggered operation. Detailed register 
+information is found in
+Section 7.6.
+
+7.2 Functional Block Diagram
+
+VS
+
+
+IN+
+IN-
+
+VBUS
+
+MUX
+
+Reference
+
+20 Bit
+ADC
+
+Oscillator
+
+Power
+
+Voltage Current
+Power  Energy
+Charge  Temp
+
+Out-of-range
+Threshold
+
+I²C
+
++
+
+–
+
+SCL
+SDA
+A0
+A1
+
+ALERT
+
+
+7.3 Feature Description
+
+GND
+
+7.3.1 Versatile High Voltage Measurement Capability
+
+The INA228 operates off a 2.7 V to 5.5 V supply but can measure voltage and current on rails as 
+high as 85
+
+V. The current is measured by sensing the voltage drop across a external shunt resistor at the IN+ 
+and IN–
+pins. The input stage of the INA228 is designed such that the input common-mode voltage can be 
+higher than
+the device supply voltage, VS. The supported common-mode voltage range at the input pins is –0.3 V 
+to +85
+V, which makes the device well suited for both high-side and low-side current measurements. There 
+are no
+special considerations for power-supply sequencing because the common-mode input range and device 
+supply
+voltage are independent of each other; therefore, the bus voltage can be present with the supply 
+voltage off, and
+vice-versa without damaging the device.
+
+The device also measures the bus supply voltage through the VBUS pin and temperature through the 
+integrated
+temperature sensor. The differential shunt voltage is measured between the IN+ and IN– pins, while 
+the bus
+voltage is measured with respect to device ground. Monitored bus voltages can range from 0 V to 85 
+V, while
+monitored temperatures can range from -40 ºC to +125 ºC.
+
+Shunt voltage, bus voltage, and temperature measurements are multiplexed internally to a single ADC 
+as shown
+in Figure 7-1.
+
+ADCp ADCn
+
+
+VBUS
+
+IN+
+
+IN-
+
+Vs
+
+Bus Voltage
+Shunt Voltage
+Internal Temp.
+
+ADC_IN+
+
+To ADC Input
+
+ADC_IN-
+
+PTAT Temp.
+
+Sensor
+
+MUX digital
+Control
+
+Figure 7-1. High-Voltage Input Multiplexer
+
+12   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+7.3.2 Internal Measurement and Calculation Engine
+
+The current and charge are calculated after a shunt voltage measurement, while the power and energy 
+are
+calculated after a bus voltage measurement. Power and energy are calculated based on the previous 
+current
+calculation and the latest bus voltage measurement. If the value loaded into the SHUNT_CAL register 
+is zero,
+the power, energy and charge values will be reported as zero.
+
+The current, voltage, and temperature values are immediate results when the number of averages is 
+set to one
+as shown in Figure 7-2. However, when averaging is used, each ADC measurement is an intermediate 
+result
+which is stored in the corresponding averaging registers. Following every ADC sample, the 
+newly-calculated
+values for current, voltage, and temperature are appended to their corresponding averaging 
+registers until the
+set number of averages is achieved. After all of the samples have been measured the average current 
+and
+voltage is determined, the power is calculated and the results are loaded to the corresponding 
+output registers
+where they can then be read.
+
+The energy and charge values are accumulated for each conversion cycle. Therefore the INA228 
+averaging
+function is not applied to these.
+
+Calculations for power, charge and energy are performed in the background and do not add to the 
+overall
+conversion time.
+
+
+ADC,
+
+Temperature, Current,   T   i
+
+Voltage
+
+v   T   i
+
+v   T   i
+
+v   T   i
+
+v   T   i
+
+v   T   i
+
+
+Power register
+
+p1          p2
+
+p3           p4           p5
+
+
+Charge register
+
+Q1 =
+
+i1 x t1
+
+Q.. =
+
+i.. x t..
+
+Q.. =
+
+i.. x t..
+
+Q.. =
+
+i.. x t..
+
+Q.. =
+
+i.. x t..
+
+
+Energy register
+
+E1 =
+
+p1 x t2
+
+E.. =
+
+p.. x t..
+
+E.. =
+
+p.. x t..
+
+E.. =
+
+p.. x t..
+
+E.. =
+
+p.. x t..
+
+Figure 7-2. Power, Energy and Charge Calculation Scheme
+
+7.3.3 Low Bias Current
+
+The INA228 features very low input bias current which provides several benefits. The low input bias 
+current of
+the INA228 reduces the current consumed by the device in both active and shutdown state. Another 
+benefit
+of low bias current is that it allows the use of input filters to reject high-frequency noise 
+before the signal is
+converted to digital data. In traditional digital current-sense amplifiers, the addition of input 
+filters comes at
+the cost of reduced accuracy. However, as a result of the low bias current, the reduction in 
+accuracy due to
+input filters is minimized. An additional benefit of low bias current is the ability to use a 
+larger shunt resistor to
+accurately sense smaller currents. Use of a larger value for the shunt resistor allows the device 
+to accurately
+monitor currents in the sub-mA range.
+
+The bias current in the INA228 is the smallest when the sensed current is zero. As the current 
+starts to increase,
+the differential voltage drop across the shunt resistor increases which results in an increase in 
+the bias current
+as shown in Figure 6-14.
+
+7.3.4 High-Precision Delta-Sigma ADC
+
+The integrated ADC is a high-performance, low-offset, low-drift, delta-sigma ADC designed to support
+bidirectional current flow at the shunt voltage measurement channel. The measured inputs are 
+selected through
+the high-voltage input multiplexer to the ADC inputs as shown in Figure 7-1. The ADC architecture 
+enables
+lower drift measurement across temperature and consistent offset measurements across the common-mode
+voltage, temperature, and power supply variations. A low-offset ADC is preferred in current sensing 
+applications
+to provide a near 0-V offset voltage that maximizes the useful dynamic range of the system.
+
+ADC conversion time for each input can be set independently by the VSHCT, VBUSCT, and VTCT bits in 
+register
+ADC_CONFIG, respectively, in the range of 50 µs to 4.12 ms. Furthermore, a sample averaging 
+function in the
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   13
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+range of 1x to 1024x is implemented and can be selected by the AVG bits in ADC_CONFIG register. The 
+sample
+conversion time and the averaging are a part of the integrated digital filter described in Section 
+7.3.4.1.
+
+The INA228 can measure the shunt voltage, bus voltage, and die temperature, or a combination of any 
+based
+on the selected MODE bits setting in the ADC_CONFIG register. This permits selecting modes to 
+convert
+only the shunt voltage or bus voltage to further allow the user to configure the monitoring 
+function to fit the
+specific application requirements. When no averaging is selected, once an ADC conversion is 
+completed, the
+converted values are independently updated in their corresponding registers where they can be read 
+through
+the digital interface at the time of conversion end. The conversion time for shunt voltage, bus 
+voltage, and
+temperature inputs are set independently from 50 µs to 4.12ms depending on the values programmed in 
+the
+ADC_CONFIG register. Enabled measurement inputs are converted sequentially so the total time to 
+convert
+all   inputs depends on the conversion time for each input and the number of inputs enabled. When 
+averaging
+is used, the intermediate values are subsequently stored in an averaging accumulator, and the 
+conversion
+sequence repeats until the number of averages is reached. After all of the averaging has been 
+completed, the
+final values are updated in the corresponding registers that can then be read. These values remain 
+in the data
+output registers until they are replaced by the next fully completed conversion results. In this 
+case, reading the
+data output registers does not affect a conversion in progress.
+
+The ADC has two conversion modes—continuous and triggered—set by the MODE bits in ADC_CONFIG
+register. In continuous-conversion mode, the ADC will continuously convert the input measurements 
+and update
+the output registers as described above in an indefinite loop. In triggered-conversion mode, the 
+ADC will convert
+the input measurements as described above, after which the ADC will go into shutdown mode until 
+another
+single-shot trigger is generated by writing to the MODE bits. Writing the MODE bits will interrupt 
+and restart
+triggered or continuous conversions that are in progress. Although the device can be read at any 
+time, and
+the data from the last conversion remains available, the Conversion Ready flag (CNVRF bit in 
+DIAG_ALRT
+register) is provided to help coordinate triggered conversions. This bit is set after all 
+conversions and averaging
+is completed.
+
+The Conversion Ready flag (CNVRF) clears under these conditions:
+
+• Writing to the ADC_CONFIG register (except for selecting shutdown mode); or
+
+• Reading the DIAG_ALRT Register
+
+While the INA228 device is used in either one of the conversion modes, a dedicated digital engine 
+is calculating
+the current, power, charge and energy values in the background as described in Section 7.3.2. In 
+triggered
+mode, the accumulation registers (ENERGY and CHARGE) are invalid, as the device does not keep track 
+of
+elapsed time. For applications that need critical measurements in regards to accumulation of time 
+for energy and
+charge measurements, the device must be configured to use continuous conversion mode, as the 
+accumulated
+results are continuously updated and can provide true system representation of charge and energy 
+consumption
+in  a system. All of the calculations are performed in the background and do not contribute to 
+conversion time.
+
+For applications that must synchronize with other components in the system, the INA228 conversion 
+can be
+delayed by programming the CONVDLY bits in CONFIG register in the range between 0 (no delay) and 510
+ms. The resolution in programming the conversion delay is 2 ms. The conversion delay is set to 0 by 
+default.
+Conversion delay can assist in measurement synchronization when multiple external devices are used 
+for
+voltage or current monitoring purposes. In applications where an time aligned voltage and current 
+measurements
+are needed, two devices can be used with the current measurement delayed such that the external 
+voltage and
+current measurements will occur at approximately the same time. Keep in mind that even though the 
+internal
+time base for the ADC is precise, synchronization will be lost over time due to internal and 
+external time base
+mismatch.
+
+7.3.4.1 Low Latency Digital Filter
+
+The device integrates a low-pass digital filter that performs both decimation and filtering on the 
+ADC output
+data, which helps with noise reduction. The digital filter is automatically adjusted for the 
+different output data
+rates and always settles within one conversion cycle. The user has the flexibility to choose 
+different output
+conversion time periods TCT from 50 µs to 4.12 ms. With this configuration the first amplitude 
+notch appears
+at   the Nyquist frequency of the output signal which is determined by the selected conversion time 
+period and
+defined as fNOTCH= 1 / (2 x TCT). This means that the filter cut-off frequency will scale 
+proportionally with the
+
+14   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+data output rate as described. Figure 7-3 shows the filter response when the 1.052 ms conversion 
+time period is
+selected.
+
+0
+
+−10
+
+−20
+
+−30
+
+−40
+
+−50
+
+
+−60
+
+1    10    100    1k    10k   100k
+
+Frequency (Hz)
+
+
+Conversion time = 1.052 ms, single
+conversion only
+
+G001
+
+Figure 7-3. ADC Frequency Response
+
+7.3.4.2 Flexible Conversion Times and Averaging
+
+ADC conversion times for shunt voltage, bus voltage and temperature can be set independently from 
+50 μs to
+
+4.12 ms. The flexibility in conversion time allows for robust operation in a variety of noisy 
+environments. The
+device also allows for programmable averaging times from a single conversion all the way to an 
+average of
+1024 conversions. The amount of averaging selected applies uniformly to all active measurement 
+inputs. The
+ADC_CONFIG register shown in Table 7-6 provides additional details on the supported conversion 
+times and
+averaging modes. The INA228 effective resolution of the ADC can be increased by increasing the 
+conversion
+time and increasing the number of averages. Figure 7-4 and Figure 7-5 shown below illustrate the 
+effect of
+conversion time and averaging on a constant input signal.
+
+Figure 7-4. Noise vs. Conversion Time (Averaging = 1)
+
+Figure 7-5. Noise vs. Conversion Time (Averaging = 128)
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   15
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Settings for the conversion time and number of conversions averaged impact the effective measurement
+resolution. For more detailed information on how averaging reduces noise and increases the 
+effective number of
+bits (ENOB) see Section 8.1.3.
+
+7.3.5 Shunt Resistor Drift Compensation
+
+The INA228 device has an internal temperature sensor which can measure die temperature from –40 °C 
+to +125
+
+°C. The accuracy of the temperature sensor is ±2 °C across the operational temperature range. The 
+temperature
+value is stored inside the DIETEMP register and can be read through the digital interface.
+
+The device has the capability to utilize the temperature measurement to compensate for shunt 
+resistor
+temperature variance. This feature can be enabled by setting the TEMPCOMP bit in the CONFIG 
+register, while
+the SHUNT_TEMPCO is the register that can be programmed to enter the temperature coefficient of the 
+used
+shunt. The full scale value of the SHUNT_TEMPCO register is 16384 ppm/°C. The temperature 
+compensation
+is referenced to +25 °C . The shunt is always assumed to have a positive temperature coefficient 
+and the
+temperature compensation follows Equation 1:
+
+
+RADJ = RNOM +
+
+RNOM x (DIETEMP - 25) x SHUNT_TEMPCO
+
+106                                       (1)
+
+where
+
+•  RNOM is the nominal shunt resistance in Ohms at 25 °C.
+
+• DIETEMP is the temperature value in the DIETEMP register in °C.
+
+• SHUNT_TEMPCO is the shunt temperature coefficient in ppm/°C.
+
+When this feature is enabled and correctly programmed, the CURRENT register data is corrected by 
+constantly
+monitoring the die temperature and becomes a function of temperature. The effectiveness of the 
+compensation
+will depend on how well the resistor and the INA228 are thermally coupled since the die temperature 
+of the
+INA228 is used for the compensation.
+
+Note
+
+Warning: If temperature compensation is enabled under some conditions, the calculated current
+result may be lower than the actual value. This condition typically occurs when there is a high 
+value
+of shunt voltage ( >70% of full range), there is a shunt with high temperature-coefficient value ( 
+>2000
+ppm/°C), and there is a high temperature ( >100°C). Consider the example of constant current flowing
+through a high temperature coefficient shunt such that at lower temperatures the shunt voltage is
+in  its upper range. As the temperature increases, the device will correctly report a constant 
+current
+until the maximum shunt voltage is reached. As temperature continues to increase after the maximum
+shunt voltage is reached, the device will start reporting lower currents. This is because the 
+effective
+resistance calculated will continue to increase while the detected shunt voltage will remain 
+constant
+due  to the voltage exceeding the selected ADC range.
+
+7.3.6 Integrated Precision Oscillator
+
+The internal timebase of the device is provided by an internal oscillator that is trimmed to less 
+than 0.5%
+tolerance at room temperature. The precision oscillator is the timing source for ADC conversions, 
+as well as
+the time-count used for calculation of energy and charge. The digital filter response varies with 
+conversion time;
+therefore, the precise clock ensures filter response and notch frequency consistency across 
+temperature. On
+power up, the internal oscillator and ADC take roughly 300 µs to reach <1% error stability. Once 
+the clock
+stabilizes, the ADC data output will be accurate to the electrical specifications provided in 
+Section 6.
+
+7.3.7 Multi-Alert Monitoring and Fault Detection
+
+The INA228 includes a multipurpose, open-drain ALERT output pin that can be used to report multiple
+diagnostics or as an indicator that the ADC conversion is complete when the device is operating in 
+both
+triggered and continuous conversion mode. The diagnostics listed in Table 7-1 are constantly 
+monitored and can
+
+16   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+be reported through the ALERT pin whenever the monitored output value crosses its associated 
+out-of-range
+threshold.
+
+Table 7-1. ALERT Diagnostics Description
+
+
+INA228 DIAGNOSTIC
+
+Shunt Under Voltage Limit
+Shunt Over Voltage Limit
+
+Bus Voltage Over-Limit
+
+Bus Voltage Under-Limit
+
+Temperature Over-Limit
+
+Power Over-Limit
+
+STATUS BIT IN DIAG_ALRT REGISTER
+(RO)
+
+SHNTUL
+SHNTOL
+
+BUSOL
+
+BUSUL
+
+TMPOL
+
+POL
+
+OUT-OF-RANGE
+THRESHOLD
+REGISTER     (R/W)
+
+SUVL
+SOVL
+
+BOVL
+
+BUVL
+
+TEMP_LIMIT
+
+PWR_LIMIT
+
+REGISTER DEFAULT
+VALUE
+
+0x8000 h
+
+(two's complement)
+
+0x7FFF h
+
+(two's complement)
+
+0x7FFF h
+
+(two's complement,
+positive values only)
+
+0x0000 h
+
+(two's complement,
+positive values only)
+
+0xFFFF h
+
+(two's complement,
+positive values only)
+
+0x7FFF h
+
+(two's complement)
+
+A read of the DIAG_ALRT register is used to determine which diagnostic has triggered the ALERT pin. 
+This
+register, shown in Table 7-16, is also used to monitor other associated diagnostics as well as 
+configure some
+ALERT pin functions.
+
+• Alert latch enable — In case the ALERT pin is triggered, this function will hold the value of the 
+pin even after
+all diagnostic conditions have cleared. A read of the DIAG_ALRT register will reset the status of 
+the ALERT
+pin. This function is enabled by setting the ALATCH bit.
+
+•  Conversion ready enable — Enables the ALERT pin to assert when an ADC conversion has completed 
+and
+output values are ready to be read through the digital interface. This function is enabled by 
+setting the CNVR
+bit. The conversion completed events can also be read through the CNVRF bit regardless of the CNVR 
+bit
+setting.
+
+• Alert comparison on averaged output — Allows the out-of-range threshold value to be compared to 
+the
+averaged data values produced by the ADC. This helps to additionally remove noise from the output 
+data
+when compared to the out-of-range threshold to avoid false alerts due to noise. However, the 
+diagnostic will
+be delayed due to the time needed for averaging. This function is enabled by setting the SLOWALERT 
+bit.
+
+•  Alert polarity — Allows the device to invert the active state of the ALERT pin. Note that the 
+ALERT pin is an
+open-drain output that must be pulled-up by a resistor. The ALERT pin is active-low by default and 
+can be
+configured for active high function using the APOL control bit.
+
+Other diagnostic functions that are not reported by the ALERT pin but are available by reading the 
+DIAG_ALRT
+register:
+
+•  Math overflow — Indicated by the MATHOF bit, reports when an arithmetic operation has caused an 
+internal
+register overflow.
+
+•  Memory status — Indicated by the MEMSTAT bit, monitors the health of the device non-volatile 
+trim memory.
+This bit should always read '1' when the device is operating properly.
+
+•  Energy overflow — Indicated by the ENERGYOF bit, reports when the ENERGY register has reached an
+overflow state due to data accumulation.
+
+•  Charge overflow — Indicated by the CHARGEOF bit, reports when the CHARGE register has reached an
+overflow state due to data accumulation.
+
+When the ALERT pin is configured to report the ADC conversion complete event, the ALERT pin becomes 
+a
+multipurpose reporting output. Figure 7-6 shows an example where the device reports ADC conversion 
+complete
+events while the INA228 device is subject to shunt over voltage (over current) event, bus under 
+voltage event,
+over temperature event and over power-limit event.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   17
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+
+Shunt Voltage
+
+Bus Voltage
+
+Temperature
+
+Power
+
+Shunt Over Voltage Threshold
+
+Bus Under Voltage Threshold
+
+Over Temp Threshold
+
+Power Over Limit Threshold
+
+
+ALERT
+
+(ALATCH = 0)
+
+(APOL = 0)
+
+(CNVR = 1)
+
+- No diag. error -
+Conversion Complete
+Reported
+
+BUV
+SET
+
+BUV
+CLEAR
+
+SOV
+SET
+
+SOV
+
+&
+BUV
+SET
+
+SOV
+CLEAR
+
+BUV
+
+&
+OT
+SET
+
+BUV
+
+&
+OT
+
+&
+OP
+SET
+
+
+7.4 Device Functional Modes
+
+7.4.1 Shutdown Mode
+
+Figure 7-6. Multi-Alert Configuration
+
+In addition to the two conversion modes (continuous and triggered), the device also has a shutdown 
+mode
+(selected by the MODE bits in ADC_CONFIG register) that reduces the quiescent current to less than 
+5 µA and
+turns off current into the device inputs, reducing the impact of supply drain when the device is 
+not being used.
+The registers of the device can be written to and read from while the device is in shutdown mode. 
+The device
+remains in shutdown mode until another triggered conversion command or continuous conversion 
+command is
+received.
+
+The device can be triggered to perform conversions while in shutdown mode. When a conversion is 
+triggered,
+the                                                        ADC will start conversion; once 
+conversion completes the device will return to the shutdown state.
+
+Note that the shutdown current is specified with an inactive communications bus. Active clock and 
+data activity
+will increase the current consumption as a function of the bus frequency as shown in Figure 6-23.
+
+7.4.2 Power-On Reset
+
+Power-on reset (POR) is asserted when VS drops below 1.26V (typical) at which all of the registers 
+are reset to
+their default values. A manual device reset can be initiated by setting the RST bit in the CONFIG 
+register. The
+default power-up register values are shown in the reset column for each register description. Links 
+to the register
+descriptions are shown in Section 7.6.
+
+7.5 Programming
+
+7.5.1 I2C Serial Interface
+
+The INA228 operates only as a secondary device on both the SMBus and I2C interfaces. Connections to 
+the
+bus are made through the open-drain SDA and SCL lines. The SDA and SCL pins feature integrated spike
+suppression filters and Schmitt triggers to minimize the effects of input spikes and bus noise. 
+Although the
+device integrates spike suppression into the digital I/O lines, proper layout techniques help 
+minimize the amount
+of coupling into the communication lines. This noise introduction could occur from capacitive 
+coupling signal
+edges between the two communication lines themselves or from other switching noise sources present 
+in the
+system. Routing traces in parallel with ground in between layers on a printed-circuit board (PCB) 
+typically
+reduces the effects of coupling between the communication lines. Shielded communication lines 
+reduce the
+possibility of unintended noise coupling into the digital I/O lines that could be incorrectly 
+interpreted as start or
+stop commands.
+
+18   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+The INA228 supports the transmission protocol for fast mode (1 kHz to 400 kHz) and high-speed mode 
+(1 kHz to
+2.94 MHz). All data bytes are transmitted most significant byte first and follow the SMBus 3.0 
+transfer protocol.
+
+To communicate with the INA228, the main device must first address secondary devices through a 
+secondary
+device address byte. The secondary device address byte consists of seven address bits and a 
+direction bit that
+indicates whether the action is to be a read or write operation.
+
+The device has two address pins, A0 and A1. Table 7-2 lists the pin logic levels for each of the 16 
+possible
+addresses. The device samples the state of pins A0 and A1 on every bus communication. Establish the 
+pin
+states before any activity on the interface occurs. When connecting the SDA pin to either A0 or A1 
+to set the
+device address, additional hold time of 100 ns is needed on the MSB of the I2C address to insure 
+correct device
+addressing.
+
+Table 7-2. Address Pins and Secondary Device Addresses
+
+A1           A0           Secondary Device Address
+
+GND          GND                1000000
+
+GND           VS                 1000001
+
+GND          SDA                1000010
+
+GND          SCL                1000011
+
+VS           GND                1000100
+
+VS           VS                 1000101
+
+VS           SDA                1000110
+
+VS           SCL                1000111
+
+SDA          GND                1001000
+
+SDA           VS                 1001001
+
+SDA          SDA                1001010
+
+SDA           SCL                1001011
+
+SCL          GND                1001100
+
+SCL           VS                 1001101
+
+SCL          SDA                1001110
+
+SCL           SCL                1001111
+
+7.5.1.1 Writing to and Reading Through the I2C Serial Interface
+
+Accessing a specific register on the INA228 is accomplished by writing the appropriate value to the 
+register
+pointer. Refer to Section 7.6 for a complete list of registers and corresponding addresses. The 
+value for the
+register pointer (as shown in Figure 7-9) is the first byte transferred after the secondary device 
+address byte with
+the R/W bit low. Every write operation to the device requires a value for the register pointer.
+
+Writing to a register begins with the first byte transmitted by the main device. This byte is the 
+secondary
+device address, with the R/W bit low. The device then acknowledges receipt of a valid address. The 
+next
+byte transmitted by the main device is the address of the register to be accessed. This register 
+address value
+updates the register pointer to the desired internal device register. The next two bytes are 
+written to the register
+addressed by the register pointer. The device acknowledges receipt of each data byte. The main 
+device may
+terminate data transfer by generating a start or stop condition.
+
+When reading from the device, the last value stored in the register pointer by a write operation 
+determines which
+register is read during a read operation. To change the register pointer for a read operation, a 
+new value must
+be written to the register pointer. This write is accomplished by issuing a secondary device 
+address byte with
+the R/ W bit low, followed by the register pointer byte. No additional data are required. The main 
+device then
+generates a start condition and sends the address byte for the secondary device with the R/W bit 
+high to initiate
+the read command. The next byte is transmitted by the secondary device and is the most significant 
+byte of the
+register indicated by the register pointer. This byte is followed by an Acknowledge from the main 
+device; then
+the secondary device transmits the least significant byte. The main device may or may not 
+acknowledge receipt
+of the second data byte. The main device may terminate data transfer by generating a 
+Not-Acknowledge after
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   19
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+receiving any data byte, or generating a start or stop condition. If repeated reads from the same 
+register are
+desired, it is not necessary to continually send the register pointer bytes; the device retains the 
+register pointer
+value until it is changed by the next write operation.
+
+Figure 7-7 shows the write operation timing diagram. Figure 7-8 shows the read operation timing 
+diagram. These
+diagrams are shown for reading/writing to 16 bit registers. Registers with a higher number of bytes 
+will behave
+similarly.
+
+Register bytes are sent most-significant byte first, followed by the least significant byte.
+
+
+SCL
+
+SDA
+
+1                 9  1
+
+1  0  0  A3  A2  A1  A0  R/W   P7  P6  P5  P4  P3  P2  P1  P0
+
+9  1
+
+D15 D14 D13 D12 D11 D10 D9 D8
+
+9  1                 9
+
+D7  D6  D5  D4  D3 D2  D1 D0
+
+
+Start By
+Controller
+
+  Frame 1 Two-Wire Target Address Byte
+
+(1)
+
+ACK By
+
+Target
+
+     Frame 2 Register Pointer Byte
+
+ACK By
+
+Target
+
+Frame 3 Data MSByte
+
+ACK By
+
+Target
+
+Frame 4 Data LSByte
+
+ACK By
+
+Target
+
+Stop By
+Controller
+
+A.  The value of the Secondary Device Address byte is determined by the settings of the A0 and A1 
+pins. Refer to Table 7-2.
+
+B.  The device does not support packet error checking (PEC) or perform clock stretching.
+
+Figure 7-7. Timing Diagram for Write Word Format
+
+1                    9   1                     9   1                     9
+
+SCL
+
+
+SDA
+
+1  0  0  A3
+
+A2 A1 A0
+
+R/W    D15 D14 D13 D12 D11 D10  D9  D8
+
+D7  D6  D5  D4  D3  D2  D1  D0
+
+
+Start By
+Controller
+
+ACK By
+
+Target
+
+From
+
+Target
+
+ACK By
+
+Controller
+
+From
+
+Target
+
+No ACK By ⁽³⁾
+
+Controller
+
+Stop
+
+
+Frame 1 Two-Wire Target Address Byte ⁽¹⁾
+
+(2)
+
+Frame 2 Data MSByte
+
+(2)
+
+Frame 3 Data LSByte
+
+A.  The value of the Secondary Device Address byte is determined by the settings of the A0 and A1 
+pins. Refer to Table 7-2.
+
+B.  Read data is from the last register pointer location. If a new register is desired, the 
+register pointer must be updated. See Figure 7-9.
+
+C. ACK by the main device can also be sent.
+
+D. The device does not support packet error checking (PEC) or perform clock stretching.
+
+Figure 7-8. Timing Diagram for Read Word Format
+
+
+SCL
+
+1                        9   1                        9
+
+🕕
+
+
+
+
+
+
+
+SDA      1   0   0  A3  A2  A1  A0  R/W     P7  P6  P5  P4  P3  P2  P1  P0       Stop
+
+
+Start By
+Controller
+
+ACK By
+
+Target
+
+Frame 1 Two-Wire Target Address Byte (1)              Frame 2 Register Pointer Byte
+
+ACK By
+
+Target
+
+A.  The value of the Secondary Device Address Byte is determined by the settings of the A0 and A1 
+pins. Refer to Table 7-2.
+
+Figure 7-9. Typical Register Pointer Set
+
+7.5.1.2 High-Speed I2C Mode
+
+When the bus is idle, both the SDA and SCL lines are pulled high by the pullup resistors. The main 
+device
+generates a start condition followed by a valid serial byte containing high-speed (HS) main device 
+code
+00001XXX. This transmission is made in fast (400 kHz) or standard (100 kHz) (F/S) mode at no more 
+than
+400 kHz. The device does not acknowledge the HS main device code, but does recognize it and 
+switches its
+internal filters to support 2.94-MHz operation.
+
+The main device then generates a repeated start condition (a repeated start condition has the same 
+timing
+as the start condition). After this repeated start condition, the protocol is the same as F/S mode, 
+except that
+
+20   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+transmission speeds up to 2.94 MHz are allowed. Instead of using a stop condition, use repeated 
+start conditions
+to maintain the bus in HS-mode. A stop condition ends the HS-mode and switches all the internal 
+filters of the
+device to support the F/S mode.
+
+7.5.1.3 SMBus Alert Response
+
+The INA228 is designed to respond to the SMBus Alert Response address. The SMBus Alert Response 
+provides
+a quick fault identification for simple secondary devices. When an Alert occurs, the main device 
+can broadcast
+the Alert Response secondary device address (0001 100) with the Read/Write bit set high. Following 
+this Alert
+Response, any secondary device that generates an alert identifies itself by acknowledging the Alert 
+Response
+and sending its address on the bus.
+
+The Alert Response can activate several different slave devices simultaneously, similar to the I2C 
+General Call.
+If more than one slave attempts to respond, bus arbitration rules apply. The losing device does not 
+generate an
+Acknowledge and continues to hold the Alert line low until that device wins arbitration.
+
+7.6 Register Maps
+
+7.6.1 INA228 Registers
+
+Table 7-3 lists the INA228 registers. All register locations not listed in Table 7-3 should be 
+considered as
+reserved locations and the register contents should not be modified.
+
+Table 7-3. INA228 Registers
+
+Address Acronym            Register Name         Register Size (bits)              Section
+
+0h   CONFIG            Configuration          16                       Go
+
+1h   ADC_CONFIG         ADC Configuration       16                       Go
+
+2h   SHUNT_CAL          Shunt Calibration        16                       Go
+
+3h   SHUNT_TEMPCO       Shunt Temperature Coefficient  16                       Go
+
+4h   VSHUNT            Shunt Voltage Measurement   24                       Go
+
+5h   VBUS             Bus Voltage Measurement    24                       Go
+
+6h   DIETEMP            Temperature Measurement    16                       Go
+
+7h   CURRENT           Current Result          24                       Go
+
+8h   POWER            Power Result          24                       Go
+
+9h   ENERGY            Energy Result          40                       Go
+
+Ah   CHARGE            Charge Result          40                       Go
+
+Bh   DIAG_ALRT          Diagnostic Flags and Alert    16                       Go
+
+Ch   SOVL             Shunt Overvoltage Threshold   16                       Go
+
+Dh   SUVL              Shunt Undervoltage Threshold  16                       Go
+
+Eh   BOVL              Bus Overvoltage Threshold    16                       Go
+
+Fh   BUVL              Bus Undervoltage Threshold   16                       Go
+
+
+10h  TEMP_LIMIT       Temperature Over-Limit
+Threshold
+
+16                       Go
+
+11h   PWR_LIMIT           Power Over-Limit Threshold   16                       Go
+
+3Eh  MANUFACTURER_ID      Manufacturer ID         16                       Go
+
+3Fh  DEVICE_ID           Device ID            16                       Go
+
+Complex bit access types are encoded to fit into small table cells. Table 7-4 shows the codes that 
+are used for
+access types in this section.
+
+Table 7-4. INA228 Access Type Codes
+
+Access Type  Code     Description
+
+Read Type
+
+R        R        Read
+Write Type
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   21
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 7-4. INA228 Access Type Codes (continued)
+
+Access Type  Code     Description
+
+W       W       Write
+Reset or Default Value
+
+-n               Value after reset or the default
+
+value
+
+7.6.1.1 Configuration (CONFIG) Register (Address = 0h) [reset = 0h]
+
+The CONFIG register is shown in Table 7-5.
+Return to the Summary Table.
+
+Table 7-5. CONFIG Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15   RST           R/W     0h      Reset Bit. Setting this bit to '1' generates a system reset that 
+is the
+
+same as power-on reset.
+
+Resets all registers to default values.
+0h = Normal Operation
+
+1h = System Reset sets registers to default values
+This bit self-clears.
+
+14   RSTACC         R/W     0h      Resets the contents of accumulation registers ENERGY and
+
+CHARGE to 0
+
+0h = Normal Operation
+
+1h = Clears registers to default values for ENERGY and CHARGE
+registers
+
+13-6   CONVDLY        R/W     0h      Sets the Delay for initial ADC conversion in steps of 2 ms.
+
+0h = 0 s
+1h = 2 ms
+
+FFh = 510 ms
+
+5    TEMPCOMP       R/W     0h      Enables temperature compensation of an external shunt
+
+0h = Shunt Temperature Compensation Disabled
+1h = Shunt Temperature Compensation Enabled
+
+4    ADCRANGE       R/W     0h      Shunt full scale range selection across IN+ and IN–.
+
+0h = ±163.84 mV
+
+1h = ± 40.96 mV
+
+3-0   RESERVED        R      0h      Reserved. Always reads 0.
+
+7.6.1.2 ADC Configuration (ADC_CONFIG) Register (Address = 1h) [reset = FB68h]
+
+The ADC_CONFIG register is shown in Table 7-6.
+Return to the Summary Table.
+
+22   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+Table 7-6. ADC_CONFIG Register Field Descriptions
+
+
+Bit
+
+15-12
+
+11-9
+
+8-6
+
+5-3
+
+Field
+
+MODE
+
+VBUSCT
+
+VSHCT
+
+VTCT
+
+Type
+
+R/W
+
+R/W
+
+R/W
+
+R/W
+
+Reset
+
+Fh
+
+5h
+
+5h
+
+5h
+
+Description
+
+The user can set the MODE bits for continuous or triggered mode on
+bus voltage, shunt voltage or temperature measurement.
+
+0h = Shutdown
+
+1h = Triggered bus voltage, single shot
+2h = Triggered shunt voltage, single shot
+
+3h = Triggered shunt voltage and bus voltage, single shot
+4h = Triggered temperature, single shot
+
+5h = Triggered temperature and bus voltage, single shot
+6h = Triggered temperature and shunt voltage, single shot
+
+7h = Triggered bus voltage, shunt voltage and temperature, single
+shot
+
+8h = Shutdown
+
+9h = Continuous bus voltage only
+Ah               = Continuous shunt voltage only
+
+Bh = Continuous shunt and bus voltage
+Ch = Continuous temperature only
+
+Dh = Continuous bus voltage and temperature
+Eh                     = Continuous temperature and shunt voltage
+
+Fh = Continuous bus voltage, shunt voltage and temperature
+
+Sets the conversion time of the bus voltage measurement:
+0h = 50 µs
+
+1h = 84 µs
+2h = 150 µs
+3h = 280 µs
+4h = 540 µs
+5h = 1052 µs
+6h = 2074 µs
+7h = 4120 µs
+
+Sets the conversion time of the shunt voltage measurement:
+0h = 50 µs
+
+1h = 84 µs
+2h = 150 µs
+3h = 280 µs
+4h = 540 µs
+5h = 1052 µs
+6h = 2074 µs
+7h = 4120 µs
+
+Sets the conversion time of the temperature measurement:
+0h = 50 µs
+
+1h = 84 µs
+2h = 150 µs
+3h = 280 µs
+4h = 540 µs
+5h = 1052 µs
+6h = 2074 µs
+7h = 4120 µs
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   23
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 7-6. ADC_CONFIG Register Field Descriptions (continued)
+
+Bit   Field           Type     Reset    Description
+
+2-0   AVG           R/W     0h      Selects ADC sample averaging count. The averaging setting 
+applies
+
+to all active inputs.
+
+When >0h, the output registers are updated after the averaging has
+completed.
+
+0h = 1
+
+1h = 4
+
+2h = 16
+
+3h = 64
+
+4h = 128
+
+5h = 256
+
+6h = 512
+
+7h = 1024
+
+7.6.1.3 Shunt Calibration (SHUNT_CAL) Register (Address = 2h) [reset = 1000h]
+
+The SHUNT_CAL register is shown in Table 7-7.
+Return to the Summary Table.
+
+Table 7-7. SHUNT_CAL Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15   RESERVED        R      0h      Reserved. Always reads 0.
+
+14-0   SHUNT_CAL       R/W     1000h    The register provides the device with a conversion constant 
+value
+
+that represents shunt resistance used to calculate current value in
+Amperes.
+
+This also sets the resolution for the CURRENT register.
+Value calculation under Section 8.1.2.
+
+7.6.1.4 Shunt Temperature Coefficient (SHUNT_TEMPCO) Register (Address = 3h) [reset = 0h]
+
+The SHUNT_TEMPCO register is shown in Table 7-8.
+Return to the Summary Table.
+
+Table 7-8. SHUNT_TEMPCO Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-14   RESERVED        R      0h      Reserved. Always reads 0.
+
+13-0   TEMPCO         R/W     0h      Temperature coefficient of the shunt for temperature 
+compensation
+
+correction. Calculated with respect to +25 °C.
+
+The full scale value of the register is 16383 ppm/°C.
+
+The 16 bit register provides a resolution of 1ppm/°C/LSB
+0h = 0 ppm/°C
+
+3FFFh = 16383 ppm/°C
+
+7.6.1.5 Shunt Voltage Measurement (VSHUNT) Register (Address = 4h) [reset = 0h]
+
+The VSHUNT register is shown in Table 7-9.
+Return to the Summary Table.
+
+24   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+Table 7-9. VSHUNT Register Field Descriptions
+
+
+Bit
+
+23-4
+
+3-0
+
+Field
+
+VSHUNT
+
+RESERVED
+
+Type
+
+R
+
+R
+
+Reset
+
+0h
+
+0h
+
+Description
+
+Differential voltage measured across the shunt output. Two's
+complement value.
+
+Conversion factor:
+
+312.5 nV/LSB when ADCRANGE = 0
+
+78.125 nV/LSB when ADCRANGE = 1
+
+Reserved. Always reads 0.
+
+7.6.1.6 Bus Voltage Measurement (VBUS) Register (Address = 5h) [reset = 0h]
+
+The VBUS register is shown in Table 7-10.
+Return to the Summary Table.
+
+Table 7-10. VBUS Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+23-4   VBUS           R      0h      Bus voltage output. Two's complement value, however always
+
+positive.
+
+Conversion factor: 195.3125 µV/LSB
+3-0   RESERVED       R     0h     Reserved. Always reads 0.
+
+7.6.1.7 Temperature Measurement (DIETEMP) Register (Address = 6h) [reset = 0h]
+
+The DIETEMP register is shown in Table 7-11.
+Return to the Summary Table.
+
+Table 7-11. DIETEMP Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   DIETEMP         R      0h      Internal die temperature measurement. Two's complement value.
+
+Conversion factor: 7.8125 m°C/LSB
+
+7.6.1.8 Current Result (CURRENT) Register (Address = 7h) [reset = 0h]
+
+The CURRENT register is shown in Table 7-12.
+Return to the Summary Table.
+
+Table 7-12. CURRENT Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+23-4   CURRENT        R      0h      Calculated current output in Amperes. Two's complement value.
+
+Value description under Section 8.1.2.
+
+3-0   RESERVED        R      0h      Reserved. Always reads 0.
+
+7.6.1.9 Power Result (POWER) Register (Address = 8h) [reset = 0h]
+
+The POWER register is shown in Table 7-13.
+Return to the Summary Table.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   25
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 7-13. POWER Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+23-0   POWER         R      0h      Calculated power output.
+
+Output value in watts.
+
+Unsigned representation. Positive value.
+Value description under Section 8.1.2.
+
+7.6.1.10 Energy Result (ENERGY) Register (Address = 9h) [reset = 0h]
+
+The ENERGY register is shown in Table 7-14.
+Return to the Summary Table.
+
+Table 7-14. ENERGY Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+39-0   ENERGY         R      0h      Calculated energy output.
+
+Output value is in Joules.Unsigned representation. Positive value.
+Value description under Section 8.1.2.
+
+7.6.1.11 Charge Result (CHARGE) Register (Address = Ah) [reset = 0h]
+
+The CHARGE register is shown in Table 7-15.
+Return to the Summary Table.
+
+Table 7-15. CHARGE Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+39-0   CHARGE         R      0h      Calculated charge output. Output value is in Coulombs.Two's
+
+complement value.
+
+Value description under Section 8.1.2.
+
+7.6.1.12 Diagnostic Flags and Alert (DIAG_ALRT) Register (Address = Bh) [reset = 0001h]
+
+The DIAG_ALRT register is shown in Table 7-16.
+Return to the Summary Table.
+
+Table 7-16. DIAG_ALRT Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15   ALATCH         R/W     0h      When the Alert Latch Enable bit is set to Transparent mode, the
+
+Alert pin and Flag bit reset to the idle state when the fault has been
+cleared.
+
+When the Alert Latch Enable bit is set to Latch mode, the Alert pin
+and Alert Flag bit remain active following a fault until the DIAG_ALRT
+Register has been read.
+
+0h = Transparent
+1h = Latched
+
+14   CNVR          R/W     0h      Setting this bit high configures the Alert pin to be asserted 
+when
+
+the Conversion Ready Flag (bit 1) is asserted, indicating that a
+conversion cycle has completed.
+
+0h = Disable conversion ready flag on ALERT pin
+1h = Enables conversion ready flag on ALERT pin
+
+13   SLOWALERT       R/W     0h      When enabled, ALERT function is asserted on the completed
+
+averaged value.
+
+This gives the flexibility to delay the ALERT until after the averaged
+value.
+
+0h = ALERT comparison on non-averaged (ADC) value
+1h = ALERT comparison on averaged value
+
+26   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+Table 7-16. DIAG_ALRT Register Field Descriptions (continued)
+
+
+Bit
+
+12
+
+11
+
+10
+
+9
+
+8
+
+7
+
+6
+
+5
+
+4
+
+3
+
+2
+
+Field
+
+APOL
+
+ENERGYOF
+
+CHARGEOF
+
+MATHOF
+
+RESERVED
+TMPOL
+
+SHNTOL
+
+SHNTUL
+
+BUSOL
+
+BUSUL
+
+POL
+
+Type
+
+R/W
+
+R
+
+R
+
+R
+
+R
+
+R/W
+
+R/W
+
+R/W
+
+R/W
+
+R/W
+
+R/W
+
+Reset
+
+0h
+
+0h
+
+0h
+
+0h
+
+0h
+0h
+
+0h
+
+0h
+
+0h
+
+0h
+
+0h
+
+Description
+
+Alert Polarity bit sets the Alert pin polarity.
+0h = Normal (Active-low, open-drain)
+
+1h = Inverted (active-high, open-drain )
+
+This bit indicates the health of the ENERGY register.
+
+If the 40 bit ENERGY register has overflowed this bit is set to 1.
+0h = Normal
+
+1h = Overflow
+
+Clears when the ENERGY register is read.
+
+This bit indicates the health of the CHARGE register.
+
+If the 40 bit CHARGE register has overflowed this bit is set to 1.
+0h = Normal
+
+1h = Overflow
+
+Clears when the CHARGE register is read.
+
+This bit is set to 1 if an arithmetic operation resulted in an overflow
+error.
+
+It indicates that current and power data may be invalid.
+0h = Normal
+
+1h = Overflow
+
+Must be manually cleared by triggering another conversion or by
+clearing the accumulators with the RSTACC bit.
+
+Reserved. Always read 0.
+
+This bit is set to 1 if the temperature measurement exceeds the
+threshold limit in the temperature over-limit register.
+
+0h = Normal
+
+1h = Over Temp Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+This bit is set to 1 if the shunt voltage measurement exceeds the
+threshold limit in the shunt over-limit register.
+
+0h = Normal
+
+1h = Over Shunt Voltage Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+This bit is set to 1 if the shunt voltage measurement falls below the
+threshold limit in the shunt under-limit register.
+
+0h = Normal
+
+1h = Under Shunt Voltage Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+This bit is set to 1 if the bus voltage measurement exceeds the
+threshold limit in the bus over-limit register.
+
+0h = Normal
+
+1h = Bus Over-Limit Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+This bit is set to 1 if the bus voltage measurement falls below the
+threshold limit in the bus under-limit register.
+
+0h = Normal
+
+1h = Bus Under-Limit Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+This bit is set to 1 if the power measurement exceeds the threshold
+limit in the power limit register.
+
+0h = Normal
+
+1h = Power Over-Limit Event
+
+When ALATCH =1 this bit is cleared by reading this register.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   27
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 7-16. DIAG_ALRT Register Field Descriptions (continued)
+
+Bit   Field           Type     Reset    Description
+
+1    CNVRF          R/W     0h      This bit is set to 1 if the conversion is completed.
+
+0h = Normal
+
+1h = Conversion is complete
+
+When ALATCH =1 this bit is cleared by reading this register or
+starting a new triggered conversion.
+
+0    MEMSTAT        R/W     1h      This bit is set to 0 if a checksum error is detected in the 
+device trim
+
+memory space.
+
+0h = Memory Checksum Error
+1h = Normal Operation
+
+7.6.1.13 Shunt Overvoltage Threshold (SOVL) Register (Address = Ch) [reset = 7FFFh]
+
+If negative values are entered in this register, then a shunt voltage measurement of 0 V will trip 
+this alarm. When
+using negative values for the shunt under and overvoltage thresholds be aware that the over voltage 
+threshold
+must be set to the larger (that is, less negative) of the two values. The SOVL register is shown in 
+Table 7-17.
+
+Return to the Summary Table.
+
+Table 7-17. SOVL Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   SOVL           R/W     7FFFh    Sets the threshold for comparison of the value to detect 
+Shunt
+
+Overvoltage (overcurrent protection). Two's complement value.
+Conversion Factor: 5 µV/LSB when ADCRANGE = 0
+
+1.25 µV/LSB when ADCRANGE = 1.
+
+7.6.1.14 Shunt Undervoltage Threshold (SUVL) Register (Address = Dh) [reset = 8000h]
+
+The SUVL register is shown in Table 7-18.
+Return to the Summary Table.
+
+Table 7-18. SUVL Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   SUVL           R/W     8000h    Sets the threshold for comparison of the value to detect 
+Shunt
+
+Undervoltage (undercurrent protection). Two's complement value.
+Conversion Factor: 5 µV/LSB when ADCRANGE = 0
+
+1.25 µV/LSB when ADCRANGE = 1.
+
+7.6.1.15 Bus Overvoltage Threshold (BOVL) Register (Address = Eh) [reset = 7FFFh]
+
+The BOVL register is shown in Table 7-19.
+Return to the Summary Table.
+
+Table 7-19. BOVL Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15   Reserved         R      0h      Reserved. Always reads 0.
+
+14-0   BOVL           R/W     7FFFh    Sets the threshold for comparison of the value to detect Bus
+
+Overvoltage (overvoltage protection). Unsigned representation,
+positive value only. Conversion factor: 3.125 mV/LSB.
+
+7.6.1.16 Bus Undervoltage Threshold (BUVL) Register (Address = Fh) [reset = 0h]
+
+The BUVL register is shown in Table 7-20.
+
+28   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+Return to the Summary Table.
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+Table 7-20. BUVL Register Field Descriptions
+
+
+Bit
+
+15
+
+14-0
+
+Field
+Reserved
+BUVL
+
+Type
+
+R
+
+R/W
+
+Reset
+
+0h
+0h
+
+Description
+
+Reserved. Always reads 0.
+
+Sets the threshold for comparison of the value to detect Bus
+Undervoltage (undervoltage protection). Unsigned representation,
+positive value only. Conversion factor: 3.125 mV/LSB.
+
+7.6.1.17 Temperature Over-Limit Threshold (TEMP_LIMIT) Register (Address = 10h) [reset = 7FFFh]
+
+The TEMP_LIMIT register is shown in Table 7-21.
+Return to the Summary Table.
+
+Table 7-21. TEMP_LIMIT Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   TOL           R/W     7FFFh    Sets the threshold for comparison of the value to detect over
+
+temperature measurements. Two's complement value.
+
+The value entered in this field compares directly against the value
+from the DIETEMP register to determine if an over temperature
+condition exists. Conversion factor: 7.8125 m°C/LSB.
+
+7.6.1.18 Power Over-Limit Threshold (PWR_LIMIT) Register (Address = 11h) [reset = FFFFh]
+
+The PWR_LIMIT register is shown in Table 7-22.
+Return to the Summary Table.
+
+Table 7-22. PWR_LIMIT Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   POL           R/W     FFFFh    Sets the threshold for comparison of the value to detect 
+power over-
+
+limit measurements. Unsigned representation, positive value only.
+The value entered in this field compares directly against the value
+from the POWER register to determine if an over power condition
+exists. Conversion factor: 256 × Power LSB.
+
+7.6.1.19 Manufacturer ID (MANUFACTURER_ID) Register (Address = 3Eh) [reset = 5449h]
+
+The MANUFACTURER_ID register is shown in Table 7-23.
+Return to the Summary Table.
+
+Table 7-23. MANUFACTURER_ID Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-0   MANFID         R      5449h    Reads back TI in ASCII.
+
+7.6.1.20 Device ID (DEVICE_ID) Register (Address = 3Fh) [reset = 2281h]
+
+The DEVICE_ID register is shown in Table 7-24.
+Return to the Summary Table.
+
+Table 7-24. DEVICE_ID Register Field Descriptions
+
+Bit   Field           Type     Reset    Description
+
+15-4   DIEID           R      228h     Stores the device identification bits.
+
+3-0   REV_ID          R      1h      Device revision identification.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   29
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+8 Application and Implementation
+
+Note
+
+Information in the following applications sections is not part of the TI component specification,
+and TI does not warrant its accuracy or completeness. TI’s customers are responsible for
+determining suitability of components for their purposes, as well as validating and testing their 
+design
+implementation to confirm system functionality.
+
+8.1 Application Information
+
+8.1.1 Device Measurement Range and Resolution
+
+The INA228 device supports two input ranges for the shunt voltage measurement. The supported full 
+scale
+differential input across the IN+ and IN– pins can be either ±163.84 mV or ±40.96 mV depending on 
+the
+ADCRANGE bit in CONFIG register. The range for the bus voltage measurement is from 0 V to 85 V. The
+internal die temperature sensor range extends from –256 °C to +256 °C but is limited by the package 
+to –40 °C
+to 125 °C.
+
+Table 8-1 provides a description of full scale voltage on shunt, bus, and temperature measurements, 
+along with
+their associated step size.
+
+Table 8-1. ADC Full Scale Values
+
+PARAMETER                FULL SCALE VALUE                RESOLUTION
+
+±163.84 mV (ADCRANGE = 0)              312.5 nV/LSB
+
+
+Shunt voltage
+
+Bus voltage
+Temperature
+
+±40.96 mV (ADCRANGE = 1)
+
+0 V to 85 V
+
+–40 °C to +125 °C
+
+78.125 nV/LSB
+
+195.3125 µV/LSB
+
+7.8125 m°C/LSB
+
+The device shunt voltage measurements, bus voltage, and temperature measurements can be read 
+through the
+VSHUNT, VBUS, and DIETEMP registers, respectively. The digital output in VSHUNT and VBUS registers 
+is
+20-bits. The shunt voltage measurement can be positive or negative due to bidirectional currents in 
+the system;
+therefore the data value in VSHUNT can be positive or negative. The VBUS data value is always 
+positive. The
+output data can be directly converted into voltage by multiplying the digital value by its 
+respective resolution size.
+The digital output in the DIETEMP register is 16-bit and can be directly converted to °C by 
+multiplying by the
+above resolution size. This output value can also be positive or negative.
+
+Furthermore, the device provides the flexibility to report calculated current in Amperes, power in 
+Watts, charge in
+Coulombs and energy in Joules as described in Section 8.1.2.
+
+8.1.2 Current , Power, Energy, and Charge Calculations
+
+For the INA228 device to report current values in Ampere units, a constant conversion value must be 
+written in
+the SHUNT_CAL register that is dependent on the maximum measured current and the shunt resistance 
+used in
+the application. The SHUNT_CAL register is calculated based on Equation 2. The term CURRENT_LSB is 
+the
+LSB step size for the CURRENT register where the current in Amperes is stored. The value of 
+CURRENT_LSB
+is based on the maximum expected current as shown in Equation 3, and it directly defines the 
+resolution of the
+CURRENT register. While the smallest CURRENT_LSB value yields highest resolution, it is common to 
+select a
+higher round-number (no higher than 8x) value for the CURRENT_LSB in order to simplify the 
+conversion of the
+CURRENT.
+
+30   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+The RSHUNT term is the resistance value of the external shunt used to develop the differential 
+voltage across the
+IN+ and IN– pins. Use Equation 2 for ADCRANGE = 0. For ADCRANGE = 1, the value of SHUNT_CAL must be
+multiplied by 4.
+
+SHUNT_CAL = 13107.2 x 10⁶ x CURRENT_LSB x RSHUNT                       (2)
+
+where
+
+• 13107.2 x 106 is an internal fixed value used to ensure scaling is maintained properly.
+
+• the value of SHUNT_CAL must be multiplied by 4 for ADCRANGE = 1.
+
+
+CURRENT_LSB =
+
+Maximum Expected Current
+
+219
+
+(3)
+
+Note that the current is calculated following a shunt voltage measurement based on the value set in 
+the
+SHUNT_CAL register. If the value loaded into the SHUNT_CAL register is zero, the current value 
+reported
+through the CURRENT register is also zero.
+
+After programming the SHUNT_CAL register with the calculated value, the measured current in Amperes 
+can be
+read from the CURRENT register. The final value is scaled by CURRENT_LSB and calculated in Equation 
+4:
+
+Current [A] = CURRENT_LSB x CURRENT                               (4)
+
+where
+
+• CURRENT is the value read from the CURRENT register
+
+The power value can be read from the POWER register as a 24-bit value and converted to Watts by 
+using
+Equation 5:
+
+Power [W] = 3.2 x CURRENT_LSB x POWER                              (5)
+
+where
+
+• POWER is the value read from the POWER register.
+
+• CURRENT_LSB is the lsb size of the current calculation as defined by Equation 3.
+
+The energy value can be read from the ENERGY register as a 40-bit unsigned value in Joules units. 
+The energy
+value in Joules is converted by using Equation 6:
+
+Energy [J] = 16 x 3.2 x CURRENT_LSB x ENERGY                           (6)
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   31
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+The charge value can be read from the CHARGE register as a 40-bit, two's complement value in 
+Coulombs. The
+charge value in Coulomb is converted by using Equation 7:
+
+Charge [C] = CURRENT_LSB x CHARGE                                (7)
+
+where
+
+• CHARGE is the value read from the CHARGE register.
+
+• CURRENT_LSB is the lsb size of the current calculation as described in Equation 3.
+
+Upon overflow, the ENERGY and CHARGE registers will roll over and start from zero. The register 
+values can
+also be reset at any time by setting the RSTACC bit in the CONFIG register.
+
+For a design example using these equations refer to Section 8.2.2.
+
+8.1.3 ADC Output Data Rate and Noise Performance
+
+The INA228 noise performance and effective resolution depend on the ADC conversion time. The device
+also supports digital averaging which can further help decrease digital noise. The flexibility of 
+the device to
+select ADC conversion time and data averaging offers increased signal-to-noise ratio and achieves 
+the highest
+dynamic range with lowest offset. The profile of the noise at lower signals levels is dominated by 
+the system
+noise that is comprised mainly of 1/f noise or white noise. The INA228 effective resolution of the 
+ADC can be
+increased by increasing the conversion time and increasing the number of averages.
+
+Table 8-2 summarizes the output data rate conversion settings supported by the device. The fastest 
+conversion
+setting is 50 µs. Typical noise-free resolution is represented as Effective Number of Bits (ENOB) 
+based on
+device measured data. The ENOB is calculated based on noise peak-to-peak values, which assures that 
+full
+noise distribution is taken into consideration.
+
+Table 8-2. INA228 Noise Performance
+
+
+ADC CONVERSION
+TIME     PERIOD [µs]
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+OUTPUT SAMPLE
+AVERAGING     [SAMPLES]
+
+1
+
+4
+
+OUTPUT SAMPLE PERIOD
+
+[ms]
+
+0.05
+
+0.084
+
+0.15
+
+0.28
+
+0.54
+
+1.052
+
+2.074
+
+4.12
+
+0.2
+
+0.336
+
+0.6
+
+1.12
+
+2.16
+
+4.208
+
+8.296
+
+16.48
+
+NOISE-FREE ENOB
+(±163.84-mV)
+(ADCRANGE = 0)
+
+12.4
+
+12.6
+
+13.3
+
+13.8
+
+14.2
+
+14.5
+
+15.3
+
+16.0
+
+13.1
+
+13.9
+
+14.3
+
+14.9
+
+15.1
+
+15.8
+
+16.1
+
+16.5
+
+NOISE-FREE ENOB
+(±40.96-mV)
+(ADCRANGE = 1)
+
+10.4
+
+10.4
+
+11.4
+
+11.8
+
+12.4
+
+12.6
+
+13.3
+
+13.8
+
+11.4
+
+11.8
+
+12.2
+
+12.8
+
+13.0
+
+13.8
+
+14.3
+
+14.4
+
+32   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+Table 8-2. INA228 Noise Performance (continued)
+
+
+ADC CONVERSION
+TIME     PERIOD [µs]
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+OUTPUT SAMPLE
+AVERAGING     [SAMPLES]
+
+16
+
+64
+
+128
+
+256
+
+512
+
+OUTPUT SAMPLE PERIOD
+
+[ms]
+
+0.8
+
+1.344
+
+2.4
+
+4.48
+
+8.64
+
+16.832
+
+33.184
+
+65.92
+
+3.2
+
+5.376
+
+9.6
+
+17.92
+
+34.56
+
+67.328
+
+132.736
+
+263.68
+
+6.4
+
+10.752
+
+19.2
+
+35.84
+
+69.12
+
+134.656
+
+265.472
+
+527.36
+
+12.8
+
+21.504
+
+38.4
+
+71.68
+
+138.24
+
+269.312
+
+530.944
+
+1054.72
+
+25.6
+
+43
+
+76.8
+
+143.36
+
+276.48
+
+538.624
+
+1061.888
+
+2109.44
+
+NOISE-FREE ENOB
+(±163.84-mV)
+(ADCRANGE = 0)
+
+13.9
+
+14.7
+
+15.1
+
+15.8
+
+16.3
+
+16.5
+
+17.1
+
+17.7
+
+15.0
+
+15.9
+
+16.4
+
+16.9
+
+17.7
+
+17.7
+
+18.1
+
+18.7
+
+15.5
+
+16.3
+
+16.9
+
+17.1
+
+18.1
+
+18.1
+
+18.7
+
+19.7
+
+15.5
+
+16.7
+
+17.4
+
+17.7
+
+18.7
+
+18.7
+
+19.7
+
+19.7
+
+16.7
+
+17.4
+
+17.7
+
+18.7
+
+18.7
+
+19.7
+
+19.7
+
+19.7
+
+NOISE-FREE ENOB
+(±40.96-mV)
+(ADCRANGE = 1)
+
+12.3
+
+12.9
+
+13.0
+
+13.7
+
+14.3
+
+14.6
+
+15.3
+
+15.9
+
+13.3
+
+13.8
+
+14.4
+
+14.5
+
+15.3
+
+15.9
+
+16.3
+
+16.5
+
+13.4
+
+14.3
+
+14.7
+
+15.2
+
+15.9
+
+16.4
+
+16.9
+
+17.1
+
+14.4
+
+14.7
+
+15.3
+
+15.7
+
+16.1
+
+16.7
+
+17.4
+
+17.7
+
+14.3
+
+15.4
+
+15.5
+
+16.3
+
+16.5
+
+17.4
+
+17.7
+
+18.7
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   33
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 8-2. INA228 Noise Performance (continued)
+
+
+ADC CONVERSION
+TIME     PERIOD [µs]
+
+50
+
+84
+
+150
+
+280
+
+540
+
+1052
+
+2074
+
+4120
+
+OUTPUT SAMPLE
+AVERAGING     [SAMPLES]
+
+1024
+
+OUTPUT SAMPLE PERIOD
+
+[ms]
+
+51.2
+
+86.016
+
+153.6
+
+286.72
+
+552.96
+
+1077.248
+
+2123.776
+
+4218.88
+
+NOISE-FREE ENOB
+(±163.84-mV)
+(ADCRANGE = 0)
+
+17.1
+
+17.7
+
+18.1
+
+18.7
+
+19.7
+
+19.7
+
+19.7
+
+20
+
+NOISE-FREE ENOB
+(±40.96-mV)
+(ADCRANGE = 1)
+
+15.0
+
+15.9
+
+16.0
+
+16.9
+
+17.1
+
+17.7
+
+18.1
+
+18.7
+
+8.1.4 Input Filtering Considerations
+
+As previously discussed, INA228 offers several options for noise filtering by allowing the user to 
+select the
+conversion times and number of averages independently in the ADC_CONFIG register. The conversion 
+times
+can be set independently for the shunt voltage and bus voltage measurements to allow added 
+flexibility in
+monitoring of the power-supply bus.
+
+The internal ADC has good inherent noise rejection; however, the transients that occur at or very 
+close to the
+sampling rate harmonics can cause problems. Because these signals are at 1 MHz and higher, they can 
+be
+managed by incorporating filtering at the input of the device. Filtering high frequency signals 
+enables the use of
+low-value series resistors on the filter with negligible effects on measurement accuracy. For best 
+results, filter
+using the lowest possible series resistance (typically 100 Ω or less) and a ceramic capacitor. 
+Recommended
+values for this capacitor are between 0.1 µF and 1 µF. Figure 8-1 shows the device with a filter 
+added at the
+input.
+
+Overload conditions are another consideration for the device inputs. The device inputs are 
+specified to tolerate
+
+±40 V differential across the IN+ and IN– pins. A large differential scenario might be a short to 
+ground on the
+load side of the shunt. This type of event can result in full power-supply voltage across the shunt 
+(as long
+the power supply or energy storage capacitors support it). Removing a short to ground can result in 
+inductive
+kickbacks that could exceed the 40-V differential or 85-V common-mode absolute maximum rating of 
+the device.
+Inductive kickback voltages are best controlled by Zener-type transient-absorbing devices (commonly 
+called
+transzorbs) combined with sufficient energy storage capacitance. See the Transient Robustness for 
+Current
+Shunt Monitors reference design which describes a high-side current shunt monitor used to measure 
+the voltage
+developed across a current-sensing resistor when current passes through it.
+
+In applications that do not have large energy storage, electrolytic capacitors on one or both sides 
+of the shunt,
+an input overstress condition may result from an excessive dV/dt of the voltage applied to the 
+input. A hard
+physical short is the most likely cause of this event. This problem occurs because an excessive 
+dV/dt can
+activate the ESD protection in the device in systems where large currents are available. Testing 
+demonstrates
+that the addition of 10-Ω resistors in series with each input of the device sufficiently protects 
+the inputs against
+this dV/dt failure up to the 40-V maximum differential voltage rating of the device. Selecting 
+these resistors in the
+range noted has minimal effect on accuracy.
+
+34   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+
+Load
+Supply
+
+VS = 2.7V– 5.5V
+
+
+RFILTER
+
+RSHUNT
+
+Load
+
+100 nF
+
+<100 Ω
+
+<100 Ω
+
+VS
+
+VBUS
+IN+
+
+RDIFF
+
+IN-
+GND
+
+CFILTER
+
+0.1µF to 1µF
+
+Figure 8-1. Input Filtering
+
+Do not use values greater than 100 ohms for RFILTER. Doing so will degrade gain error and increase 
+non-
+linearity.
+
+8.2 Typical Application
+
+The low offset voltage and low input bias current of the INA228 allow accurate monitoring of a wide 
+range of
+currents. To accurately monitor currents with high resolution, select the value of the shunt 
+resistor so that the
+resulting sense voltage is close to the maximum allowable differential input voltage range (either 
+±163.84 mV
+or ±40.96 mV, depending on register settings). The circuit for monitoring currents in a high-side 
+configuration is
+shown in Figure 8-2.
+
+VS = 2.7V– 5.5V                  VS
+
+
+100 nF
+
+VS       A0
+
+10k
+
+10k 10k
+
+
+48V
+BATT
+
+LOAD
+
+RSHUNT
+
+VBUS
+IN+
+IN-
+GND
+
+A1
+SCL
+SDA
+ALERT
+
+*
+
+* I²C ADDR: 0x40
+
+I²C
+
+I/F
+
+To
+MCU
+
+
+GND
+
+CHARGER
+
+Figure 8-2. INA228 High-Side Sensing Application Diagram
+
+8.2.1 Design Requirements
+
+The INA228 measures the voltage developed across a current-sensing resistor (RSHUNT) when current 
+passes
+through it. The device also measures the bus supply voltage and calculates power when calibrated. 
+It also
+comes with alert capability, where the alert pin can be programmed to respond to a user-defined 
+event or a
+conversion                                                        ready notification.
+
+The design requirements for the circuit shown in Figure 8-2 are listed in Table 8-3.
+
+Table 8-3. Design Parameters
+
+DESIGN PARAMETER                       EXAMPLE VALUE
+
+Power-supply voltage (VS)                          5 V
+
+Bus supply rail (VCM)                           48 V
+
+Bus supply rail over voltage fault threshold                       52 V
+Average Current                             6 A
+
+Overcurrent fault threshold (IMAX)                        10 A
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   35
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Table 8-3. Design Parameters (continued)
+
+DESIGN PARAMETER                       EXAMPLE VALUE
+
+ADC Range Selection (VSENSE_MAX)                       ±163.84 mV
+Temperature                              25 ºC
+
+Charge Accumulation Period                         1 hour
+
+8.2.2 Detailed Design Procedure
+
+8.2.2.1 Select the Shunt Resistor
+
+Using values from Table 8-3, the maximum value of the shunt resistor is calculated based on the 
+value of
+the maximum current to be sensed (IMAX) and the maximum allowable sense voltage (VSENSE_MAX) for the
+chosen ADC range. When operating at the maximum current, the differential input voltage must not 
+exceed the
+maximum full scale range of the device, VSENSE_MAX. Using Equation 8 for the given design 
+parameters, the
+maximum value for RSHUNT is calculated to be 16.38 mΩ. The closest standard resistor value that is 
+smaller than
+the maximum calculated value is 16.2 mΩ. Also keep in mind that RSHUNT must be able to handle the 
+power
+dissipated across it in the maximum load condition.
+
+
+RSHUNT <
+
+VSENSE_MAX
+
+IMAX                                                        (8)
+
+8.2.2.2 Configure the Device
+
+The first step to program the INA228 is to properly set the device and ADC configuration registers. 
+On initial
+power up the CONFIG and ADC_CONFIG registers are set to the reset values as shown in Table 7-5 and
+Table 7-6. In this default power on state the device is set to measured on the ±163.84 mV range 
+with the ADC
+continuously converting the shunt voltage, bus voltage, and temperature. If the default power up 
+conditions do
+not meet the design requirements, these registers will need to be set properly after each VS power 
+cycle event.
+
+8.2.2.3 Program the Shunt Calibration Register
+
+The shunt calibration register needs to be correctly programmed at each VS power up in order for 
+the device
+to properly report any result based on current. The first step in properly setting this register is 
+to calculate the
+LSB value for the current by using Equation 3. Applying this equation with the maximum expected 
+current of 10
+A results in an LSB size of 19.0735 μA. Applying Equation 2 to the CURRENT_LSB and selected value 
+for the
+shunt resistor results in a shunt calibration register setting of 4050d (FD2h). Failure to set the 
+value of the shunt
+calibration                                                     register will result in a zero 
+value for any result based on current.
+
+8.2.2.4 Set Desired Fault Thresholds
+
+Fault thresholds are set by programming the desired trip threshold into the corresponding fault 
+register. The list
+of supported fault registers is shown in Table 7-1. Since the fault limit registers are 16 bits in 
+length, the effective
+LSB size for these registers is 16 times greater than the corresponding 20 bit LSB used in 
+calculating returned
+values                                                       for bus voltage and current.
+
+An over current threshold is set by programming the shunt over voltage limit register (SOVL). The 
+voltage that
+needs to be programmed into this register is calculated by multiplying the over current threshold 
+by the shunt
+resistor. In this example the over current threshold is 10 A and the value of the current sense 
+resistor is 16.2 mΩ,
+which give a shunt voltage limit of 162 mV. Once the shunt voltage limit is known, the value for 
+the shunt over
+voltage limit register is calculated by dividing the shunt voltage limit by the shunt voltage LSB 
+size.
+
+In this example, the calculated value of the shunt over voltage limit register is 162 mV / (312.5 
+nV × 16) =
+32400d (7E90h).
+
+An over voltage fault threshold on the bus voltage is set by programming the bus over voltage limit 
+register
+(BOVL). In this example the desired over voltage threshold is 52 V. The value that needs to be 
+programmed into
+this register is calculated by dividing the target threshold voltage by the bus voltage fault limit 
+LSB value of 3.125
+mV. For this example, the target value for the BOVL register is 52 V / (195.3125 μV × 16) = 16640d 
+(4100h).
+
+36   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+When setting the power over-limit value, the LSB size used to calculate the value needed in the 
+limit registers
+will be 256 times greater than the power LSB. This is because the power register is a 24 bits in 
+length while the
+power fault limit register is 16 bits.
+
+Values stored in the alert limit registers are set to the default values after VS power cycle 
+events and need to be
+reprogrammed each time power is applied.
+
+8.2.2.5 Calculate Returned Values
+
+Parametric values are calculated by multiplying the returned value by the LSB value. Table 8-4 
+below shows the
+returned values for this application example assuming the design requirements shown in Table 8-3.
+
+Table 8-4. Calculating Returned Values
+
+PARAMETER        Returned Value             LSB Value           Calculated Value
+
+Shunt voltage (V)          311040d               312.5 nV/LSB             0.0972 V
+Current (A)           314572d           10 A/ 219 = 19.073486 µA/LSB          6 A
+
+Bus voltage (V)          245760d              195.3125 µV/LSB             48 V
+Power                                                          (W)           4718604d        
+Current LSB x 3.2 = 61.035156 µW/LSB       288 W
+Energy (J)          1061683200d        Power LSB x 16 = 976.5625 µJ/LSB       1036800 J
+Charge (C)          1132462080d         Current LSB = 19.073486 µC/LSB        21600 C
+
+Temperature (°C)          3200d              7.8125 m°C/LSB             25°C
+
+Shunt Voltage, Current, Bus Voltage (positive only), Charge, and Temperature return values in two's 
+complement
+format. In two's complement format a negative value in binary is represented by having a 1 in the 
+most
+significant bit of the returned value. These values can be converted to decimal by first inverting 
+all the bits
+and adding 1 to obtain the unsigned binary value. This value should then be converted to decimal 
+with the
+negative sign applied. For example, assume a shunt voltage reading returns 1011 0100 0001 0000 
+0000. This is
+a negative value due to the MSB having a value of one. Inverting the bits and adding one results in 
+0100 1011
+1111 0000 0000 (311040d) which from the shunt voltage example in Table 8-4 correlates to a voltage 
+of 97.2 mV.
+Since                                                    the returned value was negative the 
+measured shunt voltage value is -97.2 mV.
+
+8.2.3 Application Curves
+
+Figure 8-3 and Figure 8-4 show the ALERT pin response to a bus overvoltage fault with a conversion 
+time of
+50 μs, averaging set to 1, and the SLOWALERT bit set to 0 for bus only conversions. For these scope 
+shots,
+persistence was enabled on the ALERT channel to show the variation in the alert response for many 
+sequential
+fault events. If the magnitude of the fault is sufficient the ALERT response can be as fast as one 
+quarter of the
+ADC conversion time as shown in Figure 8-3. For fault conditions that are just exceeding the limit 
+threshold,
+the response time for the ALERT pin can vary from approximately 0.5 to 1.5 conversion cycles as 
+shown in
+Figure 8-4. Variation in the alert response exists because the external fault event is not 
+synchronized to the
+internal ADC conversion start. Also the ADC is constantly sampling to get a result, so the response 
+time for fault
+events starting from zero will slower than fault events starting from values near the set fault 
+threshold. Since the
+timing of the alert can be difficult to predict, applications where the alert timing is critical 
+should assume a alert
+response equal to 1.5 times the ADC conversion time for bus voltage or shunt voltage only 
+conversions.
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   37
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+Fault Threshold: 1.9 V
+
+
+ Fault Threshold: 0.2 V 
+
+ Maximum Delay: 37.9 µs
+
+ Maximum Delay: 73.2 µs
+
+Minimum Delay: 12.4 µs                          Minimum Delay: 24 µs
+
+
+TIME (10 µs / div)
+
+Figure 8-3. Alert Response Time (Sampled Values
+Significantly Above Threshold)
+
+TIME (10 µs / div)
+
+Figure 8-4. Alert Response Time (Sampled Values
+Slightly Above Threshold)
+
+38   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+
+www.ti.com
+
+9 Power Supply Recommendations
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022
+
+The input circuitry of the device can accurately measure signals on common-mode voltages beyond its 
+power-
+supply voltage, VS. For example, the voltage applied to the VS power supply terminal can be 5 V, 
+whereas the
+load power-supply voltage being monitored (the common-mode voltage) can be as high as 85 V. Note 
+that the
+device can also withstand the full 0 V to 85 V range at the input terminals, regardless of whether 
+the device has
+power applied or not. Avoid applications where the GND pin is disconnected while device is actively 
+powered.
+
+Place the required power-supply bypass capacitors as close as possible to the supply and ground 
+terminals of
+the device. A typical value for this supply bypass capacitor is 0.1 µF. Applications with noisy or 
+high-impedance
+power supplies may require additional decoupling capacitors to reject power-supply noise.
+
+10 Layout
+
+10.1 Layout Guidelines
+
+Connect the input pins (IN+ and IN–) to the sensing resistor using a Kelvin connection or a 4-wire 
+connection.
+This connection technique ensures that only the current-sensing resistor impedance is sensed 
+between the input
+pins. Poor routing of the current-sensing resistor commonly results in additional resistance 
+present between
+the input pins. Given the very low ohmic value of the current-sensing resistor, any additional 
+high-current
+carrying impedance causes significant measurement errors. Place the power-supply bypass capacitor 
+as close
+as possible to the supply and ground pins.
+
+10.2 Layout Example
+
+
+Alert output
+
+(2)
+
+A1
+A0
+
+ALERT
+
+SDA
+
+IN+
+IN−
+VBUS
+
+GND
+
+(1)
+
+Sense/Shunt
+Resistor
+
+
+2
+
+I C
+
+interface
+
+SCL        VS
+
+Supply bypass
+capacitor
+
+Via to Ground Plane
+
+Via to Power Plane
+
+(1) Connect the VBUS pin to the voltage powering the load for load power calculations..
+
+(2) Can be left floating if unused.
+
+Figure 10-1. INA228 Layout Example
+
+Copyright © 2022 Texas Instruments Incorporated                                Submit Document 
+Feedback   39
+
+Product Folder Links: INA228
+
+
+INA228
+
+SLYS021A – JANUARY 2021 – REVISED MAY 2022                                          www.ti.com
+
+11 Device and Documentation Support
+
+11.1 Receiving Notification of Documentation Updates
+
+To receive notification of documentation updates, navigate to the device product folder on ti.com. 
+Click on
+Subscribe to updates to register and receive a weekly digest of any product information that has 
+changed. For
+change details, review the revision history included in any revised document.
+
+11.2 Support Resources
+
+TI E2E™ support forums are an engineer's go-to source for fast, verified answers and design help — 
+straight
+from                                                        the experts. Search existing answers or 
+ask your own question to get the quick design help you need.
+
+Linked content is provided "AS IS" by the respective contributors. They do not constitute TI 
+specifications and do
+not necessarily reflect TI's views; see TI's Terms of Use.
+
+11.3 Trademarks
+
+TI E2E™ is a trademark of Texas Instruments.
+
+All trademarks are the property of their respective owners.
+
+11.4 Electrostatic Discharge Caution
+
+This integrated circuit can be damaged by ESD. Texas Instruments recommends that all integrated 
+circuits be handled
+with appropriate precautions. Failure to observe proper handling and installation procedures can 
+cause damage.
+
+ESD damage can range from subtle performance degradation to complete device failure. Precision 
+integrated circuits may
+be more susceptible to damage because very small parametric changes could cause the device not to 
+meet its published
+specifications.
+
+11.5 Glossary
+
+TI Glossary   This glossary lists and explains terms, acronyms, and definitions.
+
+12 Mechanical, Packaging, and Orderable Information
+
+The following pages include mechanical, packaging, and orderable information. This information is 
+the most
+current data available for the designated devices. This data is subject to change without notice 
+and revision of
+this document. For browser-based versions of this data sheet, refer to the left-hand navigation.
+
+40   Submit Document Feedback                              Copyright © 2022 Texas Instruments 
+Incorporated
+
+Product Folder Links: INA228
+
+
+PACKAGE OPTION ADDENDUM
+
+www.ti.com                                                                                          
+        31-Dec-2025
+
+PACKAGING INFORMATION
+
+
+Orderable part number
+
+INA228AIDGSR
+INA228AIDGSR.A
+
+Status
+
+(1)
+
+Active
+Active
+
+Material type
+
+(2)
+
+Production
+Production
+
+Package | Pins
+
+VSSOP (DGS) | 10
+VSSOP      (DGS) | 10
+
+Package qty | Carrier
+
+2500 | LARGE T&R
+
+2500 | LARGE T&R
+
+RoHS
+
+(3)
+
+Yes
+Yes
+
+Lead finish/
+Ball  material
+
+(4)
+
+SN
+SN
+
+MSL rating/
+Peak   reflow
+
+(5)
+
+Level-2-260C-1 YEAR
+Level-2-260C-1 YEAR
+
+Op temp (°C)
+
+-40 to 125
+
+-40 to 125
+
+Part marking
+
+(6)
+
+228I
+
+228I
+
+⁽¹⁾ Status: For more details on status, see our product life cycle.
+
+⁽²⁾ Material type: When designated, preproduction parts are prototypes/experimental devices, and 
+are not yet approved or released for full production. Testing and final process, including without 
+limitation quality assurance,
+reliability performance testing, and/or process qualification, may not yet be complete, and this 
+item is subject to further changes or possible discontinuation. If available for ordering, 
+purchases will be subject to an additional
+waiver at checkout, and are intended for early internal evaluation purposes only. These items are 
+sold without warranties of any kind.
+
+⁽³⁾ RoHS values: Yes, No, RoHS Exempt. See the TI RoHS Statement for additional information and 
+value definition.
+
+⁽⁴⁾ Lead finish/Ball material: Parts may have multiple material finish options. Finish options are 
+separated by a vertical ruled line. Lead finish/Ball material values may wrap to two lines if the 
+finish value exceeds the maximum
+column width.
+
+⁽⁵⁾ MSL rating/Peak reflow: The moisture sensitivity level ratings and peak solder (reflow) 
+temperatures. In the event that a part has multiple moisture sensitivity ratings, only the lowest 
+level per JEDEC standards is shown.
+Refer                                                                                               
+         to the shipping label for the actual reflow temperature that will be used to mount the 
+part to the printed circuit board.
+
+⁽⁶⁾ Part marking: There may be an additional marking, which relates to the logo, the lot trace code 
+information, or the environmental category of the part.
+
+Multiple part markings will be inside parentheses. Only one part marking contained in parentheses 
+and separated by a "~" will appear on a part. If a line is indented then it is a continuation of 
+the previous line and the two
+combined represent the entire part marking for that device.
+
+Important Information and Disclaimer:The information provided on this page represents TI's 
+knowledge and belief as of the date that it is provided. TI bases its knowledge and belief on 
+information provided by third parties, and
+makes no representation or warranty as to the accuracy of such information. Efforts are underway to 
+better integrate information from third parties. TI has taken and continues to take reasonable 
+steps to provide representative
+and accurate information but may not have conducted destructive testing or chemical analysis on 
+incoming materials and chemicals. TI and TI suppliers consider certain information to be 
+proprietary, and thus CAS numbers
+and                                                                                                 
+        other limited information may not be available for release.
+
+In no event shall TI's liability arising out of such information exceed the total purchase price of 
+the TI part(s) at issue in this document sold by TI to Customer on an annual basis.
+
+OTHER QUALIFIED VERSIONS OF INA228 :
+
+• Automotive : INA228-Q1
+
+Addendum-Page 1
+
+
+PACKAGE OPTION ADDENDUM
+
+www.ti.com                                                                                          
+        31-Dec-2025
+
+NOTE: Qualified Version Definitions:
+
+• Automotive - Q100 devices qualified for high-reliability automotive applications targeting zero 
+defects
+
+Addendum-Page 2
+
+
+PACKAGE MATERIALS INFORMATION
+
+www.ti.com                                                               1-Jan-2026
+
+TAPE AND REEL INFORMATION
+
+
+REEL DIMENSIONS
+
+TAPE DIMENSIONS
+
+K0  P1
+
+
+Reel
+Diameter
+
+Cavity    A0
+
+B0 W
+
+A0 Dimension designed to accommodate the component width
+B0 Dimension designed to accommodate the component length
+
+K0 Dimension designed to accommodate the component thickness
+W Overall width of the carrier tape
+
+P1 Pitch between successive cavity centers
+
+Reel Width (W1)
+
+QUADRANT ASSIGNMENTS FOR PIN 1 ORIENTATION IN TAPE
+
+Sprocket Holes
+
+Q1  Q2   Q1  Q2
+
+Q3  Q4    Q3  Q4       User Direction of Feed
+
+Pocket Quadrants
+
+
+*All dimensions are nominal
+
+Device    Package Package
+
+Pins  SPQ  Reel
+
+Reel
+
+A0   B0   K0   P1   W
+
+Pin1
+
+
+INA228AIDGSR
+
+Type
+
+VSSOP
+
+Drawing
+
+DGS  10
+
+2500
+
+Diameter
+(mm)
+
+330.0
+
+Width
+W1 (mm)
+
+12.4
+
+(mm)
+
+5.25
+
+(mm)
+
+3.35
+
+(mm)
+
+1.25
+
+(mm)
+
+8.0
+
+(mm)
+
+12.0
+
+Quadrant
+
+Q1
+
+Pack Materials-Page 1
+
+
+PACKAGE MATERIALS INFORMATION
+
+www.ti.com                                                               1-Jan-2026
+
+TAPE AND REEL BOX DIMENSIONS
+
+*All dimensions are nominal
+
+Device      Package Type  Package Drawing  Pins   SPQ   Length (mm)  Width (mm)  Height (mm)
+
+INA228AIDGSR      VSSOP       DGS     10   2500     366.0     364.0      50.0
+
+Pack Materials-Page 2
+
+
+DGS0010A
+
+PACKAGE OUTLINE
+
+VSSOP - 1.1 mm max height
+
+
+SCALE 3.200
+
+SMALL OUTLINE PACKAGE
+
+
+5.05
+
+4.75
+
+C
+
+SEATING PLANE
+
+
+A               PIN 1 ID
+
+AREA
+
+1
+
+8X 0.5
+
+10
+
+0.1 C
+
+3.1
+
+2.9                              2X
+
+NOTE 3                             2
+
+
+5
+
+6
+
+3.1      
+
+2.9
+
+NOTE 4
+
+0.27
+
+0.17
+
+0.1  C A  B
+
+1.1 MAX
+
+
+SEE DETAIL A
+
+0.23
+
+0.13
+
+0.25
+
+GAGE PLANE
+
+
+0 - 8
+
+0.7
+
+0.4
+
+DETAIL A
+
+TYPICAL
+
+0.15
+
+0.05
+
+4221984/A 05/2015
+
+NOTES:
+
+1. All linear dimensions are in millimeters. Any dimensions in parenthesis are for reference only. 
+Dimensioning and tolerancing
+per ASME Y14.5M.
+
+2. This drawing is subject to change without notice.
+
+3. This dimension does not include mold flash, protrusions, or gate burrs. Mold flash, protrusions, 
+or gate burrs shall not
+exceed 0.15 mm per side.
+
+4. This dimension does not include interlead flash. Interlead flash shall not exceed 0.25 mm per 
+side.
+
+5. Reference JEDEC registration MO-187, variation BA.
+
+www.ti.com
+
+
+DGS0010A
+
+EXAMPLE BOARD LAYOUT
+
+VSSOP - 1.1 mm max height
+
+SMALL OUTLINE PACKAGE
+
+
+10X (0.3)
+
+10X (1.45)
+
+1
+
+SYMM
+
+(R0.05)
+TYP
+
+10
+
+SYMM
+
+8X (0.5)     5                       6
+
+(4.4)
+
+LAND PATTERN EXAMPLE
+
+SCALE:10X
+
+
+SOLDER MASK
+OPENING
+
+METAL
+
+METAL UNDER
+SOLDER MASK
+
+SOLDER MASK
+OPENING
+
+
+0.05 MAX
+ALL AROUND
+
+0.05 MIN
+
+ALL AROUND
+
+
+NON SOLDER MASK
+DEFINED
+
+SOLDER MASK DETAILS
+
+NOT TO SCALE
+
+SOLDER MASK
+DEFINED
+
+
+NOTES: (continued)
+
+6. Publication IPC-7351 may have alternate designs.
+
+7. Solder mask tolerances between and around signal pads can vary based on board fabrication site.
+
+4221984/A 05/2015
+
+www.ti.com
+
+
+DGS0010A
+
+EXAMPLE STENCIL DESIGN
+
+VSSOP - 1.1 mm max height
+
+SMALL OUTLINE PACKAGE
+
+
+10X (0.3)
+
+10X (1.45)
+
+1
+
+SYMM
+
+(R0.05) TYP
+
+10
+
+SYMM
+
+8X (0.5)
+
+5                       6
+
+(4.4)
+
+SOLDER PASTE EXAMPLE
+
+BASED ON 0.125 mm THICK STENCIL
+SCALE:10X
+
+4221984/A 05/2015
+
+NOTES: (continued)
+
+8. Laser cutting apertures with trapezoidal walls and rounded corners may offer better paste 
+release. IPC-7525 may have alternate
+design recommendations.
+
+9. Board assembly site may have different recommendations for stencil design.
+
+www.ti.com
+
+
+IMPORTANT NOTICE AND DISCLAIMER
+
+TI PROVIDES TECHNICAL AND RELIABILITY DATA (INCLUDING DATASHEETS), DESIGN RESOURCES (INCLUDING 
+REFERENCE
+DESIGNS), APPLICATION OR OTHER DESIGN ADVICE, WEB TOOLS, SAFETY INFORMATION, AND OTHER RESOURCES 
+“AS IS”
+AND WITH ALL FAULTS, AND DISCLAIMS ALL WARRANTIES, EXPRESS AND IMPLIED, INCLUDING WITHOUT 
+LIMITATION ANY
+IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NON-INFRINGEMENT OF THIRD
+PARTY INTELLECTUAL PROPERTY RIGHTS.
+
+These resources are intended for skilled developers designing with TI products. You are solely 
+responsible for (1) selecting the appropriate
+TI products for your application, (2) designing, validating and testing your application, and (3) 
+ensuring your application meets applicable
+standards, and any other safety, security, regulatory or other requirements.
+
+These resources are subject to change without notice. TI grants you permission to use these 
+resources only for development of an
+application that uses the TI products described in the resource. Other reproduction and display of 
+these resources is prohibited. No license
+is                                                               granted to any other TI 
+intellectual property right or to any third party intellectual property right. TI disclaims 
+responsibility for, and you fully
+indemnify TI and its representatives against any claims, damages, costs, losses, and liabilities 
+arising out of your use of these resources.
+
+TI’s products are provided subject to TI’s Terms of Sale, TI’s General Quality Guidelines, or other 
+applicable terms available either on
+ti.com or provided in conjunction with such TI products. TI’s provision of these resources does not 
+expand or otherwise alter TI’s applicable
+warranties or warranty disclaimers for TI products. Unless TI explicitly designates a product as 
+custom or customer-specified, TI products
+are standard, catalog, general purpose devices.
+
+TI objects to and rejects any additional or different terms you may propose.
+
+Copyright © 2026, Texas Instruments Incorporated
+Last updated 10/2025
+
