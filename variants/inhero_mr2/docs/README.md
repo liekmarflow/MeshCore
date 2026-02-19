@@ -97,6 +97,10 @@ get board.hwver     # Hardware-Version abfragen
 
 get board.fmax      # Frost-Ladeverhalten abfragen
                     # Ausgabe: 0% | 20% | 40% | 100%
+                    # Wert = maximaler Ladestrom bei Frost, relativ zu board.imax
+                    # 40% bei imax=500mA → max. 200mA Ladestrom bei Kaelte
+                    # 0% = Laden bei Frost komplett gesperrt
+                    # 100% = keine Reduktion (voller Strom auch bei Kaelte)
                     # LTO batteries: N/A (JEITA disabled)
 
 get board.imax      # Maximalen Ladestrom abfragen
@@ -200,7 +204,12 @@ set board.bat <type>           # Batterietyp setzen
 
 set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Options: 0% | 20% | 40% | 100%
-                               # N/A for LTO batteries
+                               # Begrenzt Ladestrom bei Frost auf X% von board.imax
+                               # 0% = Laden bei Frost gesperrt
+                               # 20% = max. 20% von imax bei Kaelte
+                               # 40% = max. 40% von imax bei Kaelte
+                               # 100% = keine Reduktion
+                               # N/A for LTO batteries (JEITA disabled)
 
 set board.imax <current>       # Maximalen Ladestrom in mA setzen
                                # Range: 50-1000mA (BQ25798-Minimum: 50mA)

@@ -43,8 +43,12 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 9) Frost-Ladestromabsenkung einstellen
 - Command: set board.fmax <0%|20%|40%|100%>
-- Steuert die JEITA-Reduktion bei Kaelte.
-- Hinweis: Bei LTO ist JEITA deaktiviert (Frost ohne Wirkung).
+- Begrenzt den maximalen Ladestrom bei Frost auf X% von board.imax.
+- 0% = Laden bei Kaelte komplett gesperrt.
+- 20% = max. 20% von imax (z.B. 500mA → 100mA bei Frost).
+- 40% = max. 40% von imax (z.B. 500mA → 200mA bei Frost).
+- 100% = keine Reduktion, voller Ladestrom auch bei Kaelte.
+- Hinweis: Bei LTO ist JEITA deaktiviert (fmax ohne Wirkung).
 
 ## 10) MPPT aktivieren
 - Command: set board.mppt <0|1>
