@@ -1,7 +1,9 @@
-#include <Arduino.h>
 #include "CommonCLI.h"
-#include "TxtDataHelpers.h"
+
 #include "AdvertDataHelpers.h"
+#include "TxtDataHelpers.h"
+
+#include <Arduino.h>
 #include <RTClib.h>
 
 // Believe it or not, this std C function is busted on some platforms!
@@ -24,11 +26,11 @@ static bool isValidName(const char *n) {
 
 void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   if (fs->exists("/com_prefs")) {
-    loadPrefsInt(fs, "/com_prefs");   // new filename
+    loadPrefsInt(fs, "/com_prefs"); // new filename
   } else if (fs->exists("/node_prefs")) {
     loadPrefsInt(fs, "/node_prefs");
-    savePrefs(fs);  // save to new filename
-    fs->remove("/node_prefs");  // remove old
+    savePrefs(fs);             // save to new filename
+    fs->remove("/node_prefs"); // remove old
   }
 }
 
@@ -171,11 +173,11 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
   }
 }
 
-#define MIN_LOCAL_ADVERT_INTERVAL   60
+#define MIN_LOCAL_ADVERT_INTERVAL 60
 
 void CommonCLI::savePrefs() {
   if (_prefs->advert_interval * 2 < MIN_LOCAL_ADVERT_INTERVAL) {
-    _prefs->advert_interval = 0;  // turn it off, now that device has been manually configured
+    _prefs->advert_interval = 0; // turn it off, now that device has been manually configured
   }
   _callbacks->savePrefs();
 }
@@ -337,38 +339,46 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else if (memcmp(config, "bridge.type", 11) == 0) {
         sprintf(reply, "> %s",
 #ifdef WITH_RS232_BRIDGE
-                "rs232"
+              "rs232"
 #elif WITH_ESPNOW_BRIDGE
-                "espnow"
+              "espnow"
 #else
-                "none"
+              "none"
 #endif
-        );
+      );
 #ifdef WITH_BRIDGE
-      } else if (memcmp(config, "bridge.enabled", 14) == 0) {
-        sprintf(reply, "> %s", _prefs->bridge_enabled ? "on" : "off");
-      } else if (memcmp(config, "bridge.delay", 12) == 0) {
-        sprintf(reply, "> %d", (uint32_t)_prefs->bridge_delay);
-      } else if (memcmp(config, "bridge.source", 13) == 0) {
-        sprintf(reply, "> %s", _prefs->bridge_pkt_src ? "logRx" : "logTx");
+    } else if (memcmp(config, "bridge.enabled", 14) == 0) {
+      sprintf(reply, "> %s", _prefs->bridge_enabled ? "on" : "off");
+    } else if (memcmp(config, "bridge.delay", 12) == 0) {
+      sprintf(reply, "> %d", (uint32_t)_prefs->bridge_delay);
+    } else if (memcmp(config, "bridge.source", 13) == 0) {
+      sprintf(reply, "> %s", _prefs->bridge_pkt_src ? "logRx" : "logTx");
 #endif
 #ifdef WITH_RS232_BRIDGE
-      } else if (memcmp(config, "bridge.baud", 11) == 0) {
-        sprintf(reply, "> %d", (uint32_t)_prefs->bridge_baud);
+    } else if (memcmp(config, "bridge.baud", 11) == 0) {
+      sprintf(reply, "> %d", (uint32_t)_prefs->bridge_baud);
 #endif
 #ifdef WITH_ESPNOW_BRIDGE
-      } else if (memcmp(config, "bridge.channel", 14) == 0) {
-        sprintf(reply, "> %d", (uint32_t)_prefs->bridge_channel);
-      } else if (memcmp(config, "bridge.secret", 13) == 0) {
-        sprintf(reply, "> %s", _prefs->bridge_secret);
+    } else if (memcmp(config, "bridge.channel", 14) == 0) {
+      sprintf(reply, "> %d", (uint32_t)_prefs->bridge_channel);
+    } else if (memcmp(config, "bridge.secret", 13) == 0) {
+      sprintf(reply, "> %s", _prefs->bridge_secret);
 #endif
-      } else if (memcmp(config, "adc.multiplier", 14) == 0) {
-        float adc_mult = _board->getAdcMultiplier();
-        if (adc_mult == 0.0f) {
-          strcpy(reply, "Error: unsupported by this board");
-        } else {
-          sprintf(reply, "> %.3f", adc_mult);
-        }
+    } else if (memcmp(config, "board.", 6) == 0) {
+      char res[100];
+      memset(res, 0, sizeof(res));
+      if (_board->getCustomGetter(&config[6], res, sizeof(res))) {
+        strcpy(reply, res);
+      } else {
+        strcpy(reply, "Error: unknown board command");
+      }
+    } else if (memcmp(config, "adc.multiplier", 14) == 0) {
+      float adc_mult = _board->getAdcMultiplier();
+      if (adc_mult == 0.0f) {
+        strcpy(reply, "Error: unsupported by this board");
+      } else {
+        sprintf(reply, "> %.3f", adc_mult);
+      }
       // Power management commands
       } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
 #ifdef NRF52_POWER_MANAGEMENT
@@ -396,9 +406,9 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
 #else
         strcpy(reply, "ERROR: Power management not supported");
 #endif
-      } else {
-        sprintf(reply, "??: %s", config);
-      }
+    } else {
+      sprintf(reply, "??: %s", config);
+    }
     /*
      * SET commands
      */
@@ -555,196 +565,199 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         savePrefs();
         strcpy(reply, "OK - reboot to apply");
 #ifdef WITH_BRIDGE
-      } else if (memcmp(config, "bridge.enabled ", 15) == 0) {
-        _prefs->bridge_enabled = memcmp(&config[15], "on", 2) == 0;
-        _callbacks->setBridgeState(_prefs->bridge_enabled);
+    } else if (memcmp(config, "bridge.enabled ", 15) == 0) {
+      _prefs->bridge_enabled = memcmp(&config[15], "on", 2) == 0;
+      _callbacks->setBridgeState(_prefs->bridge_enabled);
+      savePrefs();
+      strcpy(reply, "OK");
+    } else if (memcmp(config, "bridge.delay ", 13) == 0) {
+      int delay = _atoi(&config[13]);
+      if (delay >= 0 && delay <= 10000) {
+        _prefs->bridge_delay = (uint16_t)delay;
         savePrefs();
         strcpy(reply, "OK");
-      } else if (memcmp(config, "bridge.delay ", 13) == 0) {
-        int delay = _atoi(&config[13]);
-        if (delay >= 0 && delay <= 10000) {
-          _prefs->bridge_delay = (uint16_t)delay;
-          savePrefs();
-          strcpy(reply, "OK");
-        } else {
-          strcpy(reply, "Error: delay must be between 0-10000 ms");
-        }
-      } else if (memcmp(config, "bridge.source ", 14) == 0) {
-        _prefs->bridge_pkt_src = memcmp(&config[14], "rx", 2) == 0;
-        savePrefs();
-        strcpy(reply, "OK");
+      } else {
+        strcpy(reply, "Error: delay must be between 0-10000 ms");
+      }
+    } else if (memcmp(config, "bridge.source ", 14) == 0) {
+      _prefs->bridge_pkt_src = memcmp(&config[14], "rx", 2) == 0;
+      savePrefs();
+      strcpy(reply, "OK");
 #endif
 #ifdef WITH_RS232_BRIDGE
-      } else if (memcmp(config, "bridge.baud ", 12) == 0) {
-        uint32_t baud = atoi(&config[12]);
-        if (baud >= 9600 && baud <= 115200) {
-          _prefs->bridge_baud = (uint32_t)baud;
-          _callbacks->restartBridge();
-          savePrefs();
-          strcpy(reply, "OK");
-        } else {
-          strcpy(reply, "Error: baud rate must be between 9600-115200");
-        }
-#endif
-#ifdef WITH_ESPNOW_BRIDGE
-      } else if (memcmp(config, "bridge.channel ", 15) == 0) {
-        int ch = atoi(&config[15]);
-        if (ch > 0 && ch < 15) {
-          _prefs->bridge_channel = (uint8_t)ch;
-          _callbacks->restartBridge();
-          savePrefs();
-          strcpy(reply, "OK");
-        } else {
-          strcpy(reply, "Error: channel must be between 1-14");
-        }
-      } else if (memcmp(config, "bridge.secret ", 14) == 0) {
-        StrHelper::strncpy(_prefs->bridge_secret, &config[14], sizeof(_prefs->bridge_secret));
+    } else if (memcmp(config, "bridge.baud ", 12) == 0) {
+      uint32_t baud = atoi(&config[12]);
+      if (baud >= 9600 && baud <= 115200) {
+        _prefs->bridge_baud = (uint32_t)baud;
         _callbacks->restartBridge();
         savePrefs();
         strcpy(reply, "OK");
+      } else {
+        strcpy(reply, "Error: baud rate must be between 9600-115200");
+      }
 #endif
-      } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
-        _prefs->adc_multiplier = atof(&config[15]);
-        if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
-          savePrefs();
-          if (_prefs->adc_multiplier == 0.0f) {
-            strcpy(reply, "OK - using default board multiplier");
-          } else {
-            sprintf(reply, "OK - multiplier set to %.3f", _prefs->adc_multiplier);
-          }
+#ifdef WITH_ESPNOW_BRIDGE
+    } else if (memcmp(config, "bridge.channel ", 15) == 0) {
+      int ch = atoi(&config[15]);
+      if (ch > 0 && ch < 15) {
+        _prefs->bridge_channel = (uint8_t)ch;
+        _callbacks->restartBridge();
+        savePrefs();
+        strcpy(reply, "OK");
+      } else {
+        strcpy(reply, "Error: channel must be between 1-14");
+      }
+    } else if (memcmp(config, "bridge.secret ", 14) == 0) {
+      StrHelper::strncpy(_prefs->bridge_secret, &config[14], sizeof(_prefs->bridge_secret));
+      _callbacks->restartBridge();
+      savePrefs();
+      strcpy(reply, "OK");
+#endif
+    } else if (memcmp(config, "board.", 6) == 0) {
+      const char* result = _board->setCustomSetter(&config[6]);
+      if (result != nullptr) {
+        strcpy(reply, result);
+      } else {
+        strcpy(reply, "Error: unknown board command");
+      }
+    } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
+      _prefs->adc_multiplier = atof(&config[15]);
+      if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
+        savePrefs();
+        if (_prefs->adc_multiplier == 0.0f) {
+          strcpy(reply, "OK - using default board multiplier");
         } else {
-          _prefs->adc_multiplier = 0.0f;
-          strcpy(reply, "Error: unsupported by this board");
-        };
+          sprintf(reply, "OK - multiplier set to %.3f", _prefs->adc_multiplier);
+        }
       } else {
-        sprintf(reply, "unknown config: %s", config);
-      }
-    } else if (sender_timestamp == 0 && strcmp(command, "erase") == 0) {
-      bool s = _callbacks->formatFileSystem();
-      sprintf(reply, "File system erase: %s", s ? "OK" : "Err");
-    } else if (memcmp(command, "ver", 3) == 0) {
-      sprintf(reply, "%s (Build: %s)", _callbacks->getFirmwareVer(), _callbacks->getBuildDate());
-    } else if (memcmp(command, "board", 5) == 0) {
-      sprintf(reply, "%s", _board->getManufacturerName());
-    } else if (memcmp(command, "sensor get ", 11) == 0) {
-      const char* key = command + 11;
-      const char* val = _sensors->getSettingByKey(key);
-      if (val != NULL) {
-        sprintf(reply, "> %s", val);
-      } else {
-        strcpy(reply, "null");
-      }
-    } else if (memcmp(command, "sensor set ", 11) == 0) {
-      strcpy(tmp, &command[11]);
-      const char *parts[2]; 
-      int num = mesh::Utils::parseTextParts(tmp, parts, 2, ' ');
-      const char *key = (num > 0) ? parts[0] : "";
-      const char *value = (num > 1) ? parts[1] : "null";
-      if (_sensors->setSettingValue(key, value)) {
-        strcpy(reply, "ok");
-      } else {
-        strcpy(reply, "can't find custom var");
-      }
-    } else if (memcmp(command, "sensor list", 11) == 0) {
-      char* dp = reply;
-      int start = 0;
-      int end = _sensors->getNumSettings();
-      if (strlen(command) > 11) {
-        start = _atoi(command+12);
-      }
-      if (start >= end) {
-        strcpy(reply, "no custom var");
-      } else {
-        sprintf(dp, "%d vars\n", end);
+        _prefs->adc_multiplier = 0.0f;
+        strcpy(reply, "Error: unsupported by this board");
+      };
+    } else {
+      sprintf(reply, "unknown config: %s", config);
+    }
+  } else if (sender_timestamp == 0 && strcmp(command, "erase") == 0) {
+    bool s = _callbacks->formatFileSystem();
+    sprintf(reply, "File system erase: %s", s ? "OK" : "Err");
+  } else if (memcmp(command, "ver", 3) == 0) {
+    sprintf(reply, "%s (Build: %s)", _callbacks->getFirmwareVer(), _callbacks->getBuildDate());
+  } else if (memcmp(command, "board", 5) == 0) {
+    sprintf(reply, "%s", _board->getManufacturerName());
+  } else if (memcmp(command, "sensor get ", 11) == 0) {
+    const char* key = command + 11;
+    const char* val = _sensors->getSettingByKey(key);
+    if (val != NULL) {
+      sprintf(reply, "> %s", val);
+    } else {
+      strcpy(reply, "null");
+    }
+  } else if (memcmp(command, "sensor set ", 11) == 0) {
+    strcpy(tmp, &command[11]);
+    const char* parts[2];
+    int num = mesh::Utils::parseTextParts(tmp, parts, 2, ' ');
+    const char* key = (num > 0) ? parts[0] : "";
+    const char* value = (num > 1) ? parts[1] : "null";
+    if (_sensors->setSettingValue(key, value)) {
+      strcpy(reply, "ok");
+    } else {
+      strcpy(reply, "can't find custom var");
+    }
+  } else if (memcmp(command, "sensor list", 11) == 0) {
+    char* dp = reply;
+    int start = 0;
+    int end = _sensors->getNumSettings();
+    if (strlen(command) > 11) {
+      start = _atoi(command + 12);
+    }
+    if (start >= end) {
+      strcpy(reply, "no custom var");
+    } else {
+      sprintf(dp, "%d vars\n", end);
+      dp = strchr(dp, 0);
+      int i;
+      for (i = start; i < end && (dp - reply < 134); i++) {
+        sprintf(dp, "%s=%s\n", _sensors->getSettingName(i), _sensors->getSettingValue(i));
         dp = strchr(dp, 0);
-        int i;
-        for (i = start; i < end && (dp-reply < 134); i++) {
-          sprintf(dp, "%s=%s\n", 
-            _sensors->getSettingName(i),
-            _sensors->getSettingValue(i));
-          dp = strchr(dp, 0);
-        }
-        if (i < end) {
-          sprintf(dp, "... next:%d", i);
-        } else {
-          *(dp-1) = 0; // remove last CR
-        }
       }
+      if (i < end) {
+        sprintf(dp, "... next:%d", i);
+      } else {
+        *(dp - 1) = 0; // remove last CR
+      }
+    }
 #if ENV_INCLUDE_GPS == 1
-    } else if (memcmp(command, "gps on", 6) == 0) {
-      if (_sensors->setSettingValue("gps", "1")) {
-        _prefs->gps_enabled = 1;
-        savePrefs();
-        strcpy(reply, "ok");
-      } else {
-        strcpy(reply, "gps toggle not found");
-      }
-    } else if (memcmp(command, "gps off", 7) == 0) {
-      if (_sensors->setSettingValue("gps", "0")) {
-        _prefs->gps_enabled = 0;
-        savePrefs();
-        strcpy(reply, "ok");
-      } else {
-        strcpy(reply, "gps toggle not found");
-      }
-    } else if (memcmp(command, "gps sync", 8) == 0) {
-      LocationProvider * l = _sensors->getLocationProvider();
-      if (l != NULL) {
-        l->syncTime();
-      }
-    } else if (memcmp(command, "gps setloc", 10) == 0) {
-      _prefs->node_lat = _sensors->node_lat;
-      _prefs->node_lon = _sensors->node_lon;
+  } else if (memcmp(command, "gps on", 6) == 0) {
+    if (_sensors->setSettingValue("gps", "1")) {
+      _prefs->gps_enabled = 1;
       savePrefs();
       strcpy(reply, "ok");
-    } else if (memcmp(command, "gps advert", 10) == 0) {
-      if (strlen(command) == 10) {
-        switch (_prefs->advert_loc_policy) {
-          case ADVERT_LOC_NONE:
-            strcpy(reply, "> none");
-            break;
-          case ADVERT_LOC_PREFS:
-            strcpy(reply, "> prefs");
-            break;
-          case ADVERT_LOC_SHARE:
-            strcpy(reply, "> share");
-            break;
-          default:
-            strcpy(reply, "error");
-        }
-      } else if (memcmp(command+11, "none", 4) == 0) {
-        _prefs->advert_loc_policy = ADVERT_LOC_NONE;
-        savePrefs();
-        strcpy(reply, "ok");
-      } else if (memcmp(command+11, "share", 5) == 0) {
-        _prefs->advert_loc_policy = ADVERT_LOC_SHARE;
-        savePrefs();
-        strcpy(reply, "ok");
-      } else if (memcmp(command+11, "prefs", 4) == 0) {
-        _prefs->advert_loc_policy = ADVERT_LOC_PREFS;
-        savePrefs();
-        strcpy(reply, "ok");
-      } else {
+    } else {
+      strcpy(reply, "gps toggle not found");
+    }
+  } else if (memcmp(command, "gps off", 7) == 0) {
+    if (_sensors->setSettingValue("gps", "0")) {
+      _prefs->gps_enabled = 0;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else {
+      strcpy(reply, "gps toggle not found");
+    }
+  } else if (memcmp(command, "gps sync", 8) == 0) {
+    LocationProvider* l = _sensors->getLocationProvider();
+    if (l != NULL) {
+      l->syncTime();
+    }
+  } else if (memcmp(command, "gps setloc", 10) == 0) {
+    _prefs->node_lat = _sensors->node_lat;
+    _prefs->node_lon = _sensors->node_lon;
+    savePrefs();
+    strcpy(reply, "ok");
+  } else if (memcmp(command, "gps advert", 10) == 0) {
+    if (strlen(command) == 10) {
+      switch (_prefs->advert_loc_policy) {
+      case ADVERT_LOC_NONE:
+        strcpy(reply, "> none");
+        break;
+      case ADVERT_LOC_PREFS:
+        strcpy(reply, "> prefs");
+        break;
+      case ADVERT_LOC_SHARE:
+        strcpy(reply, "> share");
+        break;
+      default:
         strcpy(reply, "error");
       }
-    } else if (memcmp(command, "gps", 3) == 0) {
-      LocationProvider * l = _sensors->getLocationProvider();
-      if (l != NULL) {
-        bool enabled = l->isEnabled(); // is EN pin on ?
-        bool fix = l->isValid();       // has fix ?
-        int sats = l->satellitesCount();
-        bool active = !strcmp(_sensors->getSettingByKey("gps"), "1");
-        if (enabled) {
-          sprintf(reply, "on, %s, %s, %d sats",
-            active?"active":"deactivated", 
-            fix?"fix":"no fix", 
-            sats);
-        } else {
-          strcpy(reply, "off");
-        }
+    } else if (memcmp(command + 11, "none", 4) == 0) {
+      _prefs->advert_loc_policy = ADVERT_LOC_NONE;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command + 11, "share", 5) == 0) {
+      _prefs->advert_loc_policy = ADVERT_LOC_SHARE;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else if (memcmp(command + 11, "prefs", 4) == 0) {
+      _prefs->advert_loc_policy = ADVERT_LOC_PREFS;
+      savePrefs();
+      strcpy(reply, "ok");
+    } else {
+      strcpy(reply, "error");
+    }
+  } else if (memcmp(command, "gps", 3) == 0) {
+    LocationProvider* l = _sensors->getLocationProvider();
+    if (l != NULL) {
+      bool enabled = l->isEnabled(); // is EN pin on ?
+      bool fix = l->isValid();       // has fix ?
+      int sats = l->satellitesCount();
+      bool active = !strcmp(_sensors->getSettingByKey("gps"), "1");
+      if (enabled) {
+        sprintf(reply, "on, %s, %s, %d sats", active ? "active" : "deactivated", fix ? "fix" : "no fix",
+                sats);
       } else {
-        strcpy(reply, "Can't find GPS");
+        strcpy(reply, "off");
       }
+    } else {
+      strcpy(reply, "Can't find GPS");
+    }
 #endif
     } else if (memcmp(command, "powersaving on", 14) == 0) {
       _prefs->powersaving_enabled = 1;

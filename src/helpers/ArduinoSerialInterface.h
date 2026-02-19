@@ -16,7 +16,7 @@ public:
 
   void begin(Stream& serial) { 
     _serial = &serial; 
-  #ifdef RAK_4631
+  #ifdef RAK_4631 
     pinMode(WB_IO2, OUTPUT);
   #endif  
   }
