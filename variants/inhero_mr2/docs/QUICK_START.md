@@ -64,12 +64,12 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Den Akku einmal komplett ueber USB aufladen, damit der SOC sauber synchronisiert.
 
 ## Zusatzhinweise (Praxis)
-- Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `board.bat`, ob die Einstellung gespeichert wurde.
+- Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
-- Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `board.togglehiz` fuer eine manuelle Neuqualifikation.
+- Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `get board.togglehiz` fuer eine manuelle Neuqualifikation.
 - Bei falschen Stromwerten kann `set board.ibcal <mA>` die INA228-Strommessung kalibrieren.
 - Bei konstantem Strom-Offset (z.B. INA228 zeigt immer 2mA zu viel) hilft `set board.iboffset <mA>` fuer eine Offset-Korrektur.
-- `board.uvlo` zeigt, ob UVLO latched aktiv ist; fuer Feldtests ist oft DISABLED gesetzt.
+- `get board.uvlo` zeigt, ob UVLO latched aktiv ist; fuer Feldtests ist oft DISABLED gesetzt.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
 Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
@@ -136,37 +136,37 @@ set board.uvlo 1
 set board.leds off
 
 # Statuschecks
-board.bat
-board.imax
-board.fmax
-board.mppt
-board.uvlo
-board.leds
-board.batcap
-board.telem
-board.stats
-board.energy
-board.cinfo
-board.diag
-board.conf
+get board.bat
+get board.imax
+get board.fmax
+get board.mppt
+get board.uvlo
+get board.leds
+get board.batcap
+get board.telem
+get board.stats
+get board.energy
+get board.cinfo
+get board.diag
+get board.conf
 ```
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
-- `board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
-- `board.hwver` - Hardware-Version (MR2 immer v0.2).
-- `board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
-- `board.imax` - Maximaler Ladestrom in mA.
-- `board.mppt` - MPPT-Status (0/1).
-- `board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
-- `board.leds` - LED-Status (Heartbeat + BQ-Stat).
-- `board.batcap` - Batteriekapazität in mAh (set/default).
-- `board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
-- `board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
-- `board.energy` - INA228 Coulomb Counter (Rohdaten, Base, Net).
-- `board.cinfo` - Ladegeraet-Status (Charger State + Flags).
-- `board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
-- `board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
-- `board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
-- `board.ibcal` - INA228-Kalibrierfaktor (1.0 = default).
-- `board.iboffset` - INA228-Strom-Offset in mA (0.00 = default).
-- `board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
+- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
+- `get board.hwver` - Hardware-Version (MR2 immer v0.2).
+- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
+- `get board.imax` - Maximaler Ladestrom in mA.
+- `get board.mppt` - MPPT-Status (0/1).
+- `get board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
+- `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
+- `get board.batcap` - Batteriekapazität in mAh (set/default).
+- `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
+- `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
+- `get board.energy` - INA228 Coulomb Counter (Rohdaten, Base, Net).
+- `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
+- `get board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
+- `get board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
+- `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
+- `get board.ibcal` - INA228-Kalibrierfaktor (1.0 = default).
+- `get board.iboffset` - INA228-Strom-Offset in mA (0.00 = default).
+- `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).

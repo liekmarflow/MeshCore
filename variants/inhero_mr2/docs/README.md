@@ -88,109 +88,109 @@ platformio run -e Inhero_MR2_repeater
 
 ### Get-Befehle
 ```bash
-board.bat       # Aktuellen Batterietyp abfragen
-                # Ausgabe: liion1s | lifepo1s | lto2s
+get board.bat       # Aktuellen Batterietyp abfragen
+                    # Ausgabe: liion1s | lifepo1s | lto2s
 
-board.hwver     # Hardware-Version abfragen
-                # Ausgabe: v0.2 (INA228+RTC)
-                # Hinweis: MR2 ist immer v0.2-Hardware
+get board.hwver     # Hardware-Version abfragen
+                    # Ausgabe: v0.2 (INA228+RTC)
+                    # Hinweis: MR2 ist immer v0.2-Hardware
 
-board.fmax      # Frost-Ladeverhalten abfragen
-                # Ausgabe: 0% | 20% | 40% | 100%
-                # LTO batteries: N/A (JEITA disabled)
+get board.fmax      # Frost-Ladeverhalten abfragen
+                    # Ausgabe: 0% | 20% | 40% | 100%
+                    # LTO batteries: N/A (JEITA disabled)
 
-board.imax      # Maximalen Ladestrom abfragen
-                # Ausgabe: <current>mA (z.B. 200mA)
+get board.imax      # Maximalen Ladestrom abfragen
+                    # Ausgabe: <current>mA (z.B. 200mA)
 
-board.mppt      # MPPT-Status abfragen
-                # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
+get board.mppt      # MPPT-Status abfragen
+                    # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
 
-board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
-                # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/~<I>mA
-                # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/~245mA
-                # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/~245mA
-                # Komponenten:
-                # - B: Battery (Voltage/Current/Temperature/SOC)
-                # - S: Solar (Voltage/Current, ~ = Schätzwert)
+get board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
+                    # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/~<I>mA
+                    # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/~245mA
+                    # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/~245mA
+                    # Komponenten:
+                    # - B: Battery (Voltage/Current/Temperature/SOC)
+                    # - S: Solar (Voltage/Current, ~ = Schätzwert)
 
-board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
-                # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3dC:<3d> 3dD:<3d> 7dC:<7d> 7dD:<7d> <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
-                # Beispiel: +125.0/+45.0/+38.0mAh C:200.0 D:75.0 3dC:150.0 3dD:105.0 7dC:140.0 7dD:102.0 SOL M:85%
-                # Beispiel: -30.0/-45.0/-40.0mAh C:10.0 D:40.0 3dC:5.0 3dD:50.0 7dC:8.0 7dD:48.0 BAT M:45% TTL:72h
-                # Komponenten:
-                # - +125.0: Last 24h net balance (charge - discharge) in mAh
-                # - +45.0: 3-day average net balance in mAh
-                # - +38.0: 7-day average net balance in mAh
-                # - C/D: Charged/Discharged mAh (24h)
-                # - 3dC/3dD: 3-day average charged/discharged mAh
-                # - 7dC/7dD: 7-day average charged/discharged mAh
-                # - SOL: Running on solar (self-sufficient)
-                # - BAT: Living on battery (deficit mode)
-                # - M:85%: MPPT enabled percentage (7-day average)
-                # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode)
+get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
+                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3dC:<3d> 3dD:<3d> 7dC:<7d> 7dD:<7d> <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
+                    # Beispiel: +125.0/+45.0/+38.0mAh C:200.0 D:75.0 3dC:150.0 3dD:105.0 7dC:140.0 7dD:102.0 SOL M:85%
+                    # Beispiel: -30.0/-45.0/-40.0mAh C:10.0 D:40.0 3dC:5.0 3dD:50.0 7dC:8.0 7dD:48.0 BAT M:45% TTL:72h
+                    # Komponenten:
+                    # - +125.0: Last 24h net balance (charge - discharge) in mAh
+                    # - +45.0: 3-day average net balance in mAh
+                    # - +38.0: 7-day average net balance in mAh
+                    # - C/D: Charged/Discharged mAh (24h)
+                    # - 3dC/3dD: 3-day average charged/discharged mAh
+                    # - 7dC/7dD: 7-day average charged/discharged mAh
+                    # - SOL: Running on solar (self-sufficient)
+                    # - BAT: Living on battery (deficit mode)
+                    # - M:85%: MPPT enabled percentage (7-day average)
+                    # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode)
 
-board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
-                # Ausgabe: <state> + flags
-                # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
+get board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
+                    # Ausgabe: <state> + flags
+                    # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
-board.diag      # Detaillierte BQ25798-Diagnose abfragen
-                # Ausgabe: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | Spannungen | Temperaturen | Register | VOC-Konfig
-                # Beispiel: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
-                #          Vbus:6.22V Vbat:3.35V Ibat:0mA Temp:31C | 
-                #          TS: OK | R0F:0x23 R15:0xAB | VOC:87.5%/300ms/2min
-                # Key diagnostics for debugging charging issues:
-                # - PG: Power Good status (1=good, 0=no power)
-                # - CE: Charge Enable (1=enabled, 0=disabled)
-                # - HIZ: High Impedance mode (0=normal, 1=input disabled)
-                # - MPPT: Maximum Power Point Tracking (1=aktiv, 0=inaktiv)
-                # - CHG: Charge state (!CHG|TRKL|PRE|CC|CV|TOP|DONE)
-                # - VBUS: Input source type (NoIn|SDP|CDP|DCP|UnkAdp|NStd|NotQual|DirPwr)
-                # - VINDPM: Eingangs-Spannungs-DPM aktiv (1=limitierend, 0=ok)
-                # - IINDPM: Eingangs-Strom-DPM aktiv (1=limitierend, 0=ok)
-                # - VOC: MPPT VOC configuration (percentage/delay/rate)
+get board.diag      # Detaillierte BQ25798-Diagnose abfragen
+                    # Ausgabe: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | Spannungen | Temperaturen | Register | VOC-Konfig
+                    # Beispiel: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
+                    #          Vbus:6.22V Vbat:3.35V Ibat:0mA Temp:31C | 
+                    #          TS: OK | R0F:0x23 R15:0xAB | VOC:87.5%/300ms/2min
+                    # Key diagnostics for debugging charging issues:
+                    # - PG: Power Good status (1=good, 0=no power)
+                    # - CE: Charge Enable (1=enabled, 0=disabled)
+                    # - HIZ: High Impedance mode (0=normal, 1=input disabled)
+                    # - MPPT: Maximum Power Point Tracking (1=aktiv, 0=inaktiv)
+                    # - CHG: Charge state (!CHG|TRKL|PRE|CC|CV|TOP|DONE)
+                    # - VBUS: Input source type (NoIn|SDP|CDP|DCP|UnkAdp|NStd|NotQual|DirPwr)
+                    # - VINDPM: Eingangs-Spannungs-DPM aktiv (1=limitierend, 0=ok)
+                    # - IINDPM: Eingangs-Strom-DPM aktiv (1=limitierend, 0=ok)
+                    # - VOC: MPPT VOC configuration (percentage/delay/rate)
 
-board.togglehiz # Force input detection via HIZ cycle 🆕
-                # Ausgabe: HIZ-Zyklus <war gesetzt|erzwungen>: VBUS=<V>V PG=<status>
-                # Same logic as automatic task in checkAndFixPgoodStuck()
-                # If HIZ=1: Clears HIZ → input qualification
-                # If HIZ=0: Set HIZ briefly, then clear → triggers input detection
-                # Always ends with HIZ=0
-                # Useful for manually triggering stuck PGOOD recovery
+get board.togglehiz # Force input detection via HIZ cycle 🆕
+                    # Ausgabe: HIZ-Zyklus <war gesetzt|erzwungen>: VBUS=<V>V PG=<status>
+                    # Same logic as automatic task in checkAndFixPgoodStuck()
+                    # If HIZ=1: Clears HIZ → input qualification
+                    # If HIZ=0: Set HIZ briefly, then clear → triggers input detection
+                    # Always ends with HIZ=0
+                    # Useful for manually triggering stuck PGOOD recovery
 
-board.uvlo      # UVLO-Einstellung abfragen (v0.2-Feature) 🆕
-                # Ausgabe: ENABLED | DISABLED
-                # Zeigt die Persistente UVLO-Einstellung
-                # Chemie-spezifische UVLO-Schwellen:
-                # - Li-Ion 1S: 3.1V
-                # - LiFePO4 1S: 2.7V
-                # - LTO 2S: 3.9V
+get board.uvlo      # UVLO-Einstellung abfragen (v0.2-Feature) 🆕
+                    # Ausgabe: ENABLED | DISABLED
+                    # Zeigt die Persistente UVLO-Einstellung
+                    # Chemie-spezifische UVLO-Schwellen:
+                    # - Li-Ion 1S: 3.1V
+                    # - LiFePO4 1S: 2.7V
+                    # - LTO 2S: 3.9V
 
-board.conf      # Alle Konfigurationswerte abfragen
-                # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
+get board.conf      # Alle Konfigurationswerte abfragen
+                    # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
-                # Ausgabe: INA228 calibration: <factor> (1.0=default)
-                # Used to correct current measurement errors
+get board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
+                    # Ausgabe: INA228 calibration: <factor> (1.0=default)
+                    # Used to correct current measurement errors
 
-board.iboffset  # INA228-Strom-Offset abfragen (v0.2-Feature)
-                # Ausgabe: INA228 offset: <+/-offset> mA (0.00=default)
-                # Korrigiert einen konstanten Offset der Strommessung
+get board.iboffset  # INA228-Strom-Offset abfragen (v0.2-Feature)
+                    # Ausgabe: INA228 offset: <+/-offset> mA (0.00=default)
+                    # Korrigiert einen konstanten Offset der Strommessung
 
-board.batcap    # Batteriekapazität abfragen (v0.2-Feature)
-                # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
-                # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
+get board.batcap    # Batteriekapazität abfragen (v0.2-Feature)
+                    # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
+                    # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
 
-board.energy    # INA228 Coulomb Counter abfragen (v0.2-Feature)
-                # Ausgabe bei validem SOC: <charge>mAh (Base: <baseline>mAh, Net: <net>mAh)
-                # Ausgabe ohne SOC-Sync: <charge>mAh (SOC not synced)
-                # Fehler: Err: INA228 not initialized
+get board.energy    # INA228 Coulomb Counter abfragen (v0.2-Feature)
+                    # Ausgabe bei validem SOC: <charge>mAh (Base: <baseline>mAh, Net: <net>mAh)
+                    # Ausgabe ohne SOC-Sync: <charge>mAh (SOC not synced)
+                    # Fehler: Err: INA228 not initialized
 
-board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen (v0.2-Feature)
-                # Ausgabe: TC offset: <+/-offset> C (0.00=default)
+get board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen (v0.2-Feature)
+                    # Ausgabe: TC offset: <+/-offset> C (0.00=default)
 
-board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
-                # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
-                # Shows whether heartbeat LED and BQ25798 stat LED are enabled
+get board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
+                    # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
+                    # Shows whether heartbeat LED and BQ25798 stat LED are enabled
 ```
 
 ### Set-Befehle
@@ -299,7 +299,7 @@ set board.iboffset -9.5
 # Ausgabe: INA228 offset: -1.50 mA
 
 # Prüfen:
-board.iboffset
+get board.iboffset
 # Ausgabe: INA228 offset: -1.50 mA (0.00=default)
 ```
 
@@ -320,7 +320,7 @@ set board.ibcal 95
 # Ausgabe: INA228 calibrated: factor=1.0215
 
 # Prüfen:
-board.ibcal
+get board.ibcal
 # Ausgabe: INA228 calibration: 1.0215 (1.0=default)
 ```
 
