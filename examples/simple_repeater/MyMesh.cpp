@@ -247,12 +247,10 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     }
     sensors.querySensors(perm_mask, telemetry);
 
-#ifdef INHERO_MR2
-    // MR-2 specific telemetry
+    // Board-specific telemetry (boards can override queryBoardTelemetry in their Board class)
     if (perm_mask & TELEM_PERM_ENVIRONMENT) {
       board.queryBoardTelemetry(telemetry);
     }
-#endif
 
 	// This default temperature will be overridden by external sensors (if any)
     float temperature = board.getMCUTemperature();
