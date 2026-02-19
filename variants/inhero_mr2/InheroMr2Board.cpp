@@ -623,12 +623,12 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   } else if (strncmp(setCommand, "imax ", 5) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
     int ma = atoi(value);
-    if (ma >= 10 && ma <= 1000) {
+    if (ma >= 50 && ma <= 1000) {
       boardConfig.setMaxChargeCurrent_mA(ma);
       snprintf(ret, sizeof(ret), "Max charge current set to %s", boardConfig.getChargeCurrentAsStr());
       return ret;
     } else {
-      return "Err: Try 10-1000";
+      return "Err: Try 50-1000";
     }
   } else if (strncmp(setCommand, "mppt ", 5) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));

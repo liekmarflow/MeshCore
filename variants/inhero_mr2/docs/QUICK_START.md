@@ -37,8 +37,8 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 8) Maximalen Ladestrom setzen
 - Command: set board.imax <mA>
-- Bereich laut Firmware: 10 bis 1000 mA.
-- Begrenzt den Ladestrom fuer schwache USB-Quellen.
+- Bereich laut Firmware: 50 bis 1000 mA (BQ25798-Minimum: 50mA).
+- Passend zum Solar-Setup waehlen, damit das Panel nicht ueberlastet wird.
 
 ## 9) Frost-Ladestromabsenkung einstellen
 - Command: set board.fmax <0%|20%|40%|100%>
