@@ -1092,5 +1092,14 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
+## Siehe auch
+
+- [README.md](README.md) - Übersicht, Feature-Matrix und Diagnose
+- [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - Alle board-spezifischen CLI-Befehle auf einen Blick
+- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Veraltet: historisches Auto-Learning-Konzept
+
+---
+
 *Letzte Aktualisierung: 4. Februar 2026, 12:00 UTC*
 *Status: ✅ Vollständig implementiert und dokumentiert für MR-2, Compilation erfolgreich, Hardware-Testing ausstehend*
