@@ -103,7 +103,7 @@ typedef struct {
 class BoardConfigContainer {
 
 public:
-  // static constexpr char* boardCommands[] = { "bat", "frost", "life", "imax" };
+  // static constexpr char* boardCommands[] = { "bat", "fmax", "life", "imax" };
 
   enum BatteryType : uint8_t { BAT_UNKNOWN = 0, LTO_2S = 1, LIFEPO4_1S = 2, LIION_1S = 3 };
   typedef struct {

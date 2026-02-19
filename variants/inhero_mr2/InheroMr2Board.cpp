@@ -396,7 +396,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     // MR2 is always v0.2 hardware
     snprintf(reply, maxlen, "v0.2 (INA228+RTC)");
     return true;
-  } else if (strcmp(cmd, "frost") == 0) {
+  } else if (strcmp(cmd, "fmax") == 0) {
     // LTO batteries ignore JEITA temperature control
     if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
       snprintf(reply, maxlen, "N/A");
@@ -574,7 +574,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
   snprintf(reply, maxlen,
            "Err: Try "
-           "board.<bat|hwver|frost|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|"
+           "board.<bat|hwver|fmax|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|"
            "energy>");
   return true;
 }
@@ -599,20 +599,20 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Try one of: %s", BoardConfigContainer::getAvailableBatOptions());
       return ret;
     }
-  } else if (strncmp(setCommand, "frost ", 6) == 0) {
-    // LTO batteries ignore JEITA temperature control - setting frost behavior is not applicable
+  } else if (strncmp(setCommand, "fmax ", 5) == 0) {
+    // LTO batteries ignore JEITA temperature control - setting fmax behavior is not applicable
     if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
-      snprintf(ret, sizeof(ret), "Err: Frost setting N/A for LTO (JEITA disabled)");
+      snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for LTO (JEITA disabled)");
       return ret;
     }
 
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
     BoardConfigContainer::FrostChargeBehaviour fcb =
         BoardConfigContainer::getFrostChargeBehaviourFromCommandString(value);
     if (fcb != BoardConfigContainer::FrostChargeBehaviour::REDUCE_UNKNOWN) {
       boardConfig.setFrostChargeBehaviour(fcb);
       snprintf(
-          ret, sizeof(ret), "Frost charge current set to %s of imax",
+          ret, sizeof(ret), "Fmax charge current set to %s of imax",
           BoardConfigContainer::getFrostChargeBehaviourCommandString(boardConfig.getFrostChargeBehaviour()));
       return ret;
     } else {
@@ -824,7 +824,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|frost|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc>");
+  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc>");
   return ret;
 }
 

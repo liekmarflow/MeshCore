@@ -95,7 +95,7 @@ board.hwver     # Hardware-Version abfragen
                 # Ausgabe: v0.2 (INA228+RTC)
                 # Hinweis: MR2 ist immer v0.2-Hardware
 
-board.frost     # Frost-Ladeverhalten abfragen
+board.fmax      # Frost-Ladeverhalten abfragen
                 # Ausgabe: 0% | 20% | 40% | 100%
                 # LTO batteries: N/A (JEITA disabled)
 
@@ -163,7 +163,7 @@ board.uvlo      # UVLO-Einstellung abfragen (v0.2-Feature) 🆕
                 # - LTO 2S: 3.9V
 
 board.conf      # Alle Konfigurationswerte abfragen
-                # Ausgabe: B:<bat> F:<frost> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
+                # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
 board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
                 # Ausgabe: INA228 calibration: <factor> (1.0=default)
@@ -179,7 +179,7 @@ board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
 set board.bat <type>           # Batterietyp setzen
                                # Options: lto2s | lifepo1s | liion1s
 
-set board.frost <behavior>     # Frost-Ladeverhalten setzen
+set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Options: 0% | 20% | 40% | 100%
                                # N/A for LTO batteries
 

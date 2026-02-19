@@ -41,7 +41,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Begrenzt den Ladestrom fuer schwache USB-Quellen.
 
 ## 9) Frost-Ladestromabsenkung einstellen
-- Command: set board.frost <0%|20%|40%|100%>
+- Command: set board.fmax <0%|20%|40%|100%>
 - Steuert die JEITA-Reduktion bei Kaelte.
 - Hinweis: Bei LTO ist JEITA deaktiviert (Frost ohne Wirkung).
 
@@ -76,24 +76,24 @@ Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofi
 ```bash
 set board.bat liion1s
 set board.imax 500
-set board.frost 20%
+set board.fmax 20%
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s
 set board.imax 300
-set board.frost 40%
+set board.fmax 40%
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s
 set board.imax 700
-set board.frost 0%
+set board.fmax 0%
 ```
 
-Hinweis: `set board.frost` hat bei LTO keine Wirkung (JEITA deaktiviert).
+Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
@@ -126,7 +126,7 @@ set board.batcap 10000
 
 # Ladeparameter
 set board.imax 500
-set board.frost 20%
+set board.fmax 20%
 set board.mppt 1
 
 # UVLO und LEDs
@@ -136,7 +136,7 @@ set board.leds off
 # Statuschecks
 board.bat
 board.imax
-board.frost
+board.fmax
 board.mppt
 board.uvlo
 board.leds
@@ -152,7 +152,7 @@ board.conf
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
 - `board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
 - `board.hwver` - Hardware-Version (MR2 immer v0.2).
-- `board.frost` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
+- `board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
 - `board.imax` - Maximaler Ladestrom in mA.
 - `board.mppt` - MPPT-Status (0/1).
 - `board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
