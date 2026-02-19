@@ -439,9 +439,15 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
     // Compact format: 24h/3d/7d Status MPPT% [TTL]
     if (ttl > 0) {
-      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%% TTL:%dh",
+      char ttlBuf[16];
+      if (ttl >= 24) {
+        snprintf(ttlBuf, sizeof(ttlBuf), "%dd%dh", ttl / 24, ttl % 24);
+      } else {
+        snprintf(ttlBuf, sizeof(ttlBuf), "%dh", ttl);
+      }
+      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%% TTL:%s",
                last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
-               avg7d_charged, avg7d_discharged, status, mppt_pct, ttl);
+               avg7d_charged, avg7d_discharged, status, mppt_pct, ttlBuf);
     } else {
       snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%%",
                last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
