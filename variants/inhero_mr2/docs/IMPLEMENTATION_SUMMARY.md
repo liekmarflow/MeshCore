@@ -197,9 +197,9 @@ struct DailyBatteryStats {
 net_balance = today_charge - today_discharge
 ```
 
-**3-Day Average Deficit** (für TTL):
+**7-Day Average Deficit** (für TTL):
 ```
-avg_deficit = (day0 + day1 + day2).net_balance / 3
+avg_deficit = (day0 + day1 + ... + day6).net_balance / 7
 ```
 
 **Living Status**:
@@ -331,30 +331,69 @@ Interrupt Event:
 
 ## 5. Time-To-Live (TTL)-Prognose
 
+### Datenbasis und Zeitbasis
+
+Die TTL-Berechnung basiert auf dem **7-Tage gleitenden Durchschnitt** des täglichen Netto-Energieverbrauchs, der aus einem **168-Stunden-Ringpuffer** (7 Tage) stündlicher INA228-Coulomb-Counter-Messungen berechnet wird.
+
+#### Datenfluss
+
+```
+INA228 Hardware Coulomb Counter (24-bit ADC, ±0.1% Genauigkeit)
+        │
+        ▼
+updateHourlyStats() — jede Stunde
+        │  Speichert pro Stunde: charged_mah, discharged_mah, solar_mah
+        │  in hours[168] Ringpuffer (BatterySOCStats.hours[])
+        ▼
+calculateRollingStats() — nach jedem Stunden-Update
+        │  Summiert letzte 168 Stunden → teilt durch 7
+        │  → avg_7day_daily_net_mah (= solar − discharged pro Tag)
+        │  Mindestvoraussetzung: ≥ 24 Stunden gültige Daten
+        ▼
+calculateTTL() — nach calculateRollingStats()
+        │  remaining_mah / |deficit_per_day| × 24 = TTL Stunden
+        ▼
+socStats.ttl_hours → getTTL_Hours() → board.stats / Telemetrie
+```
+
 ### Berechnung
-**Methode**: `calculateTTL()` in `BoardConfigContainer.cpp` Zeile 1543-1572
-- **Aufgerufen**: Nach updateDailyBalance()
-- **Voraussetzung**: living_on_battery == true
+**Methode**: `calculateTTL()` in `BoardConfigContainer.cpp`
+- **Aufgerufen**: Nach `calculateRollingStats()` (stündlich)
+- **Zeitbasis**: 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) aus stündlichen Samples
+
+**Voraussetzungen für TTL > 0**:
+1. `living_on_battery == true` (24h-Netto ist negativ, d.h. Energiedefizit)
+2. `avg_7day_daily_net_mah < 0` (7-Tage-Durchschnitt zeigt Netto-Entladung)
+3. `capacity_mah > 0` (Batteriekapazität bekannt, via `set board.batcap`)
+4. Mindestens **24 Stunden** gültige Daten im Ringpuffer
 
 **Formel**:
 ```
 remaining_capacity_mah = (SOC% / 100) × capacity_mah
-daily_deficit_mah = avg_deficit_3day (negativ)
-TTL_hours = remaining_capacity_mah / |daily_deficit_mah| × 24
+daily_deficit_mah = -avg_7day_daily_net_mah  (positiver Wert)
+TTL_hours = remaining_capacity_mah / daily_deficit_mah × 24
 ```
+
+**TTL = 0 bedeutet**:
+- Gerät wird solar versorgt (Netto-Überschuss) → `living_on_battery == false`
+- Noch keine 24h Daten gesammelt (Kaltstart)
+- Batteriekapazität unbekannt
+
+**Infinite TTL (Telemetrie)**:
+- Wenn `living_on_battery == false` und SOC valide → wird als 990 Tage (Max-Wert) übertragen
 
 **Beispiel**:
 - SOC: 60% = 1200mAh remaining (bei 2000mAh Kapazität)
-- 3-day avg: -100 mAh/day
+- 7-day avg: -100 mAh/day (aus 168h Stunden-Samples)
 - TTL: 1200 / 100 × 24 = 288 Stunden = 12 Tage
 
 **CLI-Ausgabe**: `board.stats`
 ```
-+150.0/+120.0/+90.0mAh SOL M:85%
++150.0/+120.0/+90.0mAh SOL M:85%           ← Solar-Überschuss, keine TTL
 ```
 oder
 ```
--80.0/-100.0/-110.0mAh BAT M:45% TTL:288h
+-80.0/-100.0/-110.0mAh BAT M:45% TTL:288h  ← 288h bis leer (7d-Avg-Basis)
 ```
 
 ---
@@ -899,7 +938,9 @@ Day 2:    VBAT = 3.05V, SOC = 58%
           Net balance: -280mAh → BATTERY
           daily_stats[2] = {timestamp, 200, 480, -280, true}
           
-          3-day avg: (350+130-280)/3 = +66.7 mAh/day → Still SOLAR
+          3-day avg: (350+130-280)/3 = +66.7 mAh/day
+          7-day avg: not yet available (only 3 days of data)
+          → Still SOLAR (24h net positive)
           
 Day 3:    VBAT = 2.95V, SOC = 42%
           Charge: +150mAh (very cloudy)
@@ -907,15 +948,16 @@ Day 3:    VBAT = 2.95V, SOC = 42%
           Net balance: -350mAh → BATTERY
           daily_stats[3] = {timestamp, 150, 500, -350, true}
           
-          3-day avg: (130-280-350)/3 = -166.7 mAh/day → BATTERY
+          3-day avg: (130-280-350)/3 = -166.7 mAh/day
+          7-day avg: (350+130-280-350)/4 = -37.5 mAh/day → BATTERY (used for TTL)
           living_on_battery = true
           
-          TTL calculation:
+          TTL calculation (7-day avg basis):
           remaining = 42% × 1500mAh = 630mAh
-          deficit = |-166.7| = 166.7 mAh/day
-          TTL = (630 / 166.7) × 24 = 90.7 hours ≈ 3.8 days
+          deficit = |-37.5| = 37.5 mAh/day
+          TTL = (630 / 37.5) × 24 = 403.2 hours ≈ 16.8 days
           
-          CLI output: "Today:-350mAh BATTERY 3dAvg:-167mAh TTL:91h"
+          CLI output: "Today:-350mAh BATTERY 7dAvg:-38mAh TTL:403h"
 ```
 
 ---
@@ -960,11 +1002,11 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - Verify resume at Critical (3.4V+) and 0% SOC initialization
 
 ### Phase 7: Daily Balance (TODO)
-- Run 3 days with varying solar
+- Run 7 days with varying solar
 - Verify daily statistics accumulation
-- Verify 3-day average calculation
+- Verify 7-day average calculation
 - Verify living_on_battery flag
-- Verify TTL calculation
+- Verify TTL calculation (7-day avg basis)
 
 ### Phase 8: Long-term Stability (TODO)
 - 7-day continuous operation

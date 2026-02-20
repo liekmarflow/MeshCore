@@ -71,6 +71,15 @@ Die Firmware nutzt feste Intervalle:
 - **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
 - **7-Tage-Energiebilanz** für TTL-Prognosen
 
+### Time-To-Live (TTL) Prognose
+- **Zeitbasis:** 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) des täglichen Netto-Energieverbrauchs
+- **Datenbasis:** 168-Stunden-Ringpuffer (7 Tage) mit stündlichen INA228-Coulomb-Counter-Samples (charged/discharged/solar mAh)
+- **Formel:** `TTL_hours = (SOC% × capacity_mah / 100) / |avg_7day_daily_net_mah| × 24`
+- **Voraussetzungen:** `living_on_battery == true` (24h-Defizit), mind. 24h Daten, Kapazität bekannt
+- **TTL = 0:** Solar-Überschuss, keine 24h Daten vorhanden, oder Kapazität unbekannt
+- **CLI:** TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `TTL:288h`)
+- **Telemetrie:** Wird als Tage via CayenneLPP Distance-Feld übertragen (max. 990 Tage für "unendlich")
+
 ### Solar-Energieverwaltung 🆕
 - **Stuck-PGOOD-Erkennung:** Erkennt automatisch langsame Sonnenaufgänge mit hängendem PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown gegen übermäßiges Toggeln)
 - **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 mit 60-Sekunden-Cooldown, um Interrupt-Loops zwischen Solarlogik und BQ25798-Interrupts zu vermeiden
@@ -136,7 +145,7 @@ get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
                     # - SOL: Running on solar (self-sufficient)
                     # - BAT: Living on battery (deficit mode)
                     # - M:85%: MPPT enabled percentage (7-day average)
-                    # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode)
+                    # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode, 7d-avg basis)
 
 get board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
                     # Ausgabe: <state> + flags

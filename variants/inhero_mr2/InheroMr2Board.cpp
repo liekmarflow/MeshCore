@@ -445,11 +445,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       } else {
         snprintf(ttlBuf, sizeof(ttlBuf), "%dh", ttl);
       }
-      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%% TTL:%s",
+      snprintf(reply, maxlen, "%+.0f/%+.0f/%+.0fmAh C:%.0f D:%.0f 3C:%.0f 3D:%.0f 7C:%.0f 7D:%.0f %s M:%.0f%% T:%s",
                last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
                avg7d_charged, avg7d_discharged, status, mppt_pct, ttlBuf);
     } else {
-      snprintf(reply, maxlen, "%+.1f/%+.1f/%+.1fmAh C:%.1f D:%.1f 3dC:%.1f 3dD:%.1f 7dC:%.1f 7dD:%.1f %s M:%.0f%%",
+      snprintf(reply, maxlen, "%+.0f/%+.0f/%+.0fmAh C:%.0f D:%.0f 3C:%.0f 3D:%.0f 7C:%.0f 7D:%.0f %s M:%.0f%%",
                last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
                avg7d_charged, avg7d_discharged, status, mppt_pct);
     }
@@ -461,11 +461,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     return true;
   } else if (strcmp(cmd, "diag") == 0) {
     // Detailed diagnostics for debugging charging issues
-    char diagBuffer[256];
+    char diagBuffer[100];
     boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
-  } else if (strcmp(cmd, "togglehiz") == 0) {
+  } else if (strcmp(cmd, "hiz") == 0 || strcmp(cmd, "togglehiz") == 0) {
     // Manual HIZ cycle to force input detection (like automatic task)
     char hizBuffer[100];
     boardConfig.toggleHizAndCheck(hizBuffer, sizeof(hizBuffer));
@@ -579,9 +579,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: Try "
-           "board.<bat|hwver|fmax|imax|telem|stats|cinfo|diag|togglehiz|mppt|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|"
-           "energy>");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|uvlo|leds|batcap");
   return true;
 }
 
@@ -830,7 +828,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: Try board.<bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc>");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc");
   return ret;
 }
 

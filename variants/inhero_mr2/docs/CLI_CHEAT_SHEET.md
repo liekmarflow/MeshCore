@@ -82,13 +82,19 @@ get board.conf                 # Kurzuebersicht aller Konfigs (B, F, M, I, Vco, 
 get board.telem                # Battery+Solar: V, I, T, SOC
 
 # Energie & Statistik
-get board.stats                # Energie-Bilanz (24h/3d/7d), Charge/Discharge, MPPT%, TTL
+get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
+                               #   TTL = Time To Live (Stunden bis Akku leer)
+                               #   Basis: 7-Tage-Durchschnitt des taegl. Netto-Defizits
+                               #   aus stuendlichen INA228-Coulomb-Counter-Samples (168h-Ringpuffer)
+                               #   Formel: (SOC% × Kapazitaet) / |7d-Avg-Deficit| × 24
+                               #   TTL erscheint nur im BAT-Modus (Netto-Defizit)
+                               #   Voraussetzung: mind. 24h Daten + Kapazitaet bekannt
 get board.energy               # INA228 Coulomb Counter (Raw, Base, Net)
 
 # Ladegeraet & Diagnose
 get board.cinfo                # Charger-Status (State + Flags)
-get board.diag                 # Detail-Diagnose BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register)
-get board.togglehiz            # Manuelles Input-Qualify via HIZ-Toggle
+get board.diag                 # Detail-Diagnose BQ25798 (kompakt: PG, HZ, MP, CHG, VBUS, TS, VOC)
+get board.hiz                  # Manuelles Input-Qualify via HIZ-Toggle (Alias: togglehiz)
 
 # Kalibrierung
 get board.ibcal                # INA228-Kalibrierfaktor (1.0 = default)
@@ -112,11 +118,11 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC |
-| `get board.stats` | Energie-Bilanz (24h/3d/7d), Charge/Discharge, MPPT%, TTL |
+| `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
 | `get board.energy` | INA228 Coulomb Counter (Raw, Base, Net) |
 | `get board.cinfo` | Ladegeraet-Status (Charger State + Flags) |
-| `get board.diag` | Detail-Diagnose BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register) |
-| `get board.togglehiz` | Manuelles Input-Qualify via HIZ-Toggle |
+| `get board.diag` | Detail-Diagnose BQ25798 (kompakt: PG, HZ, MP, CHG, VBUS, TS, VOC) |
+| `get board.hiz` | Manuelles Input-Qualify via HIZ-Toggle (Alias: `togglehiz`) |
 | `get board.ibcal` | INA228-Kalibrierfaktor (`1.0` = default) |
 | `get board.iboffset` | INA228-Strom-Offset in mA (`0.00` = default) |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |

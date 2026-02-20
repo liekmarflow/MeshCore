@@ -96,7 +96,9 @@ typedef struct {
   float avg_7day_daily_net_mah;  ///< Average daily net over last 7 days (168h)
   float avg_7day_daily_charged_mah;    ///< Average daily charged over last 7 days
   float avg_7day_daily_discharged_mah; ///< Average daily discharged over last 7 days
-  uint16_t ttl_hours;            ///< Time To Live - hours until battery empty (0 = not calculated)
+  uint16_t ttl_hours;            ///< Time To Live - hours until battery empty (0 = not calculated).
+                                 ///< Based on 7-day rolling avg of daily net deficit (avg_7day_daily_net_mah)
+                                 ///< from hourly INA228 Coulomb-counter samples in 168h ring buffer.
   bool living_on_battery;        ///< True if net deficit over last 24h
 } BatterySOCStats;
 
@@ -332,6 +334,6 @@ private:
   // Battery SOC helpers (v0.2)
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
   static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
-  static void calculateTTL();
+  static void calculateTTL();    ///< Calculate TTL from 7-day avg net deficit and remaining SOC capacity
   static float estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type);
 };

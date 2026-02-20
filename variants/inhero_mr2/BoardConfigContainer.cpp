@@ -1112,14 +1112,12 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   float temp_c = telem ? telem->batterie.temperature : 0.0f;
   int32_t ibat_ma_int = (int32_t)((ibat_ma >= 0.0f) ? (ibat_ma + 0.5f) : (ibat_ma - 0.5f));
 
-  // Build comprehensive diagnostic string
+  // Build compact diagnostic string (must fit in 100 bytes)
+  const char* ts_str = ts_cold ? "COLD" : (ts_cool ? "COOL" : (ts_warm ? "WARM" : (ts_hot ? "HOT" : "OK")));
   snprintf(buffer, bufferSize,
-           "PG:%d CE:%d HIZ:%d MPPT:%d CHG:%s VBUS:%s VINDPM:%d IINDPM:%d | "
-           "Vbus:%.2fV Vbat:%.2fV Ibat:%dmA Temp:%.1fC | "
-           "TS: %s%s%s%s | R0F:0x%02X R15:0x%02X | VOC:%s/%s/%s",
+           "PG%d CE%d HZ%d MP%d %s %s VD%d ID%d|%.1f/%.1fV %dmA %.0fC %s|%02X/%02X VOC%s/%s/%s",
            powerGood, !ce_disabled, hiz_enabled, mppt_enabled, chg_str, vbus_str, vindpm, iindpm, vbus_v,
-           vbat_v, ibat_ma_int, temp_c, ts_cold ? "COLD " : "", ts_cool ? "COOL " : "", ts_warm ? "WARM " : "",
-           ts_hot ? "HOT" : "OK", reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
+           vbat_v, ibat_ma_int, temp_c, ts_str, reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
 }
 
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
@@ -2053,7 +2051,10 @@ void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSi
 }
 
 /// @brief Get Time To Live in hours
-/// @return Hours until battery empty (0 = not calculated or charging)
+/// @details Based on the 7-day rolling average of daily net energy deficit (avg_7day_daily_net_mah),
+///          calculated from hourly INA228 Coulomb-counter samples in a 168h ring buffer.
+///          Formula: TTL = (current_soc% * capacity_mah) / abs(avg_7day_daily_net_mah) * 24h
+/// @return Hours until battery empty (0 = not calculated, charging, or insufficient data)
 uint16_t BoardConfigContainer::getTTL_Hours() const {
   return socStats.ttl_hours;
 }
@@ -2841,8 +2842,28 @@ void BoardConfigContainer::calculateRollingStats() {
 }
 
 /// @brief Calculate Time To Live (hours until battery empty)
+/// @details TTL is based on the **7-day rolling average** of daily net energy consumption
+///          (avg_7day_daily_net_mah). This average is computed from a 168-hour (7-day)
+///          ring buffer of hourly INA228 Coulomb-counter measurements (charged/discharged/solar mAh).
+///
+///          Data flow:
+///          1. INA228 hardware Coulomb counter measures charge flow continuously (24-bit ADC)
+///          2. updateHourlyStats() samples the counter every hour, storing per-hour deltas
+///             (charged_mah, discharged_mah, solar_mah) in hours[168] ring buffer
+///          3. calculateRollingStats() sums the last 168 hours and divides by 7 to get
+///             avg_7day_daily_net_mah (= solar - discharged per day)
+///          4. This method extrapolates: remaining_mah / deficit_per_day * 24 = TTL hours
+///
+///          Preconditions for TTL > 0:
+///          - living_on_battery == true (24h net is negative, i.e. energy deficit)
+///          - avg_7day_daily_net_mah < 0 (7-day average shows net discharge)
+///          - capacity_mah > 0 (battery capacity is known)
+///          - At least 24 hours of valid hourly data exist in the ring buffer
+///
+///          When the device is solar-powered with energy surplus (net >= 0),
+///          TTL is 0 and callers interpret this as "infinite" via living_on_battery flag.
 void BoardConfigContainer::calculateTTL() {
-  if (!socStats.living_on_battery || socStats.avg_3day_daily_net_mah >= 0) {
+  if (!socStats.living_on_battery || socStats.avg_7day_daily_net_mah >= 0) {
     socStats.ttl_hours = 0;  // Not draining or charging
     return;
   }
@@ -2856,7 +2877,7 @@ void BoardConfigContainer::calculateTTL() {
   float remaining_mah = (socStats.current_soc_percent / 100.0f) * socStats.capacity_mah;
   
   // Daily deficit (negative value)
-  float deficit_per_day = -socStats.avg_3day_daily_net_mah;
+  float deficit_per_day = -socStats.avg_7day_daily_net_mah;
   
   if (deficit_per_day <= 0) {
     socStats.ttl_hours = 0;
