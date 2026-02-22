@@ -81,6 +81,12 @@ Die Firmware nutzt feste Intervalle:
 - **Telemetrie:** Wird als Tage via CayenneLPP Distance-Feld übertragen (max. 990 Tage für "unendlich")
 
 ### Solar-Energieverwaltung 🆕
+- **Solarstrom-Anzeige:** Der BQ25798 IBUS-ADC ist bei niedrigen Strömen ungenau (~±30mA Fehler). Daher wird der Solarstrom abgestuft angezeigt:
+  - `0mA` — ADC meldet exakt 0 (kein Solarstrom)
+  - `<50mA` — 1–49mA (ADC in diesem Bereich unzuverlässig)
+  - `~72mA` — 50–100mA mit Rundungszeichen `~` (eingeschränkte Genauigkeit)
+  - `385mA` — >100mA ohne Rundungszeichen (hinreichend genau)
+  - Immer ganzzahlig ohne Dezimalstellen (keine Pseudopräzision)
 - **Stuck-PGOOD-Erkennung:** Erkennt automatisch langsame Sonnenaufgänge mit hängendem PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown gegen übermäßiges Toggeln)
 - **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 mit 60-Sekunden-Cooldown, um Interrupt-Loops zwischen Solarlogik und BQ25798-Interrupts zu vermeiden
 - **Interrupt-Clearing:** Löscht stets BQ25798-Interrupt-Flags (CHARGER_STATUS_0 Register 0x1B), damit der Betrieb stabil bleibt und kein Interrupt-Lockup entsteht
@@ -124,12 +130,14 @@ get board.mppt      # MPPT-Status abfragen
                     # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
 
 get board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
-                    # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/~<I>mA
-                    # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/~245mA
-                    # Falls SOC nicht synchronisiert: B:3.85V/125.4mA/22C SOC:N/A S:5.12V/~245mA
+                    # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<SolarStrom>
+                    # Beispiele:
+                    #   B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA      (>100mA: genau)
+                    #   B:3.85V/-8.2mA/18C SOC:72.0% S:4.90V/~72mA      (50-100mA: ~Schätzwert)
+                    #   B:3.30V/-45.0mA/5C SOC:40.1% S:0.00V/<50mA      (<50mA: ADC ungenau)
                     # Komponenten:
                     # - B: Battery (Voltage/Current/Temperature/SOC)
-                    # - S: Solar (Voltage/Current, ~ = Schätzwert)
+                    # - S: Solar (Voltage/Strom — Genauigkeit abhängig vom BQ25798 IBUS-ADC)
 
 get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
                     # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3dC:<3d> 3dD:<3d> 7dC:<7d> 7dD:<7d> <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]

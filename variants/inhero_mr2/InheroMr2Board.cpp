@@ -437,22 +437,18 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     // MPPT info
     float mppt_pct = boardConfig.getMpptEnabledPercentage7Day();
 
-    // Compact format: 24h/3d/7d Status MPPT% [TTL]
-    if (ttl > 0) {
-      char ttlBuf[16];
-      if (ttl >= 24) {
-        snprintf(ttlBuf, sizeof(ttlBuf), "%dd%dh", ttl / 24, ttl % 24);
-      } else {
-        snprintf(ttlBuf, sizeof(ttlBuf), "%dh", ttl);
-      }
-      snprintf(reply, maxlen, "%+.0f/%+.0f/%+.0fmAh C:%.0f D:%.0f 3C:%.0f 3D:%.0f 7C:%.0f 7D:%.0f %s M:%.0f%% T:%s",
-               last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
-               avg7d_charged, avg7d_discharged, status, mppt_pct, ttlBuf);
+    // Compact format: 24h/3d/7d Status MPPT% TTL
+    char ttlBuf[16];
+    if (ttl >= 24) {
+      snprintf(ttlBuf, sizeof(ttlBuf), "%dd%dh", ttl / 24, ttl % 24);
+    } else if (ttl > 0) {
+      snprintf(ttlBuf, sizeof(ttlBuf), "%dh", ttl);
     } else {
-      snprintf(reply, maxlen, "%+.0f/%+.0f/%+.0fmAh C:%.0f D:%.0f 3C:%.0f 3D:%.0f 7C:%.0f 7D:%.0f %s M:%.0f%%",
-               last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
-               avg7d_charged, avg7d_discharged, status, mppt_pct);
+      snprintf(ttlBuf, sizeof(ttlBuf), "N/A");
     }
+    snprintf(reply, maxlen, "%+.0f/%+.0f/%+.0fmAh C:%.0f D:%.0f 3C:%.0f 3D:%.0f 7C:%.0f 7D:%.0f %s M:%.0f%% T:%s",
+             last_24h_net, avg3d, avg7d, last_24h_charged, last_24h_discharged, avg3d_charged, avg3d_discharged,
+             avg7d_charged, avg7d_discharged, status, mppt_pct, ttlBuf);
     return true;
   } else if (strcmp(cmd, "cinfo") == 0) {
     char infoBuffer[100];
@@ -491,7 +487,16 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(bat_current_str, sizeof(bat_current_str), "%.1fmA", precise_current_ma);
 
     char sol_current_str[16];
-    snprintf(sol_current_str, sizeof(sol_current_str), "~%.0fmA", (float)telemetry->solar.current);
+    int16_t sol_current = telemetry->solar.current;
+    if (sol_current == 0) {
+      snprintf(sol_current_str, sizeof(sol_current_str), "0mA");
+    } else if (sol_current < 50) {
+      snprintf(sol_current_str, sizeof(sol_current_str), "<50mA");
+    } else if (sol_current <= 100) {
+      snprintf(sol_current_str, sizeof(sol_current_str), "~%dmA", (int)sol_current);
+    } else {
+      snprintf(sol_current_str, sizeof(sol_current_str), "%dmA", (int)sol_current);
+    }
 
     if (socStats && socStats->soc_valid) {
       snprintf(reply, maxlen, "B:%.2fV/%s/%.0fC SOC:%.1f%% S:%.2fV/%s", telemetry->batterie.voltage / 1000.0f,
