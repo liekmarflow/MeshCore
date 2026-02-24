@@ -20,6 +20,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 - RV-3028-C7 RTC für Wake-up Management
 - TPS62840 Buck Converter mit Hardware-UVLO
 - BQ25798 Battery Charger mit MPPT
+- BQ CE-Pin (P0.04/WB_IO4) für Hardware-Ladesicherung
 
 ## Aktuelle Feature-Matrix
 
@@ -28,6 +29,9 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
 | RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 6h (Produktion) |
+| BQ CE-Pin Safety (Hardware-Ladesicherung) | Aktiv | Dual-Layer: GPIO + I2C Register |
+| System ON Idle (Danger Zone) | Aktiv | GPIO-Latches für CE-Pin erhalten |
+| SOC 0% nach Danger Zone | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
@@ -44,11 +48,16 @@ Die Firmware nutzt feste Intervalle:
 ### 2-stufiges Schutzsystem
 1. **Software-Spannungsüberwachung** - feste Strategie:
    - **Normalbetrieb**: 60s Checks (System läuft bereits)
-   - **Danger Zone**: 6-Stunden-RTC-Wakeups (SYSTEMOFF, teurer Bootvorgang)
+   - **Danger Zone**: System ON Idle mit RTC-Wakeup (6h, GPIO-Latches aktiv für CE-Pin)
 2. **Hardware-UVLO** - INA228 Alert → TPS62840 EN (absoluter Schutz auf Hardware-Ebene)
-3. **SX1262 Power Control** - RadioLib `powerOff()` vor SYSTEMOFF (richtige Sleep-Methode)
+3. **SX1262 Power Control** - RadioLib `powerOff()` vor Shutdown (richtige Sleep-Methode)
+4. **BQ CE-Pin** (P0.04) - Hardware-Ladesicherung:
+   - Ext. Pull-Up → CE HIGH wenn RAK stromlos (Default: Laden gesperrt)
+   - `begin()` setzt CE explizit HIGH (Laden gesperrt bis Chemie konfiguriert)
+   - `configureChemistry()` setzt CE LOW nur bei bekannter Batterie-Chemie
+   - Dual-Layer: CE-Pin (Hardware) + `setChargeEnable()` (I2C Register)
 
-**Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~0.03mAh (vollständiger Systemstart ~10s @ ~10mA). Die Strategie maximiert die Batterielaufzeit.
+**Kernpunkt:** Normale Checks kosten ~1µAh (INA228 I²C-Read), Danger-Zone-Wakeups kosten ~0.03mAh (vollständiger Systemstart ~10s @ ~10mA). Im Danger-Zone-Modus wird **System ON Idle** statt System OFF verwendet, um die GPIO-Latches (insbesondere BQ CE-Pin) aktiv zu halten und Solar-Recovery zu ermöglichen. Die Spannung wird **direkt im Idle-Loop** via `readVBATDirect()` geprüft — ein blinder `NVIC_SystemReset()` würde in `begin()` → `sd_power_system_off()` landen, GPIO-Latches lösen und CE → HIGH setzen (Solar blockiert). Erst bei tatsächlicher Spannungs-Erholung wird `NVIC_SystemReset()` ausgelöst. Nach einem Danger-Zone-Recovery wird der SOC auf 0% initialisiert und synchronisiert sich automatisch beim nächsten „Charging Done"-Event auf 100%.
 
 ### Spannungsschwellen (Li-Ion 1S)
 - **Hardware-Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-Sample-Averaging filtert TX-Spitzen)

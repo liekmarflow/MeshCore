@@ -68,6 +68,7 @@ static const uint8_t WB_SPI_MOSI = 30; // IO_SLOT
 #define PIN_LED1           (35)
 #define PIN_LED2           (36)
 #define BQ_INT_PIN         (21)
+#define BQ_CE_PIN          (4)   // P0.04 (WB_IO4) - BQ25798 Charge Enable (active LOW, ext. pull-up to VSYS)
 
 #define LED_BUILTIN        PIN_LED1
 #define LED_CONN           PIN_LED2

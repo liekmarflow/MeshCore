@@ -248,9 +248,12 @@ public:
   static void syncSOCToFull();                 ///< Sync SOC to 100% after "Charging Done" (resets INA228 baseline)
   static bool setSOCManually(float soc_percent); ///< Manually set SOC to specific value (e.g. after reboot)
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
+  const MpptStatistics* getMpptStats() const { return &mpptStats; } ///< Get MPPT stats for CLI
   static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
+
   static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
+  void setDangerZoneRecovery() { dangerZoneRecovery = true; } ///< Mark as danger zone recovery boot
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
   
   // INA228 Calibration methods (v0.2)
@@ -301,6 +304,7 @@ private:
   
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
+  bool dangerZoneRecovery = false;  ///< Set in begin() if booting from danger zone (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
 

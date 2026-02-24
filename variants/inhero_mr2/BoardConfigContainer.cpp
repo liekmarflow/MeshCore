@@ -1231,6 +1231,14 @@ bool BoardConfigContainer::begin() {
       // Recovery: Requires PHYSICAL battery disconnect to reset INA228 registers
       // Note: applyUvloSetting() will load from preferences and set chemistry-specific threshold
       applyUvloSetting();
+
+      // After danger zone recovery, set SOC to 0% — battery was critically low,
+      // solar just charged it past the threshold. Coulomb counting starts from 0%
+      // and auto-corrects to 100% when BQ25798 signals "Charging Done".
+      if (dangerZoneRecovery) {
+        setSOCManually(0.0f);
+        MESH_DEBUG_PRINTLN("SOC: Set to 0%% (danger zone recovery)");
+      }
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
       INA228_INITIALIZED = false;
@@ -1663,7 +1671,15 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
 
   // Apply charge enable/disable based on battery type
   bq.setChargeEnable(props->charge_enable);
-  
+
+  // CE-Pin hardware safety: Only pull CE LOW (enable charging) when chemistry is known
+  // External pull-up ensures CE stays HIGH (charging disabled) when RAK is off or unbooted
+#ifdef BQ_CE_PIN
+  pinMode(BQ_CE_PIN, OUTPUT);
+  digitalWrite(BQ_CE_PIN, props->charge_enable ? LOW : HIGH);
+  MESH_DEBUG_PRINTLN("BQ CE pin %s (charge_enable=%d)", props->charge_enable ? "LOW (enabled)" : "HIGH (disabled)", props->charge_enable);
+#endif
+
   if (!props->charge_enable) {
     MESH_DEBUG_PRINTLN("WARNING: Battery type UNKNOWN - Charging DISABLED for safety!");
     return true;  // No further configuration needed for unknown battery

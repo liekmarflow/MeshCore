@@ -42,6 +42,15 @@ volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 void InheroMr2Board::begin() {
   pinMode(PIN_VBAT_READ, INPUT);
 
+  // BQ25798 CE pin: Explicitly drive HIGH (charging disabled) on every boot.
+  // External pull-up already holds CE HIGH when RAK is unpowered, but we
+  // make the safe state explicit here. configureChemistry() will pull it
+  // LOW only after successful I2C configuration with a known battery type.
+#ifdef BQ_CE_PIN
+  pinMode(BQ_CE_PIN, OUTPUT);
+  digitalWrite(BQ_CE_PIN, HIGH);
+#endif
+
 #ifdef PIN_USER_BTN
   pinMode(PIN_USER_BTN, INPUT_PULLUP);
 #endif
@@ -119,9 +128,11 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Critical=%dmV (0%% SOC), UVLO=%dmV, Reason=0x%02X",
                        vbat_mv, critical_threshold, uvlo_threshold, shutdown_reason);
 
-    // Case 1: Waking from Software-SHUTDOWN (mask out upper bits, only check SHUTDOWN_REASON)
+    // Case 1: Waking from danger zone (System ON Idle → NVIC_SystemReset)
+    // The idle loop already verified voltage >= critical before triggering reset,
+    // so we should always have recovered voltage here.
     if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
-      MESH_DEBUG_PRINTLN("Detected RTC wake from software shutdown");
+      MESH_DEBUG_PRINTLN("Danger zone recovery: voltage=%dmV (threshold=%dmV)", vbat_mv, critical_threshold);
 
       // Visual indication: 3x fast blue blink to show RTC wake-up
       if (boardConfig.getLEDsEnabled()) {
@@ -133,30 +144,9 @@ void InheroMr2Board::begin() {
         }
       }
 
-      if (vbat_mv < critical_threshold) {
-        MESH_DEBUG_PRINTLN("Voltage still in danger zone (%dmV < %dmV)", vbat_mv, critical_threshold);
-        MESH_DEBUG_PRINTLN("Will enter low-power mode after boot completes");
-        delay(100);
-
-        // Do NOT send sleep command here - RadioLib not yet initialized!
-        // The voltageMonitorTask will handle sleep after full system init
-        // Just preserve the flags and continue boot
-
-        // CRITICAL: Preserve GPREGRET2_IN_DANGER_ZONE flag!
-        // Only clear lower bits (SHUTDOWN_REASON) for clean state
-        NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
-
-        // Configure RTC wake-up (6h production)
-        // voltageMonitorTask will send sleep command on next boot after init completes
-        configureRTCWake(6);
-        sd_power_system_off();
-        // Never returns
-      }
-
-      // Voltage recovered above critical threshold  - resumed normal operation
-      MESH_DEBUG_PRINTLN("Voltage recovered to %dmV, resuming normal operation", vbat_mv);
       // Clear ALL flags including Danger Zone - we're exiting!
       NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+      boardConfig.setDangerZoneRecovery();
     }
     // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2 may have Danger Zone flag from previous session)
     // This is the critical case to prevent motorboating!
@@ -855,6 +845,13 @@ uint16_t InheroMr2Board::getVoltageHardwareCutoff() {
 
 /// @brief Initiate controlled shutdown with filesystem protection (v0.2)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
+///
+/// For low-voltage shutdowns: Uses System ON Idle instead of System OFF.
+/// This keeps GPIO output latches active so BQ_CE_PIN stays LOW, allowing
+/// the BQ25798 to continue solar charging autonomously while the nRF52 sleeps.
+/// BQ interrupt is detached to prevent spurious wake-ups from solar events.
+/// Only the RTC countdown timer wakes the CPU for periodic voltage checks.
+/// Power difference: ~3 µA (System ON Idle) vs ~2 µA (System OFF).
 void InheroMr2Board::initiateShutdown(uint8_t reason) {
   MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
 
@@ -868,6 +865,15 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     boardConfig.getIna228Driver()->shutdown();
   }
 
+  // 3. Power off SX1262 radio
+  digitalWrite(SX126X_POWER_EN, LOW);
+  delay(10);
+
+  // 4. Turn off 3V3 rail (GPS, sensors, display)
+  // Note: BQ25798 and INA228 are on VSYS, not affected
+  digitalWrite(PIN_LED1, LOW);
+  digitalWrite(PIN_LED2, LOW);
+
   if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
     MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - syncing filesystem");
 
@@ -875,14 +881,61 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // For now, stopBackgroundTasks() should flush pending writes
     delay(100); // Allow I/O to complete
 
-    // 3. Configure RTC to wake us up (6 hours)
+    // 5. Configure RTC to wake us up periodically for voltage check
     configureRTCWake(6);
+
+    // 6. Store shutdown reason for next boot (in case of unexpected reset)
+    NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason;
+
+    // 7. Detach BQ interrupt to prevent solar events waking CPU
+    // BQ25798 MPPT/CC/CV runs autonomously in hardware — no CPU needed
+    detachInterrupt(digitalPinToInterrupt(BQ_INT_PIN));
+
+    // 8. System ON Idle with in-loop voltage checking
+    // GPIO outputs remain latched (CE stays LOW → solar charges)
+    // ~3 µA total (vs ~2 µA System OFF), but enables solar recovery
+    //
+    // CRITICAL: Voltage is checked HERE in the loop, NOT via NVIC_SystemReset().
+    // This avoids unnecessary full reboots while voltage is still low, and
+    // prevents the CE-Pin bug: a reboot → begin() → sd_power_system_off()
+    // would release GPIO latches → CE HIGH → solar charging blocked!
+    MESH_DEBUG_PRINTLN("PWRMGT: Entering System ON Idle (CE pin preserved for solar charging)");
+    delay(50); // Let debug output complete
+
+    uint16_t critical_threshold = getVoltageCriticalThreshold();
+
+    // Idle loop: sleep → RTC wake → check voltage → sleep again or reboot
+    while (true) {
+      rtc_irq_pending = false;
+      while (!rtc_irq_pending) {
+        sd_app_evt_wait();
+        sd_evt_get(nullptr); // Clear any pending SoftDevice events
+      }
+
+      // RTC fired — read battery voltage via INA228 One-Shot (I2C works in System ON)
+      uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+      MESH_DEBUG_PRINTLN("PWRMGT: RTC wake — VBAT=%dmV (critical=%dmV)", vbat_mv, critical_threshold);
+
+      if (vbat_mv > 0 && vbat_mv >= critical_threshold) {
+        // Voltage recovered — reboot to resume normal operation
+        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered! Rebooting for normal operation");
+        delay(50);
+        NVIC_SystemReset();
+        // Never returns
+      }
+
+      // Still too low — reconfigure RTC and go back to sleep
+      // CE-Pin stays LOW, solar charging continues autonomously
+      MESH_DEBUG_PRINTLN("PWRMGT: Still in danger zone, sleeping another 6h");
+      configureRTCWake(6);
+      delay(50);
+    }
+    // Never reaches here
   }
 
-  // 4. Store shutdown reason for next boot
+  // Non-low-voltage shutdown (user request, thermal): use System OFF
   NRF_POWER->GPREGRET2 = reason;
 
-  // 5. Enter SYSTEMOFF mode (1-5 µA)
   MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEMOFF");
   delay(50); // Let debug output complete
 
