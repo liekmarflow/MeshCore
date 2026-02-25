@@ -11,7 +11,6 @@
 - [5. Time-To-Live (TTL)-Prognose](#5-time-to-live-ttl-prognose)
 - [6. RTC-Wakeup-Management](#6-rtc-wakeup-management)
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
-- [12. .noinit Stats Preservation](#12-noinit-stats-preservation-statistik-erhaltung)
 - [Siehe auch](#siehe-auch)
 
 > ✅ **STATUS: IMPLEMENTIERT (laufend gepflegt)** ✅
@@ -20,24 +19,23 @@
 > Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
 > Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
 > 
-> Datum: 4. Februar 2026
-> Version: 2.1 (Implementiert und dokumentiert)
+> Datum: 25. Februar 2026
+> Version: 2.2 (Dokumentation an Code-Stand angepasst)
 > Hardware: INA228 + RTC
 
 ---
 
 ## Überblick
 
-Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin Hardware-Ladesicherung** + **.noinit Stats Preservation** für optimalen Filesystem-Schutz, Energie-Effizienz und Batterie-Monitoring:
+Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin Hardware-Ladesicherung** für Energie-Effizienz und Batterie-Monitoring:
 
-1. **Software-Spannungsüberwachung** (adaptive Task) - Danger-Zone-Erkennung
+1. **Software-Spannungsüberwachung** (in socUpdateTask) - Danger-Zone-Erkennung
 2. **RTC-Wakeup-Management** (RV-3028-C7) - periodische Recovery-Checks
 3. **Hardware-UVLO** (INA228 Alert → TPS62840 EN) - ultimative Schutzebene
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
 6. **INA228 Shutdown-Modus** - Stromsparen während Danger Zone (~1µA)
 7. **BQ CE-Pin** (P0.04) - Hardware-Ladesicherung (Dual-Layer: GPIO + I2C)
-8. **.noinit Stats Preservation** - 168h-Statistiken überleben NVIC_SystemReset() (Magic+CRC32)
 
 ### Aktuelle Feature-Matrix
 
@@ -45,7 +43,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 |---------|--------|---------|
 | Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
-| RTC-Wakeup (SYSTEMOFF-Recovery) | Aktiv | 12h (Produktion) / 60s (Test) |
+| RTC-Wakeup (Danger-Zone-Recovery) | Aktiv | 6h (Produktion) |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
@@ -73,6 +71,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 - **Task**: `socUpdateTask()` (ruft `runVoltageMonitor()` pro Minute)
 - **Messung**: INA228 via I²C (batterie.voltage)
 - **Frequenz**: 60s
+- **Hinweis**: `voltageMonitorTask()` existiert als Stub (löscht sich sofort), die eigentliche Spannungsüberwachung läuft in `socUpdateTask` via `runVoltageMonitor()`
 
 ### Monitoring-Intervalle
 
@@ -85,11 +84,11 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 | System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
 |--------------|------------------|----------|----------------|----------|
 | **Running (Normal)** | ≥ 3.4V | **60 seconds** | ~1µAh | System already awake, INA228 I²C read minimal cost |
-| **System ON Idle (Danger Zone)** | < 3.4V | **6 hours** | ~0.03mAh | System ON Idle: GPIO-Latches aktiv, RTC-Wakeup, NVIC_SystemReset |
+| **System ON Idle (Danger Zone)** | < 3.4V | **6 hours** | ~0.03mAh | System ON Idle: GPIO-Latches aktiv, RTC-Wakeup, NVIC_SystemReset bei Erholung |
 
-**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin). In der Danger Zone wird **System ON Idle** verwendet (statt SYSTEMOFF), um GPIO-Latches aktiv zu halten — insbesondere den BQ CE-Pin (LOW = Laden freigegeben). Nach RTC-Ablauf erfolgt `NVIC_SystemReset()` für einen sauberen Neustart.
+**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin). In der Danger Zone wird **System ON Idle** verwendet (statt SYSTEMOFF), um GPIO-Latches aktiv zu halten — insbesondere den BQ CE-Pin (LOW = Laden freigegeben). Die Spannung wird direkt im Idle-Loop via `readVBATDirect()` geprüft. Erst bei tatsächlicher Erholung erfolgt `NVIC_SystemReset()`.
 
-**Action at < 3.4V**: `initiateShutdown()` → System ON Idle + RTC timer 6 hours + NVIC_SystemReset
+**Action at < 3.4V**: `runVoltageMonitor()` → `board.initiateShutdown(LOW_VOLTAGE)` → System ON Idle + RTC timer 6h + NVIC_SystemReset bei Erholung
 
 **Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
 
@@ -125,7 +124,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: voltageMonitorTask() ruft auf (1h normal, 6h Danger Zone System ON Idle wake)
+- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, 6h Danger Zone RTC-Wake)
 
 **Formel**:
 ```
@@ -441,77 +440,51 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 
 **Bei Low-Voltage → System ON Idle** (GPIO-Latches bleiben aktiv für CE-Pin):
 
-**6 Schritte**:
+**Ablauf:** `runVoltageMonitor()` (BoardConfigContainer.cpp) ruft `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)` auf (InheroMr2Board.cpp):
+
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
-   - Stoppt MPPT task, Heartbeat task, Voltage Monitor task
+   - Stoppt MPPT task, Heartbeat task, SOC Update task
    - Verhindert Filesystem-Korruption
    
-2. **INA228 Shutdown**:
-   ```cpp
-   if (boardConfig.getIna228Driver() != nullptr) {
-     boardConfig.getIna228Driver()->shutdown();  // MODE=0x0 → Power-down
-   }
-   ```
-   - Stoppt alle ADC-Konversionen
-   - Deaktiviert Coulomb Counter (kein Zählen bei 0% SOC sowieso)
-   - Reduziert INA228-Stromverbrauch auf ~1µA
+2. **INA228 Shutdown**: `ina228.shutdown()` → MODE=0x0 (Power-down, ~1µA)
    
-3. **BQ25798 Interrupt deaktivieren**:
-   ```cpp
-   detachInterrupt(BQ_INT_PIN);
-   // Verhindert Spurious-Wakeups durch Solar-Events (PGOOD-Toggles)
-   // BQ25798 MPPT/CC/CV läuft autonom in Hardware weiter
-   ```
-
-4. **RTC Wake konfigurieren** (bei LOW_VOLTAGE):
-   ```cpp
-   if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-     delay(100);  // Allow I/O to complete
-     configureRTCWake(21600);  // 6 Stunden (21600 Sekunden)
-   }
-   ```
+3. **SX1262 Power Off**: `digitalWrite(SX126X_POWER_EN, LOW)`
    
-5. **Shutdown-Grund speichern**:
-   ```cpp
-   NRF_POWER->GPREGRET2 = reason;  // Persistent über Reset
-   ```
+4. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
    
-6. **System ON Idle Loop** (bei LOW_VOLTAGE):
-   ```cpp
-   // GPIO-Latches bleiben aktiv → BQ_CE_PIN bleibt LOW → Solar-Laden möglich
-   while (!rtc_expired) {
-     sd_app_evt_wait();    // CPU schläft (~3µA)
-     sd_evt_get(nullptr);  // SoftDevice Events verarbeiten
-     // RTC Timer-Flag pollen (kein Interrupt nötig)
-   }
-   NVIC_SystemReset();     // Sauberer Neustart
-   ```
+5. **RTC Wake konfigurieren**: `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` → 6h
+   
+6. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason`
+   
+7. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
 
-7. **Stats in .noinit RAM sichern** (vor Step 6):
+8. **System ON Idle Loop**:
    ```cpp
-   // Coulomb Counter + MPPT-Stats überleben NVIC_SystemReset() dank .noinit-Section
-   BoardConfigContainer::saveStatsToNoinit((uint8_t)boardConfig.getBatteryType());
-   // ~4.8 KB mit Magic (0x494E4852) + CRC32 (IEEE 802.3)
-   ```
-
-8. **Stats nach Warm Reset wiederherstellen** (in `begin()`):
-   ```cpp
-   // Nach voltage-recovery: .noinit-Daten validieren und restoren
-   uint8_t restoredBatType = 0;
-   if (BoardConfigContainer::restoreStatsFromNoinit(&restoredBatType)) {
-       noinit_stats_invalidate(); // Nur einmal verwenden
+   while (true) {
+     sd_app_evt_wait();       // CPU schläft (~3µA)
+     // RTC Timer weckt auf
+     vbat_mv = readVBATDirect();
+     if (vbat_mv >= critical)
+       NVIC_SystemReset();    // Nur bei tatsächlicher Erholung
+     configureRTCWake(6h);    // Sonst weiterschlafen
    }
    ```
+   - GPIO-Latches bleiben aktiv → BQ_CE_PIN bleibt LOW → Solar-Laden möglich
+   - Stromverbrauch: ~3µA (vs. ~2µA bei System OFF)
 
-**Nicht-Low-Voltage Shutdowns** (User Request, Thermal): Verwenden weiterhin `sd_power_system_off()`.
+**Nicht-Low-Voltage Shutdowns** (User Request, Thermal): Verwenden `sd_power_system_off()` (echtes System OFF).
 
 **Warum System ON Idle statt System OFF?**
 - System OFF → alle GPIOs werden High-Z → CE-Pin Pull-Up → HIGH → Laden gesperrt
 - System ON Idle → GPIO-Latches bleiben aktiv → CE-Pin bleibt LOW → **Solar-Laden weiterhin möglich**
 - Stromverbrauch: ~3µA (System ON Idle) vs. ~2µA (System OFF) — vernachlässigbar
 
+**168h-Statistiken gehen bei `NVIC_SystemReset()` verloren** — es existiert kein Persistenzmechanismus
+(kein `.noinit`-Section, kein LittleFS-Snapshot) für die Ring-Buffer-Daten. Nach System ON Idle → NVIC_SystemReset
+starten die Statistiken bei Null.
+
 ### Wake-up-Check (Anti-Motorboating)
-**Methode**: `InheroMr2Board::begin()` Zeile 459+
+**Methode**: `InheroMr2Board::begin()`
 
 Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung für Wake-up-Entscheidungen.
 
@@ -520,27 +493,22 @@ Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung fü
 
 **3 Fälle**:
 
-**Case 1: RTC Wake from Software-SHUTDOWN** (`GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE`)
+**Case 1: Wake from Danger Zone (System ON Idle → NVIC_SystemReset)** (`GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE`)
 ```cpp
-// InheroMr2Board::begin() prüft Spannung bei Wake-up
-if (shutdown_reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-  if (vbat_mv < critical_threshold) {
-    configureRTCWake(21600);  // 6 Stunden (minimize boot cost)
-    sd_power_system_off();
-  }
-  // Voltage recovered - resume at 0% SOC
+// InheroMr2Board::begin() — Voltage wurde bereits im Idle-Loop geprüft
+if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
+  // Flags löschen, Danger-Zone-Recovery markieren, SOC auf 0%
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-  boardConfig.startReverseLearning();  // Start at 0% SOC
+  boardConfig.setDangerZoneRecovery();
 }
 ```
 
-**Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2 = 0x00`, voltage still low)
+**Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2` beliebig, voltage still low)
 ```cpp
 // Prüft auch bei Cold Boot die Spannung
 else if (vbat_mv < critical_threshold) {
-  MESH_DEBUG_PRINTLN("ColdBoot in danger zone - likely Hardware-UVLO");
-  configureRTCWake(21600);  // 6h (minimize repeated boot attempts)
-  NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE;
+  configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);  // 6h
+  NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
   sd_power_system_off();
 }
 ```
@@ -577,15 +545,16 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
 2. Solar lädt auf 3.15V → TPS62840 EN=HIGH (50mV Hysterese)
 3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
 4. **Early Boot Check** → `vbat=3150mV < critical_threshold=3400mV` ✅ DETECTED
-5. **Action** → `configureRTCWake(12)` + `GPREGRET2 = LOW_VOLTAGE` + System ON Idle
-6. **Result** → Kein Motorboating! System schläft im System ON Idle (GPIO-Latches aktiv, CE-Pin bleibt LOW)
+5. **Action** → `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` + `GPREGRET2 = LOW_VOLTAGE` + `sd_power_system_off()`
+6. **Result** → Kein Motorboating! System geht in System OFF (RTC weckt in 6h)
+   *Hinweis: Dieser Pfad (ColdBoot, Case 2) nutzt System OFF — nur `initiateShutdown()` nutzt System ON Idle*
 
-**Stromverbrauch während System ON Idle (Danger Zone)**:
+**Stromverbrauch während System ON Idle (Danger Zone, normaler Pfad)**:
 - nRF52840 (System ON Idle): ~2-3µA
 - INA228 (Shutdown): ~1µA
 - RV-3028 (Running): ~45nA
 - TPS62840 (disabled): <1µA
-- **Total**: ~3-4µA (vs. ~2-3µA bei System OFF — vernachlässigbar)
+- **Total**: ~3-4µA
 - **Vorteil**: GPIO-Latches aktiv → BQ CE-Pin bleibt LOW → Solar-Laden möglich
 
 ---
@@ -630,7 +599,7 @@ ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
 ### Shutdown-Sequenz Erweiterung
 **Methode**: `initiateShutdown()` in `InheroMr2Board.cpp` + `BoardConfigContainer.cpp`
 
-Vor SYSTEMOFF wird die SX1262 LoRa-Radio korrekt in den Sleep-Modus versetzt:
+Vor dem Shutdown wird die SX1262 LoRa-Radio korrekt in den Sleep-Modus versetzt:
 
 ```cpp
 // In BoardConfigContainer.cpp before shutdown:
@@ -737,7 +706,7 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 
 ### Verhalten im System ON Idle (Danger Zone)
 
-Im Danger-Zone-Modus wird **System ON Idle** statt System OFF verwendet:
+In der Danger Zone wird **System ON Idle** verwendet (via `initiateShutdown()`):
 - System ON Idle → GPIO-Latches bleiben aktiv → **CE-Pin bleibt LOW**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
 - `detachInterrupt(BQ_INT_PIN)` verhindert Spurious-Wakeups durch Solar-Events
@@ -748,83 +717,34 @@ Im Danger-Zone-Modus wird **System ON Idle** statt System OFF verwendet:
 | Early Boot | HIGH (explizit) | Gesperrt | Nein |
 | BAT_UNKNOWN | HIGH | Gesperrt | Nein |
 | Chemie konfiguriert | LOW | Freigegeben | Ja |
-| System ON Idle | LOW (gelatcht) | **Freigegeben** | **Ja** |
-| System OFF | HIGH (Pull-Up) | Gesperrt | Nein |
+| System ON Idle (Danger Zone) | LOW (gelatcht) | **Freigegeben** | **Ja** |
+| System OFF (ColdBoot Case 2) | HIGH (Pull-Up) | Gesperrt | Nur via UVLO-Hysterese |
 
 ---
 
-## 12. .noinit Stats Preservation (Statistik-Erhaltung)
+## 12. Statistik-Persistenz
 
-### Problem
-Bei `NVIC_SystemReset()` (Danger Zone Recovery nach System ON Idle) löscht der C-Startup-Code die `.bss`-Section und lädt `.data` aus Flash. Alle im RAM liegenden Statistiken — 168h Coulomb Counter Ring Buffer, MPPT-Statistiken, SOC-Zustand — gehen verloren, obwohl der RAM physisch bestromt bleibt.
+### Aktueller Stand
 
-### Lösung: `.noinit` Linker-Section
-Eine spezielle `(NOLOAD)`-Section im Linker-Script wird vom C-Startup **nicht** initialisiert. Variablen mit `__attribute__((section(".noinit")))` behalten ihren RAM-Inhalt über Warm Resets.
+Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System OFF, Hardware-UVLO oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
 
-### Architektur
+**Persistente Daten** (überleben Reboots via LittleFS):
+- Batterietyp (`batType`)
+- Batteriekapazität (`batCap`)
+- INA228 Kalibrierung (`ina228Cal`, `ina228Off`)
+- NTC Kalibrierung (`tcCal`)
+- UVLO-Einstellung (`uvloEn`)
+- MPPT-Einstellung (`mpptEn`)
+- Frostverhalten (`frost`)
+- Max. Ladestrom (`maxChrg`)
+- LED-Einstellung (`leds`)
 
-```
-                    inhero_mr2.ld (Custom Linker Script)
-                    ├── Basis: nrf52840_s140_v6.ld
-                    └── Zusatz: .noinit (NOLOAD) INSERT AFTER .bss
-
-NoInitStatsPreserve (~4830 Bytes, __attribute__((packed))):
-┌──────────────┬─────────────────┬───────────────────┬─────────────┬──────────┐
-│ magic (4B)   │ socStats (2788B)│ mpptStats (2036B) │ batType (1B)│ crc32 (4B)│
-│ 0x494E4852   │ 168h Ringpuffer │ 168h MPPT-Buffer  │ Chemistry   │ IEEE 802.3│
-└──────────────┴─────────────────┴───────────────────┴─────────────┴──────────┘
-```
-
-### Validierung (2-stufig)
-1. **Magic Check** (`0x494E4852` = "INHR"): Schnelle Prüfung, ob der Speicher überhaupt gültige Daten enthält. Filtert Garbage bei Cold Boot.
-2. **CRC32** (IEEE 802.3, Polynom `0xEDB88320`): Vollständige Integritätsprüfung über alle Felder außer dem CRC-Feld selbst. Erkennt Bit-Fehler und partielle Korruption.
-
-### API
-
-```cpp
-// In BoardConfigContainer (static Wrappers für private Members):
-static void saveStatsToNoinit(uint8_t batteryType);
-static bool restoreStatsFromNoinit(uint8_t* batteryType);
-
-// Freie Funktionen:
-void noinit_stats_save(const BatterySOCStats*, const MpptStatistics*, uint8_t);
-bool noinit_stats_restore(BatterySOCStats*, MpptStatistics*, uint8_t*);
-void noinit_stats_invalidate(void);  // magic = 0
-```
-
-### Datenfluss
-
-```
-initiateShutdown(LOW_VOLTAGE)
-    ├── stopBackgroundTasks()
-    ├── ina228.shutdown()
-    ├── saveStatsToNoinit(batteryType)    ← NEU: Stats sichern
-    ├── System ON Idle (sd_app_evt_wait loop)
-    └── NVIC_SystemReset()
-           │
-           ├── C-Startup: .bss=0, .data aus Flash
-           ├── .noinit: UNBERÜHRT (NOLOAD)
-           │
-           └── begin() → GPREGRET2 check
-                  ├── Voltage recovered?
-                  │     ├── Ja → restoreStatsFromNoinit()
-                  │     │         ├── Magic OK? CRC32 OK?
-                  │     │         │     ├── Ja → memcpy → socStats, mpptStats
-                  │     │         │     └── noinit_stats_invalidate()
-                  │     │         └── Nein → Fresh Start
-                  │     └── Nein → Sleep again
-                  └── Cold Boot → Magic/CRC fail → Fresh Start
-```
-
-### Wann bleiben Stats erhalten?
-
-| Szenario | Erhalten? | Grund |
-|---|---|---|
-| System ON Idle → NVIC_SystemReset() | ✅ | RAM bestromt, .noinit nicht genullt |
-| System OFF (sd_power_system_off) | ❌ | Kein RAM Retention konfiguriert |
-| Cold Boot (erstmals einschalten) | ❌ | Garbage → Magic/CRC32 ungültig |
-| Hardware-UVLO (TPS62840 EN) | ❌ | Kompletter Spannungsverlust |
-| User-initiated Reboot | ❌ | Nur Danger Zone speichert Stats |
+**Nicht-persistente Daten** (gehen bei Reboot verloren):
+- 168h Energie-Ringpuffer (stündliche Charge/Discharge/Solar mAh)
+- MPPT-Statistiken (168h MPPT-Aktivitätsbuffer)
+- SOC-Prozentwert (wird nach Recovery auf 0% gesetzt, bei "Charging Done" auf 100% synchronisiert)
+- TTL-Berechnung (benötigt mind. 24h Daten nach jedem Neustart)
+- Tägliche Energiebilanz (7-Tage-Fenster baut sich nach Neustart neu auf)
 
 ---
 
@@ -947,21 +867,22 @@ set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
 | **lib/BqDriver.cpp** | ~600 | BQ25798 I2C Communication, MPPT, Charging |
 
 ### Schlüssel-Methoden
-| Methode | Datei | Zeile | Funktion |
-|---------|-------|-------|----------|
-| `begin()` | InheroMr2Board.cpp | 459+ | Board-Initialisierung, Wake-up-Check |
-| `initiateShutdown()` | InheroMr2Board.cpp | 667-702 | 5-Step Shutdown Sequenz |
-| `configureRTCWake()` | InheroMr2Board.cpp | 704-737 | RTC Countdown Timer |
-| `rtcInterruptHandler()` | InheroMr2Board.cpp | 739-761 | RTC INT Flag Clear (Read-Modify-Write) |
-| `queryBoardTelemetry()` | InheroMr2Board.cpp | 129-159 | CayenneLPP Telemetry Collection |
-| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | 570-574 | Chemistry-specific Critical Voltage (0% SOC) |
-| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | 577-580 | Chemistry-specific UVLO Voltage (INA228 Alert) |
-| `voltageMonitorTask()` | BoardConfigContainer.cpp | ~1100+ | Adaptive Voltage Monitoring |
-| `updateBatterySOC()` | BoardConfigContainer.cpp | ~1400+ | Coulomb Counter SOC Calculation |
-| `updateDailyBalance()` | BoardConfigContainer.cpp | ~1500+ | 7-Day Energy Balance Tracking |
-| `calculateTTL()` | BoardConfigContainer.cpp | ~1600+ | Time To Live Forecast |
-| `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 12-47 | 100mΩ Calibration, ADC Config |
-| `Ina228Driver::shutdown()` | lib/Ina228Driver.cpp | 79-83 | Power-down Mode |
+| Methode | Datei | Funktion |
+|---------|-------|----------|
+| `begin()` | InheroMr2Board.cpp | Board-Initialisierung, Wake-up-Check |
+| `initiateShutdown()` | InheroMr2Board.cpp | System ON Idle Shutdown (aufgerufen von `runVoltageMonitor()`) |
+| `configureRTCWake()` | InheroMr2Board.cpp | RTC Countdown Timer |
+| `rtcInterruptHandler()` | InheroMr2Board.cpp | RTC INT Flag Clear (Read-Modify-Write) |
+| `queryBoardTelemetry()` | InheroMr2Board.cpp | CayenneLPP Telemetry Collection |
+| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | Chemistry-specific Critical Voltage (0% SOC) |
+| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | Chemistry-specific UVLO Voltage (INA228 Alert) |
+| `runVoltageMonitor()` | BoardConfigContainer.cpp | Spannungsüberwachung, delegiert an `board.initiateShutdown()` |
+| `socUpdateTask()` | BoardConfigContainer.cpp | SOC-Update (60s), ruft runVoltageMonitor() |
+| `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb Counter SOC Calculation |
+| `updateDailyBalance()` | BoardConfigContainer.cpp | 7-Day Energy Balance Tracking |
+| `calculateTTL()` | BoardConfigContainer.cpp | Time To Live Forecast |
+| `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 100mΩ Calibration, ADC Config |
+| `Ina228Driver::shutdown()` | lib/Ina228Driver.cpp | Power-down Mode |
 
 ---
 
@@ -1037,37 +958,33 @@ t=+1h:    VBAT = 3.5V → Warning (30s checks)
 t=+2h:    VBAT = 3.45V → Critical (10s checks)
           
 t=+2.5h:  VBAT = 3.39V → Software Dangerzone (< 3.4V)
-          - INA228 shutdown mode
-          - Filesystem sync
-          - RTC: Wake in 12h (43200s)
-          - SYSTEMOFF (2-6µA total)
+          - board.initiateShutdown(LOW_VOLTAGE)
+          - SX1262 power off, INA228 shutdown
+          - RTC: Wake in 6h (360 Minuten)
+          - System ON Idle (~3-4µA, CE-Pin bleibt LOW)
           
-t=+14.5h: RTC weckt auf (first check after 12h)
+t=+8.5h:  RTC weckt auf (first check after 6h)
+          - readVBATDirect() in Idle-Loop
           - VBAT = 3.25V (noch unter Critical 3.4V)
-          - INA228 wakeup
-          - Check voltage
-          - Zurück zu SYSTEMOFF (12h)
+          - Zurück zu System ON Idle (6h)
           
-t=+26.5h: RTC weckt auf (second check)
+t=+14.5h: RTC weckt auf (second check)
           - VBAT = 3.20V (noch unter Critical 3.4V)
-          - Zurück zu SYSTEMOFF (12h)
+          - Zurück zu System ON Idle (6h)
           
-t=+32h:   Sonne kommt → VBAT = 3.85V
-          (Aber: Noch kein RTC-Wake, RAK schläft)
-          
-t=+38.5h: RTC weckt auf (third check, battery recovered)
-          - VBAT = 4.05V (OK, über Critical 3.4V)
-          - Normal weiter bei 0% SOC ✅
-          - Reverse Learning startet
-          - Coulomb Counter resumes
-          - Daily balance continues
+t=+20.5h: RTC weckt auf (third check, battery recovered via Solar)
+          - readVBATDirect() → VBAT = 4.05V (OK, über Critical 3.4V)
+          - NVIC_SystemReset() → Warm Reboot
+          - begin() → Danger Zone Recovery markiert
+          - Coulomb Counter startet neu bei 0% SOC
+          - Daily balance baut sich neu auf
 ```
 
 ### Szenario B: Kritische Entladung (Hardware-UVLO) - Li-Ion
 ```
 t=0:      VBAT = 3.35V → Software Dangerzone
-          - INA228 shutdown
-          - SYSTEMOFF
+          - board.initiateShutdown(LOW_VOLTAGE)
+          - System ON Idle (~3-4µA, CE-Pin LOW)
           
 t=+30min: VBAT = 3.05V (weiter gesunken im Sleep!)
           → INA228 ALERT LOW (< 3.1V UVLO)
@@ -1079,9 +996,9 @@ t=+30min: VBAT = 3.05V (weiter gesunken im Sleep!)
 t=+6h:    Solar lädt → VBAT = 3.65V
           → INA228 ALERT HIGH (> 3.1V + 50mV hysteresis)
           → TPS62840 EN = HIGH
-          → Hardware-Boot (Cold boot)
+          → Hardware-Boot (Cold Boot)
           → begin() checkt GPREGRET2
-          → Aber: GPREGRET2 = 0x00 (kein SYSTEMOFF, war Hardware-Cutoff)
+          → Aber: GPREGRET2 = 0x00 (kein Danger-Zone-Flag, war Hardware-Cutoff)
           → Normal weiter ✅
 ```
 
@@ -1224,8 +1141,8 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ### Medium-term
 - [ ] Adaptive RTC wake interval (1h → 3h → 6h bei langer Low-Voltage)
-- [x] ~~SOC persistence in LittleFS (survive cold boots)~~ → Teilweise gelöst: `.noinit` preserviert Stats über Warm Resets (NVIC_SystemReset). Für Cold Boots wäre LittleFS-Persistenz nötig.
-- [x] ~~Daily balance persistence (survive cold boots)~~ → Teilweise gelöst: Ditto — `.noinit` deckt Danger Zone Recovery ab.
+- [ ] SOC persistence in LittleFS (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
+- [ ] Daily balance persistence (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
 - [ ] Web-UI für Energy Dashboard
 - [ ] CayenneLPP channel für SOC/Balance
 
@@ -1258,6 +1175,16 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ---
 
 ## Changelog
+
+### v2.2 - 25. Februar 2026 (Code-Fix + Dokumentation an Code-Stand angepasst)
+- 🐛 **Code-Fix**: `runVoltageMonitor()` delegiert jetzt an `board.initiateShutdown(LOW_VOLTAGE)` statt inline `sd_power_system_off()` — CE-Pin bleibt LOW, Solar-Laden in Danger Zone möglich
+- 📝 `.noinit Stats Preservation` entfernt — Feature existiert nicht im Code (kein Linker-Script, keine Structs/Funktionen)
+- 📝 Danger Zone korrekt als System ON Idle dokumentiert (CE-Pin LOW, GPIO-Latches aktiv)
+- 📝 `initiateShutdown()` als aktiver Code-Pfad dokumentiert (aufgerufen von `runVoltageMonitor()`)
+- 📝 RTC-Wake-Intervall von 12h auf 6h korrigiert (Code: `DANGER_ZONE_SLEEP_MINUTES = 360`)
+- 📝 `voltageMonitorTask` als Stub dokumentiert, Verweis auf `socUpdateTask` + `runVoltageMonitor()`
+- 📝 Statistik-Persistenz-Sektion neu geschrieben: keine Persistenz für 168h-Ringpuffer
+- 📝 Szenarien und Future Enhancements aktualisiert
 
 ### v2.1 - 4. Februar 2026 (Dokumentation aktualisiert)
 - 📝 Dokumentation vollständig überarbeitet und aktualisiert
@@ -1310,5 +1237,5 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
-*Letzte Aktualisierung: 4. Februar 2026, 12:00 UTC*
-*Status: ✅ Vollständig implementiert und dokumentiert für MR-2, Compilation erfolgreich, Hardware-Testing ausstehend*
+*Letzte Aktualisierung: 25. Februar 2026*
+*Status: ✅ Dokumentation an aktuellen Code-Stand angepasst*

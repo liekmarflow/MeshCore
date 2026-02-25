@@ -35,7 +35,7 @@
 #include <task.h>
 #include <MeshCore.h>
 #include <nrf_wdt.h>
-#include <nrf_soc.h>  // For sd_power_system_off() and NRF_POWER
+#include <nrf_soc.h>  // For NRF_POWER (GPREGRET2)
 
 #if ENV_INCLUDE_BME280
 #include <Adafruit_BME280.h>
@@ -264,60 +264,11 @@ void BoardConfigContainer::runVoltageMonitor() {
         NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
       }
 
-      // Force SX1262 into sleep via RadioLib before SYSTEMOFF.
-      radio_driver.powerOff();
-      delay(5);
+      // Delegate to InheroMr2Board::initiateShutdown() which uses System ON Idle
+      // to keep GPIO latches active (CE pin stays LOW → solar charging continues)
+      board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
+      // Never returns
 
-#ifndef DEBUG_MODE
-      NRF_WDT->TASKS_START = 0;
-#endif
-
-      uint8_t rtc_result1 = 0, rtc_result2 = 0, rtc_result3 = 0, rtc_result4 = 0, rtc_result5 = 0;
-
-      Wire.beginTransmission(0x52);
-      Wire.write(0x0F);
-      Wire.write(0x00);
-      rtc_result1 = Wire.endTransmission();
-
-      Wire.beginTransmission(0x52);
-      Wire.write(0x10);
-      Wire.write(0x00);
-      rtc_result2 = Wire.endTransmission();
-
-      Wire.beginTransmission(0x52);
-      Wire.write(0x0E);
-      Wire.write(0x00);
-      rtc_result3 = Wire.endTransmission();
-
-  uint16_t countdown = DANGER_ZONE_SLEEP_MINUTES;  // 1/60 Hz ticks = minutes
-  Wire.beginTransmission(0x52);
-  Wire.write(0x0A);
-  Wire.write(countdown & 0xFF);
-  Wire.write((countdown >> 8) & 0x0F);
-  rtc_result4 = Wire.endTransmission();
-
-  Wire.beginTransmission(0x52);
-  Wire.write(0x0F);
-  Wire.write(0x07);  // 1/60 Hz, single shot
-  rtc_result5 = Wire.endTransmission();
-
-  MESH_DEBUG_PRINTLN("RTC: Wake-up in %u minutes", countdown);
-
-      Wire.beginTransmission(0x52);
-      Wire.write(0x10);
-      Wire.write(0x10);
-      uint8_t rtc_result6 = Wire.endTransmission();
-
-      NRF_POWER->GPREGRET2 = (NRF_POWER->GPREGRET2 & 0xFC) | SHUTDOWN_REASON_LOW_VOLTAGE;
-
-      sd_power_system_off();
-      delay(100);
-      NRF_POWER->SYSTEMOFF = 1;
-      delay(100);
-      if (leds_enabled) {
-        digitalWrite(LED_RED, HIGH);
-      }
-      while (1) { delay(1000); }
     } else {
       blinkRed(3, 100, 100, leds_enabled);
 
