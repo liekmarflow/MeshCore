@@ -41,9 +41,6 @@
 #include <Adafruit_BME280.h>
 #endif
 
-#define RTC_SLEEP_SECONDS  (6 * 60 * 60)   // h * m * s
-//#define RTC_SLEEP_SECONDS  (1 * 60)   //  m * s 1 min for testing
-
 // rtc_clock is defined in target.cpp
 extern GuardedRTCClock rtc_clock;
 
@@ -53,10 +50,10 @@ namespace {
     return ((mesh::RTCClock&)rtc_clock).getCurrentTime();
   }
 
-  bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds);
-  void configureRtcPeriodicWake(uint16_t seconds);
+  bool isRtcPeriodicWakeConfigured(uint16_t expected_minutes);
+  void configureRtcPeriodicWake(uint16_t minutes);
 
-  bool isRtcPeriodicWakeConfigured(uint16_t expected_seconds) {
+  bool isRtcPeriodicWakeConfigured(uint16_t expected_minutes) {
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL1);
     if (Wire.endTransmission(false) != 0) return false;
@@ -82,13 +79,12 @@ namespace {
     bool repeat_enabled = (ctrl1 & 0x80) != 0;   // TRPT
     bool one_over_60_hz = (ctrl1 & 0x03) == 0x03; // TD=11 (1/60 Hz)
     bool interrupt_enabled = (ctrl2 & 0x10) != 0; // TIE
-    uint16_t expected_ticks = static_cast<uint16_t>((expected_seconds + 59U) / 60U);
 
     return timer_enabled && repeat_enabled && one_over_60_hz && interrupt_enabled &&
-         countdown == expected_ticks;
+         countdown == expected_minutes;
   }
 
-  void configureRtcPeriodicWake(uint16_t seconds) {
+  void configureRtcPeriodicWake(uint16_t minutes) {
     rtc_clock.setLocked(true);
 
     Wire.beginTransmission(RTC_I2C_ADDR);
@@ -108,10 +104,7 @@ namespace {
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_TIMER_VALUE_0);
-    uint16_t ticks = static_cast<uint16_t>((seconds + 59U) / 60U);
-    if (ticks == 0) {
-      ticks = 1;
-    }
+    uint16_t ticks = (minutes == 0) ? 1 : minutes;
     Wire.write(ticks & 0xFF);
     Wire.write((ticks >> 8) & 0x0F);
     Wire.endTransmission();
@@ -179,8 +172,6 @@ static const bool INA228_UVLO_ENABLED = false;
 void BoardConfigContainer::runVoltageMonitor() {
   static bool init_done = false;
   static uint16_t critical_mv = 0;
-  static uint32_t normal_interval_ms = 0;
-  static uint32_t danger_interval_ms = 0;
   static uint32_t next_check_ms = 0;
   static uint32_t next_rtc_check_ms = 0;
 
@@ -224,9 +215,6 @@ void BoardConfigContainer::runVoltageMonitor() {
 
     MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
 
-  normal_interval_ms = 60UL * 1000UL;
-  danger_interval_ms = 60UL * 1000UL;
-
     MESH_DEBUG_PRINTLN("PWRMGT: Waiting 2s for system stabilization before initial check");
     next_check_ms = now_ms + 2000;
     next_rtc_check_ms = now_ms + (60UL * 1000UL);
@@ -236,9 +224,9 @@ void BoardConfigContainer::runVoltageMonitor() {
 
   if (now_ms < next_check_ms) {
     if (now_ms >= next_rtc_check_ms) {
-      if (!isRtcPeriodicWakeConfigured(RTC_SLEEP_SECONDS)) {
-        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", RTC_SLEEP_SECONDS);
-        configureRtcPeriodicWake(RTC_SLEEP_SECONDS);
+      if (!isRtcPeriodicWakeConfigured(DANGER_ZONE_SLEEP_MINUTES)) {
+        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %u min", DANGER_ZONE_SLEEP_MINUTES);
+        configureRtcPeriodicWake(DANGER_ZONE_SLEEP_MINUTES);
       }
       next_rtc_check_ms = now_ms + (60UL * 1000UL);
     }
@@ -246,9 +234,9 @@ void BoardConfigContainer::runVoltageMonitor() {
   }
 
   if (now_ms >= next_rtc_check_ms) {
-    if (!isRtcPeriodicWakeConfigured(RTC_SLEEP_SECONDS)) {
-      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %us", RTC_SLEEP_SECONDS);
-      configureRtcPeriodicWake(RTC_SLEEP_SECONDS);
+    if (!isRtcPeriodicWakeConfigured(DANGER_ZONE_SLEEP_MINUTES)) {
+      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %u min", DANGER_ZONE_SLEEP_MINUTES);
+      configureRtcPeriodicWake(DANGER_ZONE_SLEEP_MINUTES);
     }
     next_rtc_check_ms = now_ms + (60UL * 1000UL);
   }
@@ -301,7 +289,7 @@ void BoardConfigContainer::runVoltageMonitor() {
       Wire.write(0x00);
       rtc_result3 = Wire.endTransmission();
 
-  uint16_t countdown = (RTC_SLEEP_SECONDS + 59U) / 60U;  // convert seconds to minutes (1/60 Hz ticks)
+  uint16_t countdown = DANGER_ZONE_SLEEP_MINUTES;  // 1/60 Hz ticks = minutes
   Wire.beginTransmission(0x52);
   Wire.write(0x0A);
   Wire.write(countdown & 0xFF);
@@ -313,7 +301,7 @@ void BoardConfigContainer::runVoltageMonitor() {
   Wire.write(0x07);  // 1/60 Hz, single shot
   rtc_result5 = Wire.endTransmission();
 
-  MESH_DEBUG_PRINTLN("RTC: Wake-up in %u minutes (%us)", countdown, RTC_SLEEP_SECONDS);
+  MESH_DEBUG_PRINTLN("RTC: Wake-up in %u minutes", countdown);
 
       Wire.beginTransmission(0x52);
       Wire.write(0x10);
@@ -344,7 +332,7 @@ void BoardConfigContainer::runVoltageMonitor() {
     }
   }
 
-  next_check_ms = now_ms + (in_danger_zone ? danger_interval_ms : normal_interval_ms);
+  next_check_ms = now_ms + VOLTAGE_CHECK_INTERVAL_MS;
 }
 
 // Watchdog state
@@ -2592,16 +2580,23 @@ void BoardConfigContainer::applyUvloSetting() {
   bool uvlo_enabled = false;
   loadUvloEnabled(uvlo_enabled);
   
-  // Get chemistry type and UVLO threshold from battery properties
-  BatteryType bat_type = getBatteryType();
-  const BatteryProperties* props = getBatteryProperties(bat_type);
-  uint16_t uvlo_mv = props ? props->uvlo_threshold : 2000;  // Fallback to 2000mV if lookup fails
-  
-  // Apply to hardware
-  ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
-  ina228DriverInstance->enableAlert(uvlo_enabled, false, true);  // UVLO enabled/disabled, active-LOW, LATCHED
-  
-  MESH_DEBUG_PRINTLN("INA228 UVLO: %s @ %dmV (Latched)", uvlo_enabled ? "ENABLED" : "DISABLED", uvlo_mv);
+  // INA228 BUVL register controls the under-voltage alert:
+  // - Non-zero BUVL = INA228 compares bus voltage and sets BUSUL flag → ALERT pin fires
+  // - BUVL = 0x0000 = no comparison → alert disabled (datasheet default)
+  // Note: DIAG_ALRT BUSUL (bit 3) is a READ-ONLY hardware flag, cannot be disabled by software.
+  // The ONLY way to prevent UVLO alerts is to clear the BUVL threshold register.
+  if (uvlo_enabled) {
+    BatteryType bat_type = getBatteryType();
+    const BatteryProperties* props = getBatteryProperties(bat_type);
+    uint16_t uvlo_mv = props ? props->uvlo_threshold : 2000;
+    ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
+    ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
+    MESH_DEBUG_PRINTLN("INA228 UVLO: ENABLED @ %dmV (Latched)", uvlo_mv);
+  } else {
+    ina228DriverInstance->setUnderVoltageAlert(0);  // Clear threshold → disables comparison
+    ina228DriverInstance->enableAlert(false, false, false);  // Clear all DIAG_ALRT config
+    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (BUVL=0, no threshold)");
+  }
 }
 
 /// @brief Get voltage threshold for critical software shutdown (chemistry-specific)

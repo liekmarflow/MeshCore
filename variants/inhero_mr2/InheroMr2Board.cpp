@@ -153,15 +153,15 @@ void InheroMr2Board::begin() {
     else if (vbat_mv < critical_threshold) {
       MESH_DEBUG_PRINTLN("ColdBoot in danger zone detected (%dmV < %dmV)", vbat_mv, critical_threshold);
       MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery at %dmV - voltage not stable yet", uvlo_threshold);
-      MESH_DEBUG_PRINTLN("Going to sleep for 6h to avoid motorboating");
+      MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", DANGER_ZONE_SLEEP_MINUTES);
 
       delay(100);
 
       // Do NOT send sleep command here - would cause race condition with bootup
       // voltageMonitorTask will handle sleep after full system initialization
 
-      // Configure RTC wake-up before shutdown (6h production)
-      configureRTCWake(6);
+      // Configure RTC wake-up before shutdown
+      configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
 
       // Store reason AND set Danger Zone flag (this was ColdBoot, no flag set yet)
       NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
@@ -882,7 +882,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     delay(100); // Allow I/O to complete
 
     // 5. Configure RTC to wake us up periodically for voltage check
-    configureRTCWake(6);
+    configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
 
     // 6. Store shutdown reason for next boot (in case of unexpected reset)
     NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason;
@@ -926,8 +926,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 
       // Still too low — reconfigure RTC and go back to sleep
       // CE-Pin stays LOW, solar charging continues autonomously
-      MESH_DEBUG_PRINTLN("PWRMGT: Still in danger zone, sleeping another 6h");
-      configureRTCWake(6);
+      MESH_DEBUG_PRINTLN("PWRMGT: Still in danger zone, sleeping another %d min", DANGER_ZONE_SLEEP_MINUTES);
+      configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
       delay(50);
     }
     // Never reaches here
@@ -944,19 +944,17 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 }
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
-/// @param hours Wake-up interval in hours
-void InheroMr2Board::configureRTCWake(uint32_t hours) {
+/// @param minutes Wake-up interval in minutes
+void InheroMr2Board::configureRTCWake(uint32_t minutes) {
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(true);
 #endif
-  uint32_t safe_hours = hours == 0 ? 6 : hours;
-  uint32_t total_seconds = safe_hours * 3600UL;
-  uint16_t countdown_ticks = static_cast<uint16_t>((total_seconds + 59UL) / 60UL);
+  uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? DANGER_ZONE_SLEEP_MINUTES : minutes);
   if (countdown_ticks == 0) {
     countdown_ticks = 1;
   }
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %lu hours (%lu seconds)",
-                     static_cast<unsigned long>(safe_hours), static_cast<unsigned long>(total_seconds));
+  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %u minutes",
+                     static_cast<unsigned>(countdown_ticks));
 
   // === RTC Timer Configuration per Manual Section 4.8.2 ===
   // Step 1: Stop Timer and clear flags
