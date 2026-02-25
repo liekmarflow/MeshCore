@@ -43,7 +43,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 |---------|--------|---------|
 | Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
 | Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
-| RTC-Wakeup (Danger-Zone-Recovery) | Aktiv | 6h (Produktion) |
+| RTC-Wakeup (Danger-Zone-Recovery) | Aktiv | 1h (stündlich) |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
@@ -77,18 +77,18 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 
 **Konfiguration:** Feste Intervalle
 - **Normalbetrieb**: 60s
-- **Danger Zone**: 6 Stunden (RTC-Wake)
+- **Danger Zone**: 1 Stunde (RTC-Wake)
 
 **Two-Stage Strategy (Power-Optimized):**
 
 | System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
 |--------------|------------------|----------|----------------|----------|
 | **Running (Normal)** | ≥ 3.4V | **60 seconds** | ~1µAh | System already awake, INA228 I²C read minimal cost |
-| **System ON Idle (Danger Zone)** | < 3.4V | **6 hours** | ~0.03mAh | System ON Idle: GPIO-Latches aktiv, RTC-Wakeup, NVIC_SystemReset bei Erholung |
+| **System ON Idle (Danger Zone)** | < 3.4V | **1 hour** | ~0.01mAh | System ON Idle: GPIO-Latches aktiv, RTC-Wakeup, NVIC_SystemReset bei Erholung |
 
 **Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin). In der Danger Zone wird **System ON Idle** verwendet (statt SYSTEMOFF), um GPIO-Latches aktiv zu halten — insbesondere den BQ CE-Pin (LOW = Laden freigegeben). Die Spannung wird direkt im Idle-Loop via `readVBATDirect()` geprüft. Erst bei tatsächlicher Erholung erfolgt `NVIC_SystemReset()`.
 
-**Action at < 3.4V**: `runVoltageMonitor()` → `board.initiateShutdown(LOW_VOLTAGE)` → System ON Idle + RTC timer 6h + NVIC_SystemReset bei Erholung
+**Action at < 3.4V**: `runVoltageMonitor()` → `board.initiateShutdown(LOW_VOLTAGE)` → System ON Idle + RTC timer 1h + NVIC_SystemReset bei Erholung
 
 **Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
 
@@ -124,7 +124,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, 6h Danger Zone RTC-Wake)
+- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, 1h Danger Zone RTC-Wake)
 
 **Formel**:
 ```
@@ -410,26 +410,35 @@ oder
 - Prüft `GPREGRET2` für den Wake-up-Grund
 
 ### Countdown-Timer Konfiguration
-**Methode**: `configureRTCWake()` in `InheroMr2Board.cpp` Zeile 704-737
-- **Tick Rate**: 1Hz (1 Sekunde pro Tick)
-- **Max Countdown**: 65535 Sekunden ≈ 18.2 Stunden
-- **Danger Zone Interval**: 6 Stunden (21600 Ticks)
-- **Rationale**: Each wake costs ~50-150mAh (full boot), long interval maximizes battery life
+**Methode**: `configureRTCWake()` in `InheroMr2Board.cpp`
+- **Tick Rate**: 1/60 Hz (1 Minute pro Tick), konfiguriert via TD=11 in CTRL1
+- **Max Countdown**: 65535 Minuten ≈ 45 Tage
+- **Danger Zone Interval**: `DANGER_ZONE_SLEEP_MINUTES` = 60 min (1h)
+- **Rationale**: Jeder Wake kostet nur ~0.03 mAh (I2C-Read im Idle-Loop, KEIN vollständiger Reboot)
 
 **Register**:
 ```cpp
-RV3028_CTRL1 (0x00):     TE bit (Timer Enable)
-RV3028_CTRL2 (0x01):     TIE bit (Timer Interrupt Enable), TF bit (Timer Flag)
-RV3028_COUNTDOWN_LSB (0x09): Countdown value LSB
-RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
+RV3028_CTRL1 (0x00):     TE=1, TD=11 (1/60 Hz), TRPT=0 (Single shot)
+RV3028_CTRL2 (0x10):     TIE=1 (Timer Interrupt Enable, bit 4)
+RV3028_STATUS (0x0E):    TF (Timer Flag, bit 3) — nach Wake clearen!
+RV3028_TIMER_VALUE_0 (0x0A): Countdown value LSB
+RV3028_TIMER_VALUE_1 (0x0B): Countdown value MSB (upper 4 bits)
 ```
 
 ### Interrupt Handler
-**Methode**: `rtcInterruptHandler()` Zeile 739-761
-- **Read-Modify-Write** CTRL2 register
-- **Clear nur TF bit** (bit 3), preserve TIE (bit 7)
-- **Fehler vorher**: `Wire.write(0x00)` löschte alle Bits → INT blieb LOW
-- **Fix**: `ctrl2 &= ~(1 << 3)` clear nur Timer Flag
+**Methode**: `rtcInterruptHandler()` — setzt nur `rtc_irq_pending = true`.
+
+Der eigentliche TF-Clear passiert im Idle-Loop per I2C:
+```cpp
+// In initiateShutdown() Idle-Loop:
+Wire.beginTransmission(RTC_I2C_ADDR);
+Wire.write(RV3028_REG_STATUS);
+Wire.write(0x00);  // Clear TF → INT pin geht via Pull-Up wieder HIGH
+Wire.endTransmission();
+```
+
+**Warum nicht in der ISR?** I2C (Wire) darf nicht aus einem ISR-Kontext aufgerufen werden.
+Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 
 ---
 
@@ -444,40 +453,76 @@ RV3028_COUNTDOWN_MSB (0x0A): Countdown value MSB
 
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
    - Stoppt MPPT task, Heartbeat task, SOC Update task
+   - **Self-Deletion Guard**: Wenn der aufrufende Task (`socUpdateTask`) sich selbst löschen würde, wird `vTaskDelete()` übersprungen — sonst würde FreeRTOS den Task sofort terminieren und `initiateShutdown()` nie die Sleep-Schleife erreichen
    - Verhindert Filesystem-Korruption
    
 2. **INA228 Shutdown**: `ina228.shutdown()` → MODE=0x0 (Power-down, ~1µA)
    
-3. **SX1262 Power Off**: `digitalWrite(SX126X_POWER_EN, LOW)`
-   
-4. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
-   
-5. **RTC Wake konfigurieren**: `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` → 6h
-   
-6. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason`
-   
-7. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
+3. **SX1262 Sleep**: `radio_driver.powerOff()` → `radio.sleep(false)` (Cold Sleep via SPI, ~0.16µA)
+   - MUSS vor PE4259-Abschaltung passieren — SPI braucht stabile Stromversorgung
+   - Ohne diesen Schritt: SX1262 bleibt im RX-Modus (~5mA!)
 
-8. **System ON Idle Loop**:
+4. **PE4259 RF-Switch aus**: `digitalWrite(SX126X_POWER_EN, LOW)` (VDD abschalten)
+   
+5. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
+   
+6. **RTC Wake konfigurieren**: `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)`
+   
+7. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason`
+   
+8. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
+
+9. **SysTick deaktivieren**: `SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk`
+   - Ohne dies: SysTick feuert alle 1ms → FreeRTOS scheduled weiter `loopTask` (Mesh, Radio, BLE)
+   
+10. **SoftDevice (BLE) deaktivieren**: `sd_softdevice_disable()`
+   - SoftDevice hält BLE-Radio aktiv (~2-3mA Advertising/Scanning) selbst bei deaktiviertem SysTick
+   - Nach Deaktivierung: `sd_app_evt_wait()` nicht mehr verfügbar → `__WFI()` direkt nutzen
+   - GPIOTE vollständig unter eigener Kontrolle → `attachInterrupt()` funktioniert zuverlässig
+   - Wire/I2C (TWIM Peripheral) funktioniert weiterhin — keine SoftDevice-Abhängigkeit
+   - GPIO-Latches bleiben erhalten (CE-Pin bleibt LOW)
+
+11. **GPIOTE Interrupt re-aktivieren**: `attachInterrupt(RTC_INT_PIN, rtcInterruptHandler, FALLING)`
+   - Erst NACH `sd_softdevice_disable()` — vorher besitzt SoftDevice den GPIOTE-Dispatcher
+
+12. **System ON Idle Loop** (Hauptschleife):
    ```cpp
    while (true) {
-     sd_app_evt_wait();       // CPU schläft (~3µA)
-     // RTC Timer weckt auf
-     vbat_mv = readVBATDirect();
+     rtc_irq_pending = false;
+     while (!rtc_irq_pending)
+       __WFI();                 // CPU schläft bis GPIOTE-Interrupt
+     // TF-Flag clearen → INT-Pin geht wieder HIGH
+     Wire.write(RV3028_REG_STATUS, 0x00);
+     vbat_mv = readVBATDirect();  // INA228 One-Shot via I2C
      if (vbat_mv >= critical)
-       NVIC_SystemReset();    // Nur bei tatsächlicher Erholung
-     configureRTCWake(6h);    // Sonst weiterschlafen
+       NVIC_SystemReset();        // Voltage OK → normaler Reboot
+     configureRTCWake(MINUTES);   // Sonst weiterschlafen
    }
    ```
+   - **`__WFI`** (Wait For Interrupt) — NICHT `__WFE` (Wait For Event)!
+     `__WFE` wacht nur auf SEV-Instruktionen auf, nicht auf NVIC-Interrupts
    - GPIO-Latches bleiben aktiv → BQ_CE_PIN bleibt LOW → Solar-Laden möglich
-   - Stromverbrauch: ~3µA (vs. ~2µA bei System OFF)
+   - Stromverbrauch: **~0.6mA** gemessen (nRF52840 System ON Idle + I2C Peripherals)
+   - Kein vollständiger Reboot nötig — Spannungsprüfung direkt im Loop
 
 **Nicht-Low-Voltage Shutdowns** (User Request, Thermal): Verwenden `sd_power_system_off()` (echtes System OFF).
 
 **Warum System ON Idle statt System OFF?**
 - System OFF → alle GPIOs werden High-Z → CE-Pin Pull-Up → HIGH → Laden gesperrt
 - System ON Idle → GPIO-Latches bleiben aktiv → CE-Pin bleibt LOW → **Solar-Laden weiterhin möglich**
-- Stromverbrauch: ~3µA (System ON Idle) vs. ~2µA (System OFF) — vernachlässigbar
+- Stromverbrauch: **~0.6mA gemessen** (System ON Idle) vs. ~2µA (System OFF)
+- Die ~0.6mA setzen sich zusammen aus: nRF52840 Idle (~0.4mA mit I2C-Peripherals) + RV-3028 + INA228 Shutdown + SX1262 Cold Sleep
+
+**Warum SoftDevice deaktivieren?**
+- SoftDevice (BLE stack) hält das 2.4GHz Radio aktiv (~2-3mA Advertising) auch bei deaktiviertem SysTick
+- `sd_app_evt_wait()` blockiert nur SoftDevice-Events — GPIOTE-Events werden nicht durchgereicht
+- Nach `sd_softdevice_disable()`: GPIOTE funktioniert zuverlässig, `__WFI()` wacht auf Interrupts auf
+- `NVIC_SystemReset()` bei Recovery initialisiert SoftDevice komplett neu — kein Problem
+
+**Warum `__WFI()` statt `__WFE()`?**
+- `__WFE` (Wait For Event) wacht nur auf SEV-Instruktionen und Debug-Events auf — GPIOTE-Interrupts sind KEINE Events
+- `__WFI` (Wait For Interrupt) wacht auf jeden aktivierten NVIC-Interrupt auf, inkl. GPIOTE
+- Beide haben identischen Stromverbrauch im Idle-Modus
 
 **168h-Statistiken gehen bei `NVIC_SystemReset()` verloren** — es existiert kein Persistenzmechanismus
 (kein `.noinit`-Section, kein LittleFS-Snapshot) für die Ring-Buffer-Daten. Nach System ON Idle → NVIC_SystemReset
@@ -507,7 +552,7 @@ if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
 ```cpp
 // Prüft auch bei Cold Boot die Spannung
 else if (vbat_mv < critical_threshold) {
-  configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);  // 6h
+  configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);  // 1h
   NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
   sd_power_system_off();
 }
@@ -540,21 +585,24 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
 | LiFePO4 1S | 2700mV (INA228 Alert) | 2900mV | 200mV | 64-sample avg (TX peaks) |
 | LTO 2S | 3900mV (INA228 Alert) | 4200mV | 300mV | 64-sample avg (TX peaks) |
 
-**Motorboating-Präventionsablauf** (Li-Ion-Beispiel):
+**UVLO-Verhalten** (Li-Ion-Beispiel):
 1. Hardware UVLO @ 3.1V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
-2. Solar lädt auf 3.15V → TPS62840 EN=HIGH (50mV Hysterese)
-3. RAK bootet → `GPREGRET2 = 0x00` (RAM war gelöscht)
-4. **Early Boot Check** → `vbat=3150mV < critical_threshold=3400mV` ✅ DETECTED
-5. **Action** → `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` + `GPREGRET2 = LOW_VOLTAGE` + `sd_power_system_off()`
-6. **Result** → Kein Motorboating! System geht in System OFF (RTC weckt in 6h)
+2. INA228 ALERT ist **latched** → TPS62840 EN bleibt LOW, auch wenn VBAT wieder steigt
+3. RAK bleibt permanent aus → kein automatischer Neustart möglich
+4. **Manuelles Eingreifen erforderlich** (Akkutausch/Reset → INA228 Latch wird zurückgesetzt)
+
+**Anti-Motorboating nach manuellem Reset** (ColdBoot Case 2):
+Nach manuellem Reset (z.B. Akku getauscht) bootet der RAK mit `GPREGRET2 = 0x00`.
+1. `begin()` → Early Boot Check → `vbat < critical_threshold` ✅ DETECTED
+2. **Action** → `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` + `GPREGRET2 = LOW_VOLTAGE` + `sd_power_system_off()`
+3. **Result** → Kein Motorboating! System geht in System OFF (RTC weckt in 1h)
    *Hinweis: Dieser Pfad (ColdBoot, Case 2) nutzt System OFF — nur `initiateShutdown()` nutzt System ON Idle*
 
-**Stromverbrauch während System ON Idle (Danger Zone, normaler Pfad)**:
-- nRF52840 (System ON Idle): ~2-3µA
-- INA228 (Shutdown): ~1µA
-- RV-3028 (Running): ~45nA
-- TPS62840 (disabled): <1µA
-- **Total**: ~3-4µA
+**Stromverbrauch während System ON Idle (Danger Zone, gemessen)**:
+- **Gesamt: ~0.6mA** (gemessen an VBAT via INA228)
+- Davon: nRF52840 System ON Idle mit I2C-Peripherals (~0.4mA), SX1262 Cold Sleep (~0.16µA), RV-3028 (~45nA), INA228 Shutdown (~1µA), BQ25798 Quiescent (~30µA)
+- SoftDevice (BLE) ist deaktiviert — spart ~2-3mA gegenüber vorheriger Implementierung
+- SysTick ist deaktiviert — FreeRTOS Scheduler läuft nicht
 - **Vorteil**: GPIO-Latches aktiv → BQ CE-Pin bleibt LOW → Solar-Laden möglich
 
 ---
@@ -583,8 +631,10 @@ ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
 - APOL (Alert Polarity): Active-HIGH (TPS EN = HIGH im Normalfall)
 
 **Hardware-Verhalten**:
+- Initial (Power-on): ALERT=HIGH → TPS62840 EN=HIGH → RAK powered
 - VBAT < UVLO → ALERT=LOW → TPS62840 EN=LOW → RAK stromlos (0µA)
-- VBAT > UVLO → ALERT=HIGH → TPS62840 EN=HIGH → RAK powered
+- ALERT ist **latched** → bleibt LOW auch wenn VBAT wieder steigt → kein automatischer Neustart
+- Reset nur durch INA228 Power-Cycle (Akkutausch) oder I²C Register-Read
 
 **Schutzschichten** (Li-Ion example):
 1. Software Critical (3.4V / 0% SOC) → Controlled shutdown, danger zone boundary
@@ -594,33 +644,48 @@ ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
 
 ---
 
-## 9. SX1262 Power Control (RadioLib)
+## 9. SX1262 Power Control & PE4259 RF-Switch
 
-### Shutdown-Sequenz Erweiterung
-**Methode**: `initiateShutdown()` in `InheroMr2Board.cpp` + `BoardConfigContainer.cpp`
+### Hardware-Architektur
+- **SX1262**: LoRa Transceiver (SPI-Bus), Sleep-Mode via `SetSleep` SPI-Befehl
+- **PE4259**: SPDT RF-Antennenweiche im **Single-Pin-Modus**:
+  - **Pin 6 (VDD)**: GPIO 37 (P1.05, `SX126X_POWER_EN`) — Stromversorgung (muss HIGH sein für Betrieb)
+  - **Pin 4 (CTRL)**: SX1262 DIO2 — TX/RX Umschaltung (automatisch via `setDio2AsRfSwitch(true)`)
 
-Vor dem Shutdown wird die SX1262 LoRa-Radio korrekt in den Sleep-Modus versetzt:
+### Shutdown-Sequenz (in `initiateShutdown()`)
+Die SX1262 wird in **zwei Schritten** abgeschaltet — **Reihenfolge ist kritisch**:
 
 ```cpp
-// In BoardConfigContainer.cpp before shutdown:
-extern RadiolibInterface radio_driver;  // Declared in target.h
-if (radio_driver.isRadioAvailable()) {
-  radio_driver.powerOff();  // RadioLib sleep command, NOT GPIO toggling
-}
+// Schritt 1: SX1262 in Cold Sleep via SPI (MUSS zuerst!)
+radio_driver.powerOff();  // → radio.sleep(false) → SPI SetSleep command
+delay(10);
+
+// Schritt 2: PE4259 RF-Switch Stromversorgung abschalten
+digitalWrite(SX126X_POWER_EN, LOW);  // VDD weg → PE4259 aus
+```
+
+**Warum diese Reihenfolge?**
+- `radio.sleep(false)` sendet einen SPI-Befehl an den SX1262 → SPI braucht stabile Stromversorgung
+- PE4259 VDD (GPIO 37) versorgt den RF-Switch, NICHT den SX1262 direkt
+- Wenn PE4259 zuerst abgeschaltet wird, ist SPI noch möglich, aber der RF-Switch ist bereits aus
+- Sicherheitshalber: Erst SX1262 schlafen legen, dann PE4259 abschalten
+
+### Boot-Sequenz (in `begin()`)
+```cpp
+// PE4259 VDD einschalten → RF-Switch betriebsbereit
+pinMode(SX126X_POWER_EN, OUTPUT);
+digitalWrite(SX126X_POWER_EN, HIGH);
+delay(10);  // PE4259 Einschaltzeit
+
+// Später in radio_init() → target.cpp:
+radio.std_init(&SPI);  // → setDio2AsRfSwitch(true) → DIO2 steuert TX/RX
 ```
 
 **Wichtige Details**:
-- **Richtige Methode**: `radio_driver.powerOff()` via RadioLib library
-- **NICHT verwenden**: SPI SetSleep commands oder SX126X_POWER_EN GPIO toggling 
-  - Grund: SX126X_POWER_EN steuert die RF-Antennenweiche (DIO2), nicht die Power-Supply
-  - RF-Switch kann TX-Stromverbrauch beeinflussen, aber nicht den Sleep-Strom
-- **Stromverbrauch im Sleep**: ~0.66µA (korrekt) vs. 7.4mA (falsch ohne RadioLib powerOff)
-- **ADC Averaging**: 64 samples filtern TX-Spitzen, aber nur RadioLib powerOff stellt sicher, dass der Sleep-Mode aktiv ist
-
-**Sleep-Strom Messungen**:
-- **Mit RadioLib powerOff()**: ~0.66µA (Correct)
-- **Ohne (nur GPIO)**: ~7.4mA (High - Radio still partially active)
-- **Danger Zone Cost**: 21600s * 0.66µA ≈ 14mAh overhead (minimal)
+- **`SX126X_POWER_EN`** (GPIO 37 / P1.05) steuert die **PE4259 VDD**, NICHT die SX1262 Power
+- **`DIO2`** wird intern vom SX1262 gesteuert (`setDio2AsRfSwitch(true)`) — kein GPIO nötig
+- **Sleep-Strom SX1262**: ~0.16µA (Cold Sleep) — Datenblatt-Wert
+- **Ohne `radio_driver.powerOff()`**: SX1262 bleibt im RX-Modus → ~5mA Stromverbrauch!
 
 ---
 
@@ -707,9 +772,14 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 ### Verhalten im System ON Idle (Danger Zone)
 
 In der Danger Zone wird **System ON Idle** verwendet (via `initiateShutdown()`):
+- SoftDevice (BLE) wird deaktiviert → spart ~2-3mA
+- SysTick wird deaktiviert → FreeRTOS Scheduler stoppt
+- SX1262 wird per SPI in Cold Sleep versetzt → ~0.16µA
+- PE4259 VDD wird abgeschaltet → RF-Switch stromlos
 - System ON Idle → GPIO-Latches bleiben aktiv → **CE-Pin bleibt LOW**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
-- `detachInterrupt(BQ_INT_PIN)` verhindert Spurious-Wakeups durch Solar-Events
+- CPU wacht nur bei GPIOTE-Interrupt (RTC Timer) auf → `__WFI()`
+- Gemessener Gesamtstromverbrauch: **~0.6mA**
 
 | Zustand | CE-Pin | Laden | Solar-Recovery |
 |---|---|---|---|
@@ -718,7 +788,7 @@ In der Danger Zone wird **System ON Idle** verwendet (via `initiateShutdown()`):
 | BAT_UNKNOWN | HIGH | Gesperrt | Nein |
 | Chemie konfiguriert | LOW | Freigegeben | Ja |
 | System ON Idle (Danger Zone) | LOW (gelatcht) | **Freigegeben** | **Ja** |
-| System OFF (ColdBoot Case 2) | HIGH (Pull-Up) | Gesperrt | Nur via UVLO-Hysterese |
+| System OFF (ColdBoot Case 2) | HIGH (Pull-Up) | Gesperrt | Nein (ALERT latched, manueller Reset nötig) |
 
 ---
 
@@ -960,19 +1030,19 @@ t=+2h:    VBAT = 3.45V → Critical (10s checks)
 t=+2.5h:  VBAT = 3.39V → Software Dangerzone (< 3.4V)
           - board.initiateShutdown(LOW_VOLTAGE)
           - SX1262 power off, INA228 shutdown
-          - RTC: Wake in 6h (360 Minuten)
-          - System ON Idle (~3-4µA, CE-Pin bleibt LOW)
+          - RTC: Wake in 1h (60 Minuten)
+          - System ON Idle (~0.6mA, CE-Pin bleibt LOW)
           
-t=+8.5h:  RTC weckt auf (first check after 6h)
+t=+3.5h:  RTC weckt auf (first check after 1h)
           - readVBATDirect() in Idle-Loop
           - VBAT = 3.25V (noch unter Critical 3.4V)
-          - Zurück zu System ON Idle (6h)
+          - Zurück zu System ON Idle (1h)
           
-t=+14.5h: RTC weckt auf (second check)
+t=+4.5h:  RTC weckt auf (second check)
           - VBAT = 3.20V (noch unter Critical 3.4V)
-          - Zurück zu System ON Idle (6h)
+          - Zurück zu System ON Idle (1h)
           
-t=+20.5h: RTC weckt auf (third check, battery recovered via Solar)
+t=+5.5h:  RTC weckt auf (third check, battery recovered via Solar)
           - readVBATDirect() → VBAT = 4.05V (OK, über Critical 3.4V)
           - NVIC_SystemReset() → Warm Reboot
           - begin() → Danger Zone Recovery markiert
@@ -984,22 +1054,27 @@ t=+20.5h: RTC weckt auf (third check, battery recovered via Solar)
 ```
 t=0:      VBAT = 3.35V → Software Dangerzone
           - board.initiateShutdown(LOW_VOLTAGE)
-          - System ON Idle (~3-4µA, CE-Pin LOW)
+          - System ON Idle (~0.6mA, CE-Pin LOW)
           
 t=+30min: VBAT = 3.05V (weiter gesunken im Sleep!)
           → INA228 ALERT LOW (< 3.1V UVLO)
           → TPS62840 EN = LOW
           → RAK komplett stromlos (0µA)
-          → RTC läuft weiter
+          → CE-Pin geht HIGH (Pull-Up, kein GPIO-Latch mehr)
+          → Laden gesperrt (CE HIGH = Charge Inhibit)
+          → RTC läuft weiter (eigene Batterie-Domain)
           → INA228 in Shutdown (1µA)
           
-t=+6h:    Solar lädt → VBAT = 3.65V
-          → INA228 ALERT HIGH (> 3.1V + 50mV hysteresis)
-          → TPS62840 EN = HIGH
-          → Hardware-Boot (Cold Boot)
-          → begin() checkt GPREGRET2
-          → Aber: GPREGRET2 = 0x00 (kein Danger-Zone-Flag, war Hardware-Cutoff)
-          → Normal weiter ✅
+t=∞:      INA228 ALERT ist LATCHED → TPS62840 EN bleibt LOW
+          → RAK bleibt stromlos (0µA)
+          → Board kommt von selbst NICHT wieder hoch
+          → Auch Solar-Laden hilft nicht (CE HIGH → Laden gesperrt)
+          → Manuelles Eingreifen erforderlich (Akkutausch oder Reset)
+          
+          Rationale: Wenn VBAT unter die UVLO-Schwelle fällt, ist der Akku
+          wahrscheinlich defekt oder tiefentladen. Automatische Recovery wäre
+          hier kontraproduktiv — ein defekter Akku sollte nicht weiter
+          geladen/entladen werden.
 ```
 
 ### Szenario C: Daily Balance Tracking - LiFePO4
@@ -1140,7 +1215,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - [ ] CLI-Command: `pwrmgt.rtc status` für RTC diagnostics
 
 ### Medium-term
-- [ ] Adaptive RTC wake interval (1h → 3h → 6h bei langer Low-Voltage)
+- [ ] Adaptive RTC wake interval (15min → 1h → 3h bei langer Low-Voltage)
 - [ ] SOC persistence in LittleFS (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
 - [ ] Daily balance persistence (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
 - [ ] Web-UI für Energy Dashboard
@@ -1181,7 +1256,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - 📝 `.noinit Stats Preservation` entfernt — Feature existiert nicht im Code (kein Linker-Script, keine Structs/Funktionen)
 - 📝 Danger Zone korrekt als System ON Idle dokumentiert (CE-Pin LOW, GPIO-Latches aktiv)
 - 📝 `initiateShutdown()` als aktiver Code-Pfad dokumentiert (aufgerufen von `runVoltageMonitor()`)
-- 📝 RTC-Wake-Intervall von 12h auf 6h korrigiert (Code: `DANGER_ZONE_SLEEP_MINUTES = 360`)
+- 📝 RTC-Wake-Intervall von 12h auf 6h korrigiert, dann auf 1h reduziert (Code: `DANGER_ZONE_SLEEP_MINUTES = 60`)
 - 📝 `voltageMonitorTask` als Stub dokumentiert, Verweis auf `socUpdateTask` + `runVoltageMonitor()`
 - 📝 Statistik-Persistenz-Sektion neu geschrieben: keine Persistenz für 168h-Ringpuffer
 - 📝 Szenarien und Future Enhancements aktualisiert

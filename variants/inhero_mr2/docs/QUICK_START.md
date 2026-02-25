@@ -123,7 +123,7 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 | LTO 2S | 3.9V | 4.2V | +0.3V |
 
 ## Verhalten bei Danger-Zone und UVLO
-- **Danger-Zone (Critical / 0% SOC):** Die Firmware geht in den Schutzmodus und plant seltene RTC-Wakes, um die Zelle zu schonen und Selbstentladung zu minimieren.
+- **Danger-Zone (Critical / 0% SOC):** Die Firmware fährt SX1262 (Cold Sleep), SoftDevice (BLE) und SysTick herunter, dann geht die CPU in einen `__WFI()`-Idle-Loop. Periodische RTC-Wakes prüfen die Spannung via INA228 One-Shot. Gemessener Verbrauch: ~0.6mA. CE-Pin bleibt gelatcht → Solar-Laden läuft autonom weiter.
 - **Unter UVLO-Schwelle (latched):** Die Hardware schaltet hart ab (INA228 Alert -> TPS62840 EN). Das Board bleibt dann aus und kommt nie wieder von selbst hoch. Das ist ein reiner Akkuschutz und kein normaler Sleep-Modus.
 
 ## CLI-Beispiele (kompakt)

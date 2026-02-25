@@ -583,10 +583,18 @@ void BoardConfigContainer::stopBackgroundTasks() {
   }
   
   // Delete SOC update task if running
+  // CRITICAL: socUpdateTask calls runVoltageMonitor() → initiateShutdown() → stopBackgroundTasks().
+  // If we delete the calling task here, vTaskDelete() terminates execution immediately and
+  // initiateShutdown() never reaches the sleep loop — the board stays alive!
   if (socUpdateTaskHandle != NULL) {
-    vTaskDelete(socUpdateTaskHandle);
-    socUpdateTaskHandle = NULL;
-    MESH_DEBUG_PRINTLN("SOC update task stopped");
+    if (socUpdateTaskHandle == xTaskGetCurrentTaskHandle()) {
+      MESH_DEBUG_PRINTLN("SOC task is calling task - skipping self-delete (shutdown will take over)");
+      socUpdateTaskHandle = NULL;  // Clear handle to prevent double-delete
+    } else {
+      vTaskDelete(socUpdateTaskHandle);
+      socUpdateTaskHandle = NULL;
+      MESH_DEBUG_PRINTLN("SOC update task stopped");
+    }
   }
   
   // Clean up semaphore
@@ -2950,6 +2958,7 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
 void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
   (void)pvParameters;
   MESH_DEBUG_PRINTLN("Voltage Monitor Task disabled (SOC task handles UV checks)");
+  voltageMonitorTaskHandle = NULL;  // Clear handle BEFORE self-delete to prevent double-free in stopBackgroundTasks()
   vTaskDelete(NULL);
 }
 

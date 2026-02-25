@@ -857,9 +857,10 @@ uint16_t InheroMr2Board::getVoltageHardwareCutoff() {
 /// For low-voltage shutdowns: Uses System ON Idle instead of System OFF.
 /// This keeps GPIO output latches active so BQ_CE_PIN stays LOW, allowing
 /// the BQ25798 to continue solar charging autonomously while the nRF52 sleeps.
+/// SysTick, SoftDevice (BLE), and SX1262 are disabled to minimize consumption.
 /// BQ interrupt is detached to prevent spurious wake-ups from solar events.
-/// Only the RTC countdown timer wakes the CPU for periodic voltage checks.
-/// Power difference: ~3 µA (System ON Idle) vs ~2 µA (System OFF).
+/// Only the RTC countdown timer wakes the CPU (via GPIOTE + __WFI) for periodic voltage checks.
+/// Measured power: ~0.6 mA (System ON Idle, SoftDevice off) vs ~2 µA (System OFF).
 void InheroMr2Board::initiateShutdown(uint8_t reason) {
   MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
 
@@ -873,11 +874,17 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     boardConfig.getIna228Driver()->shutdown();
   }
 
-  // 3. Power off PE4259 RF switch (cut VDD to antenna switch)
+  // 3. Put SX1262 into sleep mode via SPI (~0.16 µA vs ~5 mA active RX)
+  // MUST happen BEFORE PE4259 power-off — SPI communication still needs stable power
+  MESH_DEBUG_PRINTLN("PWRMGT: Putting SX1262 to sleep");
+  radio_driver.powerOff();  // calls radio.sleep(false) — cold sleep, lowest power
+  delay(10);
+
+  // 4. Power off PE4259 RF switch (cut VDD to antenna switch)
   digitalWrite(SX126X_POWER_EN, LOW);
   delay(10);
 
-  // 4. Turn off 3V3 rail (GPS, sensors, display)
+  // 5. Turn off LEDs
   // Note: BQ25798 and INA228 are on VSYS, not affected
   digitalWrite(PIN_LED1, LOW);
   digitalWrite(PIN_LED2, LOW);
@@ -889,54 +896,80 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // For now, stopBackgroundTasks() should flush pending writes
     delay(100); // Allow I/O to complete
 
-    // 5. Configure RTC to wake us up periodically for voltage check
+    // 6. Configure RTC to wake us up periodically for voltage check
     configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
 
-    // 6. Store shutdown reason for next boot (in case of unexpected reset)
+    // 7. Store shutdown reason for next boot (in case of unexpected reset)
     NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason;
 
-    // 7. Detach BQ interrupt to prevent solar events waking CPU
+    // 8. Detach BQ interrupt to prevent solar events waking CPU
     // BQ25798 MPPT/CC/CV runs autonomously in hardware — no CPU needed
     detachInterrupt(digitalPinToInterrupt(BQ_INT_PIN));
 
-    // 8. System ON Idle with in-loop voltage checking
+    // 9. System ON Idle with in-loop voltage checking
     // GPIO outputs remain latched (CE stays LOW → solar charges)
-    // ~3 µA total (vs ~2 µA System OFF), but enables solar recovery
+    // Measured: ~0.6 mA total (SoftDevice off, SysTick off, SX1262 sleeping)
     //
     // CRITICAL: Voltage is checked HERE in the loop, NOT via NVIC_SystemReset().
     // This avoids unnecessary full reboots while voltage is still low, and
     // prevents the CE-Pin bug: a reboot → begin() → sd_power_system_off()
     // would release GPIO latches → CE HIGH → solar charging blocked!
     MESH_DEBUG_PRINTLN("PWRMGT: Entering System ON Idle (CE pin preserved for solar charging)");
-    delay(50); // Let debug output complete
+    Serial.flush();  // Ensure all debug output is sent before we disable SoftDevice
+
+    // CRITICAL: Disable FreeRTOS SysTick BEFORE entering idle loop.
+    // Without this, SysTick fires every 1ms, waking the CPU, and FreeRTOS
+    // keeps scheduling loopTask (mesh, radio, BLE) — the board never sleeps!
+    SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
+    __DSB();
+
+    // CRITICAL: Disable SoftDevice (BLE stack) entirely.
+    // SoftDevice keeps BLE radio active (~2-3 mA advertising/scanning) even
+    // with SysTick disabled. We don't need BLE in danger zone sleep.
+    // NVIC_SystemReset() on voltage recovery reinitializes everything.
+    // After sd_softdevice_disable():
+    //   - sd_app_evt_wait() is no longer available → use __WFI() directly
+    //   - GPIOTE is fully under our control → attachInterrupt() works reliably
+    //   - Wire/I2C (TWIM peripheral) still works — no SoftDevice dependency
+    //   - GPIO output latches are preserved (CE pin stays LOW)
+    sd_softdevice_disable();
+
+    // Re-attach GPIOTE interrupt for RTC_INT_PIN now that SoftDevice is disabled.
+    // GPIOTE is fully ours — no SoftDevice interference.
+    attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
 
     uint16_t critical_threshold = getVoltageCriticalThreshold();
 
-    // Idle loop: sleep → RTC wake → check voltage → sleep again or reboot
+    // Idle loop: sleep → GPIOTE wake → check voltage → sleep again or reboot
     while (true) {
       rtc_irq_pending = false;
+
+      // __WFI: CPU enters System ON Idle until any enabled NVIC interrupt fires.
+      // __WFE would NOT work here — WFE waits for SEV events, not interrupts!
+      // __WFI wakes on GPIOTE interrupt from RTC_INT_PIN FALLING edge.
+      // With SoftDevice disabled and SysTick off, only GPIOTE can wake us.
       while (!rtc_irq_pending) {
-        sd_app_evt_wait();
-        sd_evt_get(nullptr); // Clear any pending SoftDevice events
+        __WFI();
       }
 
-      // RTC fired — read battery voltage via INA228 One-Shot (I2C works in System ON)
+      // Clear RTC Timer Flag (TF) to release INT pin back HIGH via pull-up
+      Wire.beginTransmission(RTC_I2C_ADDR);
+      Wire.write(RV3028_REG_STATUS);
+      Wire.write(0x00);  // Clear TF (bit 3) and all other status flags
+      Wire.endTransmission();
+
+      // RTC fired — read battery voltage via INA228 One-Shot (I2C works without SoftDevice)
       uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
-      MESH_DEBUG_PRINTLN("PWRMGT: RTC wake — VBAT=%dmV (critical=%dmV)", vbat_mv, critical_threshold);
 
       if (vbat_mv > 0 && vbat_mv >= critical_threshold) {
         // Voltage recovered — reboot to resume normal operation
-        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered! Rebooting for normal operation");
-        delay(50);
         NVIC_SystemReset();
         // Never returns
       }
 
       // Still too low — reconfigure RTC and go back to sleep
       // CE-Pin stays LOW, solar charging continues autonomously
-      MESH_DEBUG_PRINTLN("PWRMGT: Still in danger zone, sleeping another %d min", DANGER_ZONE_SLEEP_MINUTES);
       configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
-      delay(50);
     }
     // Never reaches here
   }
