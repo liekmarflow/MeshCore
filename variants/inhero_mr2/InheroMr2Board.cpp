@@ -51,6 +51,14 @@ void InheroMr2Board::begin() {
   digitalWrite(BQ_CE_PIN, HIGH);
 #endif
 
+  // PE4259 RF switch power enable (VDD pin 6 on PE4259)
+  // P1.05 (GPIO 37) supplies VDD to the PE4259 SPDT antenna switch on the RAK4630.
+  // DIO2 of the SX1262 controls the CTRL pin (pin 4) for TX/RX path selection.
+  // Without VDD, the RF switch cannot operate and no TX/RX is possible.
+  pinMode(SX126X_POWER_EN, OUTPUT);
+  digitalWrite(SX126X_POWER_EN, HIGH);
+  delay(10); // Give PE4259 time to power up
+
 #ifdef PIN_USER_BTN
   pinMode(PIN_USER_BTN, INPUT_PULLUP);
 #endif
@@ -865,7 +873,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     boardConfig.getIna228Driver()->shutdown();
   }
 
-  // 3. Power off SX1262 radio
+  // 3. Power off PE4259 RF switch (cut VDD to antenna switch)
   digitalWrite(SX126X_POWER_EN, LOW);
   delay(10);
 

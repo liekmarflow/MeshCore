@@ -36,7 +36,7 @@
 #define P_LORA_SCLK                  43
 #define P_LORA_MISO                  45
 #define P_LORA_MOSI                  44
-#define SX126X_POWER_EN              37
+#define SX126X_POWER_EN              37  // P1.05 — PE4259 RF switch VDD (power enable)
 
 // GPS module support (future expansion)
 // Note: GPS pins not yet configured in MR2 hardware
