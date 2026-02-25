@@ -73,7 +73,7 @@
 #define GPREGRET2_IN_DANGER_ZONE     0x04 // Bit 2: In Danger Zone (SX1262 disabled)
 
 // Danger Zone sleep duration (used by Early Boot and voltageMonitorTask)
- #define DANGER_ZONE_SLEEP_MINUTES    (6 * 60) // 6 hours
+#define DANGER_ZONE_SLEEP_MINUTES    (6 * 60) // 6 hours
 
 // Voltage monitor check interval during normal operation
 #define VOLTAGE_CHECK_INTERVAL_MS    (60UL * 1000UL) // 60 seconds
