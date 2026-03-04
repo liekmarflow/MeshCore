@@ -199,6 +199,9 @@ public:
 
   bool checkAndClearPgFlag();
 
+  bool setVOCpercent(bq25798_voc_pct_t pct);
+  bq25798_voc_pct_t getVOCpercent();
+
   // Non-static register access methods (use instance I2C config)
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);

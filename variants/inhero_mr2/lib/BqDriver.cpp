@@ -582,6 +582,17 @@ float BqDriver::getTDIE() {
   return val * 0.5f; // 0.5 °C/LSB
 }
 
+bool BqDriver::setVOCpercent(bq25798_voc_pct_t pct) {
+  uint8_t reg15 = readReg(0x15);
+  reg15 = (reg15 & 0x1F) | ((uint8_t)pct << 5);  // Bits [7:5] = VOC_PCT
+  return writeReg(0x15, reg15);
+}
+
+bq25798_voc_pct_t BqDriver::getVOCpercent() {
+  uint8_t reg15 = readReg(0x15);
+  return (bq25798_voc_pct_t)((reg15 >> 5) & 0x07);
+}
+
 // Non-static register access methods (use instance I2C config)
 bool BqDriver::writeReg(uint8_t reg, uint8_t val) {
   if (!ih_i2c_dev) return false;

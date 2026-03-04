@@ -1592,6 +1592,7 @@ bool BoardConfigContainer::configureBaseBQ() {
 
   bq.setVOCdelay(BQ25798_VOC_DLY_2S);
   bq.setVOCrate(BQ25798_VOC_RATE_2MIN);
+  bq.setVOCpercent(BQ25798_VOC_PCT_75);
   bq.setAutoDPinsDetection(false);
   bq.setMPPTenable(true);
 
