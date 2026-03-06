@@ -28,10 +28,8 @@
 
 #include <Arduino.h>
 
-inline SemaphoreHandle_t solarEventSem = NULL;
-
-// Solar MPPT task interval
-#define SOLAR_MPPT_TASK_INTERVAL_MS (15 * 60 * 1000)  // 15 minutes
+// Solar MPPT polling interval (no interrupt — pure polling)
+#define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute (test value)
 
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
@@ -200,9 +198,6 @@ public:
   static void heartbeatTask(void* pvParameters);
   static void socUpdateTask(void* pvParameters); ///< SOC update task (runs every minute)
   
-  /// BQ25798 interrupt handler - ALWAYS clears interrupt flags (reads 0x1B) to prevent lockup.
-  static void onBqInterrupt();
-  
   static bool loadMpptEnabled(bool& enabled);
   static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
 
@@ -290,6 +285,7 @@ public:
   // LED control methods
   bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)
   bool getLEDsEnabled() const;       ///< Get current LED enable state
+  void getRegisterDump(char* buffer, uint32_t bufferSize); ///< Raw BQ25798 register dump for debugging
 
 private:
   static void runVoltageMonitor();

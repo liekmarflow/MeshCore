@@ -459,6 +459,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
+  } else if (strcmp(cmd, "regdump") == 0) {
+    char dumpBuffer[256];
+    boardConfig.getRegisterDump(dumpBuffer, sizeof(dumpBuffer));
+    snprintf(reply, maxlen, "%s", dumpBuffer);
+    return true;
   } else if (strcmp(cmd, "hiz") == 0 || strcmp(cmd, "togglehiz") == 0) {
     // Manual HIZ cycle to force input detection (like automatic task)
     char hizBuffer[100];
@@ -902,9 +907,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // 7. Store shutdown reason for next boot (in case of unexpected reset)
     NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason;
 
-    // 8. Detach BQ interrupt to prevent solar events waking CPU
+    // BQ_INT_PIN no longer used — no interrupt to detach
     // BQ25798 MPPT/CC/CV runs autonomously in hardware — no CPU needed
-    detachInterrupt(digitalPinToInterrupt(BQ_INT_PIN));
 
     // 9. System ON Idle with in-loop voltage checking
     // GPIO outputs remain latched (CE stays LOW → solar charges)

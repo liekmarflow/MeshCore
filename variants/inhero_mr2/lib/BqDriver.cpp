@@ -593,6 +593,20 @@ bq25798_voc_pct_t BqDriver::getVOCpercent() {
   return (bq25798_voc_pct_t)((reg15 >> 5) & 0x07);
 }
 
+bool BqDriver::setPFMForwardDisable(bool disable) {
+  uint8_t reg12 = readReg(0x12);
+  if (disable) {
+    reg12 |= (1 << 4);   // PFM_FWD_DIS = 1
+  } else {
+    reg12 &= ~(1 << 4);  // PFM_FWD_DIS = 0
+  }
+  return writeReg(0x12, reg12);
+}
+
+bool BqDriver::getPFMForwardDisable() {
+  return (readReg(0x12) & (1 << 4)) != 0;
+}
+
 // Non-static register access methods (use instance I2C config)
 bool BqDriver::writeReg(uint8_t reg, uint8_t val) {
   if (!ih_i2c_dev) return false;

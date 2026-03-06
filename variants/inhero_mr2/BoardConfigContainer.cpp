@@ -289,10 +289,7 @@ void BoardConfigContainer::runVoltageMonitor() {
 // Watchdog state
 static bool wdt_enabled = false;
 
-// Cooldown timers to prevent interrupt loops and excessive toggling:
-// - MPPT writes can trigger BQ25798 interrupts, which wake the task, creating a loop
-// - HIZ toggles should be rare events only for stuck PGOOD conditions
-static uint32_t lastMpptWriteTime = 0;      // 60-second cooldown for MPPT register writes
+// Cooldown timer for HIZ toggles (stuck PGOOD recovery)
 static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 #define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
 
@@ -411,10 +408,8 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
       bq.setHIZMode(false);
     }
     
-    // Reset MPPT write cooldown so it can be written immediately when PG=1
     // Don't write MPPT=1 here - let BQ finish input qualification first
     // MPPT=1 will be set by checkAndFixSolarLogic() on next task run when PG=1
-    lastMpptWriteTime = 0;
     
     // Set HIZ toggle cooldown timestamp
     lastHizToggleTime = currentTime;
@@ -429,13 +424,7 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
 /// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
 ///          This function restores MPPT=1 when PG returns to 1.
 ///          
-///          CRITICAL: Only runs when PowerGood=1 to avoid false positives and interrupt loops
-///          
-///          Interrupt loop prevention:
-///          - Writing to MPPT register triggers BQ25798 interrupts
-///          - Interrupts wake the MPPT task, which may call this function again
-///          - Implements 60-second cooldown between MPPT writes to break the loop
-///          - Cooldown is reset by checkAndFixPgoodStuck() when HIZ is toggled
+///          CRITICAL: Only runs when PowerGood=1 to avoid false positives
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -458,16 +447,6 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
 
   // Only re-enable MPPT when PowerGood=1
   if (!powerGood) {
-    // PG=0 - nothing to do, don't set cooldown
-    return;
-  }
-
-  // Cooldown: Only run every 60 seconds to prevent interrupt loop
-  // IMPORTANT: Cooldown only when PG=1, so MPPT is set immediately when PG goes high
-  uint32_t currentTime = millis();
-  
-  if (lastMpptWriteTime != 0 && (currentTime - lastMpptWriteTime) < 60000) {
-    // Less than 60 seconds since last run - skip
     return;
   }
 
@@ -476,7 +455,6 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
 
   if ((mpptVal & 0x01) == 0) {
     bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
-    lastMpptWriteTime = currentTime; // Set cooldown timestamp AFTER write
     MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
   }
 }
@@ -495,71 +473,31 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
   const TickType_t xBlockTime = pdMS_TO_TICKS(SOLAR_MPPT_TASK_INTERVAL_MS);
 
   while (true) {
-    if (xSemaphoreTake(solarEventSem, xBlockTime) == pdTRUE) {
-      // Interrupt triggered - solar event occurred
-      // Clear BQ25798 interrupt flags early to de-assert INT line and allow new interrupts
-      if (bqDriverInstance) {
-        bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
-      }
-      delay(100);
-      checkAndFixPgoodStuck();  // Check for stuck PGOOD
-      checkAndFixSolarLogic();   // Re-enable MPPT if needed
-      
-      // Update statistics on interrupt (status change) - only if MPPT enabled in config
-      if (bqDriverInstance) {
-        bool mpptEnabled;
-        BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-        if (mpptEnabled) {
-          updateMpptStats();
-        }
-      }
-    } else {
-      // Timeout - periodic check every 15 minutes
-      checkAndFixPgoodStuck();  // Check for stuck PGOOD
-      checkAndFixSolarLogic();   // Re-enable MPPT if needed
-      
-      // Update statistics for time accounting - only if MPPT enabled in config
-      if (bqDriverInstance) {
-        bool mpptEnabled;
-        BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-        if (mpptEnabled) {
-          updateMpptStats();
-        }
+    vTaskDelay(xBlockTime);
+
+    // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
+    if (bqDriverInstance) {
+      bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
+    }
+
+    checkAndFixPgoodStuck();  // Check for stuck PGOOD
+    checkAndFixSolarLogic();  // Re-enable MPPT if needed
+
+    // Update statistics - only if MPPT enabled in config
+    if (bqDriverInstance) {
+      bool mpptEnabled;
+      BoardConfigContainer::loadMpptEnabled(mpptEnabled);
+      if (mpptEnabled) {
+        updateMpptStats();
       }
     }
-    
-    if (leds_enabled) {
-      digitalWrite(LED_BLUE, LOW);
-    }
   }
-}
-
-void BoardConfigContainer::onBqInterrupt() {
-  if (leds_enabled) {
-    digitalWrite(LED_BLUE, HIGH);
-  }
-
-  if (solarEventSem == NULL) return; // Safety check
-  
-  // NOTE: Interrupt flag clearing (readReg 0x1B) is deferred to solarMpptTask
-  // to avoid I2C bus conflicts in ISR context. The INT line stays asserted until
-  // cleared, but the task wakes immediately via semaphore.
-
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-  xSemaphoreGiveFromISR(solarEventSem, &xHigherPriorityTaskWoken);
-
-  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 /// @brief Stops all background FreeRTOS tasks
 /// @details This must be called before OTA update to prevent task interference
 void BoardConfigContainer::stopBackgroundTasks() {
   MESH_DEBUG_PRINTLN("Stopping background tasks for OTA...");
-  
-  // Detach interrupt first to prevent new events
-  detachInterrupt(digitalPinToInterrupt(BQ_INT_PIN));
-  MESH_DEBUG_PRINTLN("BQ interrupt detached");
   
   // Delete MPPT task if running
   if (mpptTaskHandle != NULL) {
@@ -595,13 +533,6 @@ void BoardConfigContainer::stopBackgroundTasks() {
       socUpdateTaskHandle = NULL;
       MESH_DEBUG_PRINTLN("SOC update task stopped");
     }
-  }
-  
-  // Clean up semaphore
-  if (solarEventSem != NULL) {
-    vSemaphoreDelete(solarEventSem);
-    solarEventSem = NULL;
-    MESH_DEBUG_PRINTLN("Semaphore deleted");
   }
   
   // NOTE: Don't call Wire.end() here - it can interfere with SoftDevice/BLE
@@ -1067,6 +998,69 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
            vbat_v, ibat_ma_int, temp_c, ts_str, reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
 }
 
+/// @brief Raw BQ25798 register dump for low-level debugging
+void BoardConfigContainer::getRegisterDump(char* buffer, uint32_t bufferSize) {
+  if (!buffer || bufferSize == 0) return;
+  memset(buffer, 0, bufferSize);
+
+  if (!BQ_INITIALIZED || !bqDriverInstance) {
+    snprintf(buffer, bufferSize, "BQ not init");
+    return;
+  }
+
+  // Read VINDPM (REG05): 8-bit, offset 0mV, step 100mV → mV = reg * 100
+  uint8_t reg05 = bqDriverInstance->readReg(0x05);
+  uint16_t vindpm_mV = (uint16_t)reg05 * 100;
+
+  // Read IINDPM (REG06-07): 9-bit, step 10mA
+  uint8_t reg06 = bqDriverInstance->readReg(0x06);
+  uint8_t reg07 = bqDriverInstance->readReg(0x07);
+  uint16_t iindpm_mA = (((uint16_t)(reg06 & 0x01) << 8) | reg07) * 10;
+
+  // ICHG limit (REG03-04): 9-bit, step 10mA
+  uint8_t reg03 = bqDriverInstance->readReg(0x03);
+  uint8_t reg04 = bqDriverInstance->readReg(0x04);
+  uint16_t ichg_mA = (((uint16_t)(reg03 & 0x01) << 8) | reg04) * 10;
+
+  // Charger Control 0 (REG0F)
+  uint8_t reg0F = bqDriverInstance->readReg(0x0F);
+
+  // Charger Control 3 (REG12) - contains PFM_FWD_DIS
+  uint8_t reg12 = bqDriverInstance->readReg(0x12);
+
+  // MPPT Control (REG15)
+  uint8_t reg15 = bqDriverInstance->readReg(0x15);
+
+  // Status registers
+  uint8_t reg1B = bqDriverInstance->readReg(0x1B); // CHARGER_STATUS_0
+  uint8_t reg1C = bqDriverInstance->readReg(0x1C); // CHARGER_STATUS_1
+  uint8_t reg1D = bqDriverInstance->readReg(0x1D); // CHARGER_STATUS_2
+  uint8_t reg1E = bqDriverInstance->readReg(0x1E); // CHARGER_STATUS_3
+  uint8_t reg1F = bqDriverInstance->readReg(0x1F); // CHARGER_STATUS_4
+
+  // Flag registers (reading clears them — shows what happened since last read)
+  uint8_t reg20 = bqDriverInstance->readReg(0x20); // FAULT_STATUS_0
+  uint8_t reg21 = bqDriverInstance->readReg(0x21); // FAULT_STATUS_1
+  uint8_t reg22 = bqDriverInstance->readReg(0x22); // CHARGER_FLAG_0
+  uint8_t reg23 = bqDriverInstance->readReg(0x23); // CHARGER_FLAG_1
+  uint8_t reg24 = bqDriverInstance->readReg(0x24); // CHARGER_FLAG_2
+  uint8_t reg25 = bqDriverInstance->readReg(0x25); // CHARGER_FLAG_3
+
+  // POORSRC status from REG1D bit 5
+  bool poorsrc = (reg1D & 0x20) != 0;
+  bool vindpm_active = (reg1B & 0x40) != 0;
+  bool iindpm_active = (reg1B & 0x80) != 0;
+
+  // Compact: max ~160 chars
+  // Example: "Vi16500 Ii1000 Ic200 VD1 ID0 PS0|0F:A2 12:10 15:6B|1B-1F:08 62 00 00 04|F:00 00 00 00 00 00"
+  snprintf(buffer, bufferSize,
+    "Vi%u Ii%u Ic%u VD%d ID%d PS%d|%02X %02X %02X|%02X%02X%02X%02X%02X|%02X%02X %02X%02X%02X%02X",
+    vindpm_mV, iindpm_mA, ichg_mA, vindpm_active, iindpm_active, poorsrc,
+    reg0F, reg12, reg15,
+    reg1B, reg1C, reg1D, reg1E, reg1F,
+    reg20, reg21, reg22, reg23, reg24, reg25);
+}
+
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
 /// @return true if both BQ25798 and MCP4652 initialized successfully
 bool BoardConfigContainer::begin() {
@@ -1274,19 +1268,8 @@ bool BoardConfigContainer::begin() {
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
 
-  pinMode(BQ_INT_PIN, INPUT_PULLUP);
-  if (solarEventSem == NULL) {
-    solarEventSem = xSemaphoreCreateBinary();
-    if (solarEventSem == NULL) {
-      MESH_DEBUG_PRINTLN("Failed to create solarEventSem!");
-      return false;
-    }
-  }
-
-  this->configureSolarOnlyInterrupts();
-  
-  // Clear any latched fault status from previous operation/boot
-  // This ensures we start with clean state after full configuration
+  // Clear any latched fault/interrupt status from previous operation/boot
+  bq.readReg(0x1B); // CHARGER_FLAG_0 - clear INT flags
   bq.readReg(0x20); // FAULT_STATUS_0
   bq.readReg(0x21); // FAULT_STATUS_1
 
@@ -1309,7 +1292,7 @@ bool BoardConfigContainer::begin() {
   // NOTE: Voltage Monitor Task is started AFTER INA228 initialization (below)
   // to avoid I2C bus conflicts during hardware setup
 
-  attachInterrupt(digitalPinToInterrupt(BQ_INT_PIN), onBqInterrupt, FALLING);
+  // BQ_INT_PIN no longer used — solar checks run via polling in solarMpptTask
 
   // Check if all critical components initialized
   bool all_components_ok = BQ_INITIALIZED && INA228_INITIALIZED && rtc_initialized;
@@ -1599,6 +1582,11 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setMinSystemV(2.75);  // 2.75V = next valid step above 2.7V (250mV steps: 2.5, 2.75, 3.0...)
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
+
+  // Disable PFM in forward mode: PFM draws 2A peak inductor current pulses at low frequency,
+  // causing VBUS oscillation with high-impedance solar sources (e.g. 12V panels at weak light).
+  bq.setPFMForwardDisable(true);
+
   return true;
 }
 
