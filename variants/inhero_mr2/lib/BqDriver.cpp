@@ -607,6 +607,20 @@ bool BqDriver::getPFMForwardDisable() {
   return (readReg(0x12) & (1 << 4)) != 0;
 }
 
+bool BqDriver::setForwardOOA(bool enable) {
+  uint8_t reg12 = readReg(0x12);
+  if (enable) {
+    reg12 &= ~(1 << 0);  // DIS_FWD_OOA = 0 → OOA enabled
+  } else {
+    reg12 |= (1 << 0);   // DIS_FWD_OOA = 1 → OOA disabled
+  }
+  return writeReg(0x12, reg12);
+}
+
+bool BqDriver::getForwardOOA() {
+  return (readReg(0x12) & (1 << 0)) == 0;  // DIS_FWD_OOA=0 means enabled
+}
+
 // Non-static register access methods (use instance I2C config)
 bool BqDriver::writeReg(uint8_t reg, uint8_t val) {
   if (!ih_i2c_dev) return false;

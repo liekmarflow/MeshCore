@@ -205,6 +205,9 @@ public:
   bool setPFMForwardDisable(bool disable);
   bool getPFMForwardDisable();
 
+  bool setForwardOOA(bool enable);
+  bool getForwardOOA();
+
   // Non-static register access methods (use instance I2C config)
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
