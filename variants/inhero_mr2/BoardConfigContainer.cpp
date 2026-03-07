@@ -1293,6 +1293,8 @@ bool BoardConfigContainer::begin() {
   // to avoid I2C bus conflicts during hardware setup
 
   // BQ_INT_PIN no longer used — solar checks run via polling in solarMpptTask
+  // Pull up to prevent floating trace on PCB
+  pinMode(BQ_INT_PIN, INPUT_PULLUP);
 
   // Check if all critical components initialized
   bool all_components_ok = BQ_INITIALIZED && INA228_INITIALIZED && rtc_initialized;
