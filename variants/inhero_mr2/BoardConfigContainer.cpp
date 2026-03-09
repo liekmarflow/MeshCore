@@ -987,15 +987,23 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
   float vbus_v = telem ? telem->solar.voltage / 1000.0f : 0.0f;
   float vbat_v = telem ? telem->batterie.voltage / 1000.0f : 0.0f;
   float ibat_ma = telem ? telem->batterie.current : 0.0f;  // INA228 driver returns correctly signed values
-  float temp_c = telem ? telem->batterie.temperature : 0.0f;
+  float temp_c = telem ? telem->batterie.temperature : -999.0f;
   int32_t ibat_ma_int = (int32_t)((ibat_ma >= 0.0f) ? (ibat_ma + 0.5f) : (ibat_ma - 0.5f));
+
+  // Format temperature: "N/A" when NTC unavailable (no solar), otherwise "XXC"
+  char temp_str[8];
+  if (temp_c <= -100.0f) {
+    snprintf(temp_str, sizeof(temp_str), "N/A");
+  } else {
+    snprintf(temp_str, sizeof(temp_str), "%.0fC", temp_c);
+  }
 
   // Build compact diagnostic string (must fit in 100 bytes)
   const char* ts_str = ts_cold ? "COLD" : (ts_cool ? "COOL" : (ts_warm ? "WARM" : (ts_hot ? "HOT" : "OK")));
   snprintf(buffer, bufferSize,
-           "PG%d CE%d HZ%d MP%d %s %s VD%d ID%d|%.1f/%.1fV %dmA %.0fC %s|%02X/%02X VOC%s/%s/%s",
+           "PG%d CE%d HZ%d MP%d %s %s VD%d ID%d|%.1f/%.1fV %dmA %s %s|%02X/%02X VOC%s/%s/%s",
            powerGood, !ce_disabled, hiz_enabled, mppt_enabled, chg_str, vbus_str, vindpm, iindpm, vbus_v,
-           vbat_v, ibat_ma_int, temp_c, ts_str, reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
+           vbat_v, ibat_ma_int, temp_str, ts_str, reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
 }
 
 /// @brief Raw BQ25798 register dump for low-level debugging
@@ -1497,10 +1505,20 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
     return &telemetry;
   }
 
-  // Copy BQ25798 data (solar, system, temperature with calibration offset)
+  // Copy BQ25798 data (solar, system)
   telemetry.solar = bqData->solar;
   telemetry.system = bqData->system;
-  telemetry.batterie.temperature = bqData->batterie.temperature + tcCalOffset;
+
+  // Temperature: BQ25798 TS ADC reads NTC via REGN-biased divider.
+  // Error codes from calculateBatteryTemp: -999 (I2C), -888 (ADC not ready), -99 (open), 99 (short).
+  // Valid NTC range: approx -40..+85 °C. Anything outside -50..+90 is treated as unavailable.
+  float bqTemp = bqData->batterie.temperature;
+  if (bqTemp >= -50.0f && bqTemp <= 90.0f) {
+    telemetry.batterie.temperature = bqTemp + tcCalOffset;
+  } else {
+    // NTC unavailable (no solar / I2C error / ADC not ready) → propagate sentinel
+    telemetry.batterie.temperature = -999.0f;
+  }
 
   telemetry.batterie.voltage = batt_voltage;
   telemetry.batterie.current = batt_current;

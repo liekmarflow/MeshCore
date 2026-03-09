@@ -351,7 +351,9 @@ bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
     telemetry.addPercentage(batteryChannel, socPercent);
   }
   telemetry.addCurrent(batteryChannel, telemetryData->batterie.current / 1000.0f);
-  telemetry.addTemperature(batteryChannel, telemetryData->batterie.temperature);
+  if (telemetryData->batterie.temperature > -100.0f) {
+    telemetry.addTemperature(batteryChannel, telemetryData->batterie.temperature);
+  }
 
   // TTL handling:
   // - ttlHours > 0: send finite TTL in days
@@ -501,13 +503,21 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(sol_current_str, sizeof(sol_current_str), "%dmA", (int)sol_current);
     }
 
+    // Format temperature: "N/A" when NTC unavailable (no solar)
+    char temp_str[8];
+    if (telemetry->batterie.temperature <= -100.0f) {
+      snprintf(temp_str, sizeof(temp_str), "N/A");
+    } else {
+      snprintf(temp_str, sizeof(temp_str), "%.0fC", telemetry->batterie.temperature);
+    }
+
     if (socStats && socStats->soc_valid) {
-      snprintf(reply, maxlen, "B:%.2fV/%s/%.0fC SOC:%.1f%% S:%.2fV/%s", telemetry->batterie.voltage / 1000.0f,
-               bat_current_str, telemetry->batterie.temperature, soc, telemetry->solar.voltage / 1000.0f,
+      snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% S:%.2fV/%s", telemetry->batterie.voltage / 1000.0f,
+               bat_current_str, temp_str, soc, telemetry->solar.voltage / 1000.0f,
                sol_current_str);
     } else {
-      snprintf(reply, maxlen, "B:%.2fV/%s/%.0fC SOC:N/A S:%.2fV/%s", telemetry->batterie.voltage / 1000.0f,
-               bat_current_str, telemetry->batterie.temperature, telemetry->solar.voltage / 1000.0f,
+      snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:N/A S:%.2fV/%s", telemetry->batterie.voltage / 1000.0f,
+               bat_current_str, temp_str, telemetry->solar.voltage / 1000.0f,
                sol_current_str);
     }
     return true;
