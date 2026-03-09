@@ -142,10 +142,27 @@ const Telemetry* const BqDriver::getTelemetryData() {
     return &telemetryData;
   }
 
-  // Wait for ADC conversion to complete (datasheet: typical 150ms for one-shot)
-  // Extended to 250ms to ensure TS ADC is ready
-  delay(250);
-  
+  // Poll ADC_EN bit until it auto-clears (conversion complete) or timeout.
+  // BQ25798 one-shot: ADC_EN resets to 0 when all channels are converted.
+  // Typical: ~170ms (7 ch × 24ms at 15-bit). Timeout 500ms for margin.
+  const uint32_t ADC_TIMEOUT_MS = 500;
+  uint32_t start = millis();
+  bool conversion_done = false;
+  while ((millis() - start) < ADC_TIMEOUT_MS) {
+    if (!this->getADCEnabled()) {
+      conversion_done = true;
+      break;
+    }
+    delay(10);
+  }
+
+  if (!conversion_done) {
+    // Conversion did not complete — force ADC off, return zeroed data
+    // to avoid returning stale register values from before shutdown/sleep
+    this->setADCEnabled(false);
+    return &telemetryData;
+  }
+
   telemetryData.solar.voltage = getVBUS();
   telemetryData.solar.current = getIBUS();
   if (telemetryData.solar.current < 0) {
@@ -157,9 +174,7 @@ const Telemetry* const BqDriver::getTelemetryData() {
   // Note: Battery voltage/current (VBAT/IBAT) are measured by INA228, not BQ25798
   telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
 
-  // Disable ADC to save power (~1.5mA according to datasheet)
-  // ADC stays enabled after one-shot conversion, consuming unnecessary power
-  this->setADCEnabled(false);
+  // ADC_EN already auto-cleared by BQ25798 after one-shot completion — no power waste
   
   return &telemetryData;
 }

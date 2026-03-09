@@ -1589,6 +1589,11 @@ bool BoardConfigContainer::configureBaseBQ() {
   // causing VBUS oscillation with high-impedance solar sources (e.g. 12V panels at weak light).
   bq.setPFMForwardDisable(true);
 
+  // Flush stale ADC registers by running one discard conversion.
+  // After reboot (e.g. danger zone recovery), BQ25798 retains old ADC values
+  // from before shutdown. A fresh one-shot ensures registers reflect actual state.
+  bq.getTelemetryData();
+
   return true;
 }
 
