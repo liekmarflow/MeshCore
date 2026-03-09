@@ -303,29 +303,59 @@ void Ina228Driver::resetCoulombCounter() {
 
 bool Ina228Driver::setUnderVoltageAlert(uint16_t voltage_mv) {
   // BUVL register: 3.125 mV/LSB (per datasheet Table 7-20)
-  // Example: 2800mV / 3.125 mV = 896
+  // Non-zero BUVL enables bus under-voltage comparison → BUSUL flag + ALERT pin
+  // BUVL = 0 disables comparison (datasheet default)
   uint16_t buvl_value = (uint16_t)(voltage_mv / 3.125f);
-  return writeRegister16(INA228_REG_BUVL, buvl_value);
+
+  // Write with retry and readback verification (I2C writes can fail silently)
+  for (int retry = 0; retry < 3; retry++) {
+    if (!writeRegister16(INA228_REG_BUVL, buvl_value)) {
+      delay(10);
+      continue;
+    }
+    delay(5);
+    uint16_t readback = readRegister16(INA228_REG_BUVL);
+    if (readback == buvl_value) {
+      return true;
+    }
+    MESH_DEBUG_PRINTLN("INA228: BUVL write mismatch (wrote=0x%04X, read=0x%04X), retry %d", buvl_value, readback, retry);
+    delay(10);
+  }
+  MESH_DEBUG_PRINTLN("INA228: BUVL write FAILED after 3 retries!");
+  return false;
 }
 
 void Ina228Driver::enableAlert(bool enable_uvlo, bool active_high, bool latch_alert) {
+  // DIAG_ALRT register: Only bits [15:12] are R/W (config), bits [11:0] are read-only flags.
+  // Writing to this register clears all flag bits [11:0].
+  // Note: BUSUL/BUSOL flags (bits 3-4) are READ-ONLY status flags, NOT enable bits.
+  // Bus under-voltage comparison is enabled by setting BUVL register to non-zero.
   uint16_t diag_alrt = 0;
 
-  if (enable_uvlo) {
-    diag_alrt |= INA228_DIAG_ALRT_BUSUL;  // Enable bus under-voltage alert
+  if (latch_alert) {
+    diag_alrt |= INA228_DIAG_ALRT_ALATCH;   // Latch mode: Alert stays active until DIAG_ALRT is read
   }
 
   if (active_high) {
-    diag_alrt |= INA228_DIAG_ALRT_APOL;   // Active-high polarity
+    diag_alrt |= INA228_DIAG_ALRT_APOL;     // Active-high polarity (default: active-low)
   }
 
-  if (latch_alert) {
-    // Latch mode: Alert stays active until DIAG_ALRT register is read
-    diag_alrt |= INA228_DIAG_ALRT_ALATCH;
+  // Write with retry and readback verification
+  // Only bits [15:12] are readable as config; bits [11:0] are flags (may change between write and read)
+  uint16_t expected_config = diag_alrt & 0xF000;  // Only check config bits
+  for (int retry = 0; retry < 3; retry++) {
+    writeRegister16(INA228_REG_DIAG_ALRT, diag_alrt);
+    delay(5);
+    uint16_t readback = readRegister16(INA228_REG_DIAG_ALRT);
+    uint16_t readback_config = readback & 0xF000;
+    if (readback_config == expected_config) {
+      return;
+    }
+    MESH_DEBUG_PRINTLN("INA228: DIAG_ALRT config mismatch (wrote=0x%04X, read=0x%04X, config=0x%04X vs 0x%04X), retry %d",
+                       diag_alrt, readback, expected_config, readback_config, retry);
+    delay(10);
   }
-  // else: Transparent mode (default) - Alert auto-clears when condition is resolved
-
-  writeRegister16(INA228_REG_DIAG_ALRT, diag_alrt);
+  MESH_DEBUG_PRINTLN("INA228: DIAG_ALRT write FAILED after 3 retries!");
 }
 
 bool Ina228Driver::isAlertActive() {
@@ -340,6 +370,10 @@ void Ina228Driver::clearAlert() {
 
 uint16_t Ina228Driver::getDiagnosticFlags() {
   return readRegister16(INA228_REG_DIAG_ALRT);
+}
+
+uint16_t Ina228Driver::readBuvlRegister() {
+  return readRegister16(INA228_REG_BUVL);
 }
 
 // ===== Private Methods =====

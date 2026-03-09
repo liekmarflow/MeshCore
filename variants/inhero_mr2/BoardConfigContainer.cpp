@@ -2539,13 +2539,13 @@ void BoardConfigContainer::applyUvloSetting() {
     BatteryType bat_type = getBatteryType();
     const BatteryProperties* props = getBatteryProperties(bat_type);
     uint16_t uvlo_mv = props ? props->uvlo_threshold : 2000;
-    ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
+    bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
     ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
-    MESH_DEBUG_PRINTLN("INA228 UVLO: ENABLED @ %dmV (Latched)", uvlo_mv);
+    MESH_DEBUG_PRINTLN("INA228 UVLO: ENABLED @ %dmV (Latched, BUVL write %s)", uvlo_mv, buvl_ok ? "OK" : "FAILED");
   } else {
-    ina228DriverInstance->setUnderVoltageAlert(0);  // Clear threshold → disables comparison
+    bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(0);  // Clear threshold → disables comparison
     ina228DriverInstance->enableAlert(false, false, false);  // Clear all DIAG_ALRT config
-    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (BUVL=0, no threshold)");
+    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (BUVL=0, BUVL write %s)", buvl_ok ? "OK" : "FAILED");
   }
 }
 

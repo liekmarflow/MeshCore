@@ -176,7 +176,12 @@ public:
 
   /// @brief Get diagnostic and alert register value
   /// @return 16-bit diagnostic register value
+  /// @warning In LATCH mode, reading DIAG_ALRT clears latched alert flags and de-asserts ALERT pin!
   uint16_t getDiagnosticFlags();
+
+  /// @brief Read back current BUVL threshold register value
+  /// @return Raw BUVL register value (multiply by 3.125 for mV)
+  uint16_t readBuvlRegister();
 
   /// @brief Put INA228 into shutdown mode (power-down)
   /// @note Disables all measurements and Coulomb Counter to save power

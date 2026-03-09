@@ -545,9 +545,19 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "TC offset: %+.2f C (0.00=default)", offset);
     return true;
   } else if (strcmp(cmd, "uvlo") == 0) {
-    // Get INA228 UVLO enable state
+    // Get INA228 UVLO enable state with register readback for diagnostics
     bool enabled = boardConfig.getUvloEnabled();
-    snprintf(reply, maxlen, "UVLO: %s", enabled ? "ENABLED" : "DISABLED");
+    Ina228Driver* ina = boardConfig.getIna228Driver();
+    if (ina != nullptr) {
+      uint16_t buvl_raw = ina->readBuvlRegister();
+      uint16_t buvl_mv = (uint16_t)(buvl_raw * 3.125f);
+      uint16_t diag = ina->getDiagnosticFlags();
+      snprintf(reply, maxlen, "UVLO:%s BUVL=0x%04X(%dmV) DIAG=0x%04X AL%d",
+               enabled ? "ON" : "OFF", buvl_raw, buvl_mv,
+               diag, (diag >> 15) & 1);
+    } else {
+      snprintf(reply, maxlen, "UVLO: %s (INA228 N/A)", enabled ? "ENABLED" : "DISABLED");
+    }
     return true;
   } else if (strcmp(cmd, "leds") == 0) {
     // Get LED enable state (heartbeat + BQ stat LED)
@@ -872,12 +882,12 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   // 1. Stop background tasks to prevent filesystem corruption
   BoardConfigContainer::stopBackgroundTasks();
 
-  // 2. Put INA228 into shutdown mode (v0.2 hardware)
-  // No need for Coulomb counting - we assume 0% SOC in danger zone
-  if (boardConfig.getIna228Driver() != nullptr) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Shutting down INA228");
-    boardConfig.getIna228Driver()->shutdown();
-  }
+  // 2. INA228 stays RUNNING in danger zone (v0.2 hardware)
+  // Reasons:
+  //   a) Coulomb Counter must keep tracking solar charge recovery (SOC)
+  //   b) UVLO alert (BUVL comparison) only works when ADC is in continuous mode
+  //      — shutdown (MODE=0x0) disables ALL conversions and comparisons
+  MESH_DEBUG_PRINTLN("PWRMGT: INA228 stays active (Coulomb Counter + UVLO alert)");
 
   // 3. Put SX1262 into sleep mode via SPI (~0.16 µA vs ~5 mA active RX)
   // MUST happen BEFORE PE4259 power-off — SPI communication still needs stable power
