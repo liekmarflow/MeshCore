@@ -65,7 +65,9 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->multi_acks, sizeof(_prefs->multi_acks));                         // 115
     file.read((uint8_t *)&_prefs->bw, sizeof(_prefs->bw));                                         // 116
     file.read((uint8_t *)&_prefs->agc_reset_interval, sizeof(_prefs->agc_reset_interval));         // 120
-    file.read(pad, 3);                                                                             // 121
+    file.read((uint8_t *)&_prefs->path_hash_mode, sizeof(_prefs->path_hash_mode));                 // 121
+    file.read((uint8_t *)&_prefs->loop_detect, sizeof(_prefs->loop_detect));                       // 122
+    file.read(pad, 1);                                                                             // 123
     file.read((uint8_t *)&_prefs->flood_max, sizeof(_prefs->flood_max));                           // 124
     file.read((uint8_t *)&_prefs->flood_advert_interval, sizeof(_prefs->flood_advert_interval));   // 125
     file.read((uint8_t *)&_prefs->interference_threshold, sizeof(_prefs->interference_threshold)); // 126
@@ -97,6 +99,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->tx_power_dbm = constrain(_prefs->tx_power_dbm, -9, 30);
     _prefs->multi_acks = constrain(_prefs->multi_acks, 0, 1);
     _prefs->adc_multiplier = constrain(_prefs->adc_multiplier, 0.0f, 10.0f);
+    _prefs->path_hash_mode = constrain(_prefs->path_hash_mode, 0, 2);   // NOTE: mode 3 reserved for future
 
     // sanitise bad bridge pref values
     _prefs->bridge_enabled = constrain(_prefs->bridge_enabled, 0, 1);
@@ -149,7 +152,9 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->multi_acks, sizeof(_prefs->multi_acks));                         // 115
     file.write((uint8_t *)&_prefs->bw, sizeof(_prefs->bw));                                         // 116
     file.write((uint8_t *)&_prefs->agc_reset_interval, sizeof(_prefs->agc_reset_interval));         // 120
-    file.write(pad, 3);                                                                             // 121
+    file.write((uint8_t *)&_prefs->path_hash_mode, sizeof(_prefs->path_hash_mode));                 // 121
+    file.write((uint8_t *)&_prefs->loop_detect, sizeof(_prefs->loop_detect));                       // 122
+    file.write(pad, 1);                                                                             // 123
     file.write((uint8_t *)&_prefs->flood_max, sizeof(_prefs->flood_max));                           // 124
     file.write((uint8_t *)&_prefs->flood_advert_interval, sizeof(_prefs->flood_advert_interval));   // 125
     file.write((uint8_t *)&_prefs->interference_threshold, sizeof(_prefs->interference_threshold)); // 126
@@ -202,6 +207,10 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       // Reset clock
       getRTCClock()->setCurrentTime(1715770351);  // 15 May 2024, 8:50pm
       _board->reboot();  // doesn't return
+     } else if (memcmp(command, "advert.zerohop", 14) == 0 && (command[14] == 0 || command[14] == ' ')) {
+      // send zerohop advert
+      _callbacks->sendSelfAdvertisement(1500, false);  // longer delay, give CLI response time to be sent first
+      strcpy(reply, "OK - zerohop advert sent");
     } else if (memcmp(command, "advert", 6) == 0) {
       // send flood advert
       _callbacks->sendSelfAdvertisement(1500, true);  // longer delay, give CLI response time to be sent first
@@ -327,6 +336,18 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
           sp++;
         }
         *reply = 0;  // set null terminator
+      } else if (memcmp(config, "path.hash.mode", 14) == 0) {
+        sprintf(reply, "> %d", (uint32_t)_prefs->path_hash_mode);
+      } else if (memcmp(config, "loop.detect", 11) == 0) {
+        if (_prefs->loop_detect == LOOP_DETECT_OFF) {
+          strcpy(reply, "> off");
+        } else if (_prefs->loop_detect == LOOP_DETECT_MINIMAL) {
+          strcpy(reply, "> minimal");
+        } else if (_prefs->loop_detect == LOOP_DETECT_MODERATE) {
+          strcpy(reply, "> moderate");
+        } else {
+          strcpy(reply, "> strict");
+        }
       } else if (memcmp(config, "tx", 2) == 0 && (config[2] == 0 || config[2] == ' ')) {
         sprintf(reply, "> %d", (int32_t) _prefs->tx_power_dbm);
       } else if (memcmp(config, "freq", 4) == 0) {
@@ -364,6 +385,17 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
     } else if (memcmp(config, "bridge.secret", 13) == 0) {
       sprintf(reply, "> %s", _prefs->bridge_secret);
 #endif
+      } else if (memcmp(config, "bootloader.ver", 14) == 0) {
+      #ifdef NRF52_PLATFORM
+          char ver[32];
+          if (_board->getBootloaderVersion(ver, sizeof(ver))) {
+              sprintf(reply, "> %s", ver);
+          } else {
+              strcpy(reply, "> unknown");
+          }
+      #else
+          strcpy(reply, "ERROR: unsupported");
+      #endif
     } else if (memcmp(config, "board.", 6) == 0) {
       char res[100];
       memset(res, 0, sizeof(res));
@@ -372,13 +404,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       } else {
         strcpy(reply, "Error: unknown board command");
       }
-    } else if (memcmp(config, "adc.multiplier", 14) == 0) {
-      float adc_mult = _board->getAdcMultiplier();
-      if (adc_mult == 0.0f) {
-        strcpy(reply, "Error: unsupported by this board");
-      } else {
-        sprintf(reply, "> %.3f", adc_mult);
-      }
+      } else if (memcmp(config, "adc.multiplier", 14) == 0) {
+        float adc_mult = _board->getAdcMultiplier();
+        if (adc_mult == 0.0f) {
+          strcpy(reply, "Error: unsupported by this board");
+        } else {
+          sprintf(reply, "> %.3f", adc_mult);
+        }
       // Power management commands
       } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
 #ifdef NRF52_POWER_MANAGEMENT
@@ -555,6 +587,36 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         *dp = 0;
         savePrefs();
         strcpy(reply, "OK");
+      } else if (memcmp(config, "path.hash.mode ", 15) == 0) {
+        config += 15;
+        uint8_t mode = atoi(config);
+        if (mode < 3) {
+          _prefs->path_hash_mode = mode;
+          savePrefs();
+          strcpy(reply, "OK");
+        } else {
+          strcpy(reply, "Error, must be 0,1, or 2");
+        }
+      } else if (memcmp(config, "loop.detect ", 12) == 0) {
+        config += 12;
+        uint8_t mode;
+        if (memcmp(config, "off", 3) == 0) {
+          mode = LOOP_DETECT_OFF;
+        } else if (memcmp(config, "minimal", 7) == 0) {
+          mode = LOOP_DETECT_MINIMAL;
+        } else if (memcmp(config, "moderate", 8) == 0) {
+          mode = LOOP_DETECT_MODERATE;
+        } else if (memcmp(config, "strict", 6) == 0) {
+          mode = LOOP_DETECT_STRICT;
+        } else {
+          mode = 0xFF;
+          strcpy(reply, "Error, must be: off, minimal, moderate, or strict");
+        }
+        if (mode != 0xFF) {
+          _prefs->loop_detect = mode;
+          savePrefs();
+          strcpy(reply, "OK");
+        }
       } else if (memcmp(config, "tx ", 3) == 0) {
         _prefs->tx_power_dbm = atoi(&config[3]);
         savePrefs();
@@ -686,78 +748,83 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       }
     }
 #if ENV_INCLUDE_GPS == 1
-  } else if (memcmp(command, "gps on", 6) == 0) {
-    if (_sensors->setSettingValue("gps", "1")) {
-      _prefs->gps_enabled = 1;
+    } else if (memcmp(command, "gps on", 6) == 0) {
+      if (_sensors->setSettingValue("gps", "1")) {
+        _prefs->gps_enabled = 1;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else {
+        strcpy(reply, "gps toggle not found");
+      }
+    } else if (memcmp(command, "gps off", 7) == 0) {
+      if (_sensors->setSettingValue("gps", "0")) {
+        _prefs->gps_enabled = 0;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else {
+        strcpy(reply, "gps toggle not found");
+      }
+    } else if (memcmp(command, "gps sync", 8) == 0) {
+      LocationProvider * l = _sensors->getLocationProvider();
+      if (l != NULL) {
+        l->syncTime();
+        strcpy(reply, "ok");
+      } else {
+        strcpy(reply, "gps provider not found");
+      }
+    } else if (memcmp(command, "gps setloc", 10) == 0) {
+      _prefs->node_lat = _sensors->node_lat;
+      _prefs->node_lon = _sensors->node_lon;
       savePrefs();
       strcpy(reply, "ok");
-    } else {
-      strcpy(reply, "gps toggle not found");
-    }
-  } else if (memcmp(command, "gps off", 7) == 0) {
-    if (_sensors->setSettingValue("gps", "0")) {
-      _prefs->gps_enabled = 0;
-      savePrefs();
-      strcpy(reply, "ok");
-    } else {
-      strcpy(reply, "gps toggle not found");
-    }
-  } else if (memcmp(command, "gps sync", 8) == 0) {
-    LocationProvider* l = _sensors->getLocationProvider();
-    if (l != NULL) {
-      l->syncTime();
-    }
-  } else if (memcmp(command, "gps setloc", 10) == 0) {
-    _prefs->node_lat = _sensors->node_lat;
-    _prefs->node_lon = _sensors->node_lon;
-    savePrefs();
-    strcpy(reply, "ok");
-  } else if (memcmp(command, "gps advert", 10) == 0) {
-    if (strlen(command) == 10) {
-      switch (_prefs->advert_loc_policy) {
-      case ADVERT_LOC_NONE:
-        strcpy(reply, "> none");
-        break;
-      case ADVERT_LOC_PREFS:
-        strcpy(reply, "> prefs");
-        break;
-      case ADVERT_LOC_SHARE:
-        strcpy(reply, "> share");
-        break;
-      default:
+    } else if (memcmp(command, "gps advert", 10) == 0) {
+      if (strlen(command) == 10) {
+        switch (_prefs->advert_loc_policy) {
+          case ADVERT_LOC_NONE:
+            strcpy(reply, "> none");
+            break;
+          case ADVERT_LOC_PREFS:
+            strcpy(reply, "> prefs");
+            break;
+          case ADVERT_LOC_SHARE:
+            strcpy(reply, "> share");
+            break;
+          default:
+            strcpy(reply, "error");
+        }
+      } else if (memcmp(command+11, "none", 4) == 0) {
+        _prefs->advert_loc_policy = ADVERT_LOC_NONE;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else if (memcmp(command+11, "share", 5) == 0) {
+        _prefs->advert_loc_policy = ADVERT_LOC_SHARE;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else if (memcmp(command+11, "prefs", 5) == 0) {
+        _prefs->advert_loc_policy = ADVERT_LOC_PREFS;
+        savePrefs();
+        strcpy(reply, "ok");
+      } else {
         strcpy(reply, "error");
       }
-    } else if (memcmp(command + 11, "none", 4) == 0) {
-      _prefs->advert_loc_policy = ADVERT_LOC_NONE;
-      savePrefs();
-      strcpy(reply, "ok");
-    } else if (memcmp(command + 11, "share", 5) == 0) {
-      _prefs->advert_loc_policy = ADVERT_LOC_SHARE;
-      savePrefs();
-      strcpy(reply, "ok");
-    } else if (memcmp(command + 11, "prefs", 4) == 0) {
-      _prefs->advert_loc_policy = ADVERT_LOC_PREFS;
-      savePrefs();
-      strcpy(reply, "ok");
-    } else {
-      strcpy(reply, "error");
-    }
-  } else if (memcmp(command, "gps", 3) == 0) {
-    LocationProvider* l = _sensors->getLocationProvider();
-    if (l != NULL) {
-      bool enabled = l->isEnabled(); // is EN pin on ?
-      bool fix = l->isValid();       // has fix ?
-      int sats = l->satellitesCount();
-      bool active = !strcmp(_sensors->getSettingByKey("gps"), "1");
-      if (enabled) {
-        sprintf(reply, "on, %s, %s, %d sats", active ? "active" : "deactivated", fix ? "fix" : "no fix",
-                sats);
+    } else if (memcmp(command, "gps", 3) == 0) {
+      LocationProvider * l = _sensors->getLocationProvider();
+      if (l != NULL) {
+        bool enabled = l->isEnabled();
+        bool fix = l->isValid();
+        int sats = l->satellitesCount();
+        bool active = !strcmp(_sensors->getSettingByKey("gps"), "1");
+        if (enabled) {
+          sprintf(reply, "on, %s, %s, %d sats",
+            active?"active":"deactivated",
+            fix?"fix":"no fix",
+            sats);
+        } else {
+          strcpy(reply, "off");
+        }
       } else {
-        strcpy(reply, "off");
+        strcpy(reply, "Can't find GPS");
       }
-    } else {
-      strcpy(reply, "Can't find GPS");
-    }
 #endif
     } else if (memcmp(command, "powersaving on", 14) == 0) {
       _prefs->powersaving_enabled = 1;
