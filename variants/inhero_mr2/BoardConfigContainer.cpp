@@ -845,6 +845,16 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
           updateMpptStats();
         }
       }
+
+      // Reclassify during charging: if loaded VBUS >= threshold, panel is definitely HIGH_V
+      // (Voc is always higher than loaded voltage, so this is a sure detection)
+      if (detectedPanelClass == PANEL_LOW_V && bqDriverInstance) {
+        uint16_t vbus_mv = readVbusInHiz();  // one-shot ADC read (works in any mode, not just HIZ)
+        if (vbus_mv >= PANEL_VOC_THRESHOLD_MV) {
+          MESH_DEBUG_PRINTLN("LOW_V reclassify: VBUS=%dmV >= %dmV -> HIGH_V", vbus_mv, PANEL_VOC_THRESHOLD_MV);
+          setPanelOverride(PANEL_HIGH_V);
+        }
+      }
     }
   }
 }
