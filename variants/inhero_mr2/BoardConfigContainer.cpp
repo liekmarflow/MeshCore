@@ -371,7 +371,8 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
   }
 
   // Get VBUS voltage from telemetry data
-  const Telemetry* telem = bqDriverInstance->getTelemetryData();
+  uint16_t vbat_for_adc = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
+  const Telemetry* telem = bqDriverInstance->getTelemetryData(vbat_for_adc);
   uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
 
   // Detect stuck PGOOD state: VBUS voltage present but PGOOD not set
@@ -678,7 +679,8 @@ void BoardConfigContainer::updateMpptStats() {
   
   // Sample current solar power for next integration period
   if (currentMpptStatus) {
-    const Telemetry* telem = bqDriverInstance->getTelemetryData();
+    uint16_t vbat_mppt = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
+    const Telemetry* telem = bqDriverInstance->getTelemetryData(vbat_mppt);
     if (telem) {
       // Calculate power: P = U * I (both in mV and mA, result in mW)
       mpptStats.lastPower_mW = (int32_t)telem->solar.voltage * telem->solar.current / 1000;
@@ -1480,10 +1482,22 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   return false;
 }
 
-/// @brief Returns pointer to current telemetry data (MR2: INA228 for VBAT/IBAT, BQ25798 for Solar)
-/// @return Pointer to Telemetry struct with combined data from INA228 and BQ25798
+/// @brief Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature)
 /// @note MR2 v0.2: Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
 ///                  Solar data and battery temperature from BQ25798 ADC
+///
+/// Temperature availability depends on power conditions:
+///   VBUS > 3.4V  → BQ25798 ADC runs → temperature available
+///   VBAT >= 3.2V → BQ25798 ADC runs → temperature available
+///   VBAT < 3.2V  → TS channel disabled (datasheet 9.3.16) → temperature = N/A
+///   VBAT < 2.9V  → ADC cannot operate at all → temperature = N/A, solar = 0
+///
+/// Temperature sentinel values (propagated from BqDriver::calculateBatteryTemp):
+///   -999.0f = I2C communication error or NTC unavailable
+///   -888.0f = ADC not ready / TS disabled due to low VBAT
+///    -99.0f = NTC open circuit (disconnected)
+///     99.0f = NTC short circuit
+///   Values outside -50..+90°C are treated as invalid → displayed as "N/A"
 const Telemetry* BoardConfigContainer::getTelemetryData() {
   static Telemetry telemetry;
   
@@ -1499,7 +1513,9 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   }
 
   // Get base telemetry from BQ25798 (solar data + temperature)
-  const Telemetry* bqData = bq.getTelemetryData();
+  // Pass VBAT so BqDriver can disable TS channel when VBAT < 3.2V
+  // (BQ25798 ADC requires VBAT >= 3.2V with TS enabled, else ADC won't start)
+  const Telemetry* bqData = bq.getTelemetryData(batt_voltage);
   if (!bqData) {
     memset(&telemetry, 0, sizeof(Telemetry));
     return &telemetry;
@@ -1610,7 +1626,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   // Flush stale ADC registers by running one discard conversion.
   // After reboot (e.g. danger zone recovery), BQ25798 retains old ADC values
   // from before shutdown. A fresh one-shot ensures registers reflect actual state.
-  bq.getTelemetryData();
+  bq.getTelemetryData(0);  // VBAT unknown at this point, assume sufficient
 
   return true;
 }
@@ -2398,7 +2414,7 @@ float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
   for (int i = 0; i < NUM_SAMPLES; i++) {
     if (i > 0) delay(SAMPLE_DELAY_MS);
     
-    const Telemetry* bqData = bqDriverInstance->getTelemetryData();
+    const Telemetry* bqData = bqDriverInstance->getTelemetryData(0);  // TC calibration: VBAT unknown, assume sufficient
     if (!bqData) continue;
     
     float raw = bqData->batterie.temperature;

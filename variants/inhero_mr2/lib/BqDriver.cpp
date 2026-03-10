@@ -132,49 +132,90 @@ bool BqDriver::checkAndClearPgFlag() {
   return (val & 0x08);
 }
 
-/// @brief Reads all telemetry data (solar, battery, system) via ADC one-shot
+/// @brief Reads solar and temperature telemetry via BQ25798 ADC one-shot
+///
+/// BQ25798 ADC Operating Conditions (Datasheet SLUSE22, Section 9.3.16):
+///   "The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
+///    At battery only condition, if the TS_ADC channel is enabled, the ADC only
+///    works when battery voltage is higher than 3.2V, otherwise, the ADC works
+///    when the battery voltage is higher than 2.9V."
+///
+/// This means:
+///   VBUS > 3.4V              → ADC runs, all channels available
+///   VBAT >= 3.2V (no VBUS)   → ADC runs, all channels including TS
+///   VBAT 2.9-3.2V (no VBUS)  → ADC runs ONLY if TS channel is DISABLED
+///   VBAT < 2.9V (no VBUS)    → ADC cannot run at all
+///
+/// Strategy:
+///   1. If VBAT < 3.2V: disable TS channel to lower threshold to 2.9V
+///      → Solar data (VBUS/IBUS) still readable, temperature returns N/A
+///   2. If VBAT < 2.9V and no VBUS: ADC times out, all values zero/N/A
+///   3. Only channels actually used on MR2 are enabled (IBUS, VBUS, TS)
+///      — unused channels (IBAT, VBAT, VSYS, TDIE, D+, D-, VAC1, VAC2)
+///      are disabled to prevent ADC_EN from hanging on unconnected pins.
+///
+/// ADC_EN auto-clear behavior:
+///   In one-shot mode, ADC_EN resets to 0 only when ALL enabled channels
+///   have completed conversion. If any channel cannot complete (e.g. floating
+///   input), ADC_EN stays 1 indefinitely. This is why unused channels MUST
+///   be disabled via registers 0x2F/0x30.
+///
+/// @param vbat_mv Battery voltage in mV from INA228 (0 = unknown, assume sufficient)
 /// @return Pointer to internal Telemetry struct (valid until next call)
-const Telemetry* const BqDriver::getTelemetryData() {
+const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
   telemetryData = { 0 };
-  bool success = this->startADCOneShot();
+
+  // Determine if TS channel can be enabled based on VBAT
+  // See datasheet quote above: TS enabled requires VBAT >= 3.2V (battery-only)
+  bool ts_enabled = true;
+  if (vbat_mv > 0 && vbat_mv < 3200) {
+    ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
+  }
+
+  bool success = this->startADCOneShot(ts_enabled);
 
   if (!success) {
     return &telemetryData;
   }
 
   // Poll ADC_EN bit until it auto-clears (conversion complete) or timeout.
-  // BQ25798 one-shot: ADC_EN resets to 0 when all channels are converted.
-  // Typical: ~170ms (7 ch × 24ms at 15-bit). Timeout 500ms for margin.
-  // Without VBUS (no solar), ADC_EN may not auto-clear because some channels
-  // (VBUS/IBUS) cannot complete. In that case we still read the registers —
-  // channels like TS that did convert will have valid data.
-  const uint32_t ADC_TIMEOUT_MS = 500;
+  // Channels: IBUS + VBUS (+ TS if enabled) → ~48-72ms typical.
+  const uint32_t ADC_TIMEOUT_MS = 250;
   uint32_t start = millis();
+  bool conversion_done = false;
   while ((millis() - start) < ADC_TIMEOUT_MS) {
     if (!this->getADCEnabled()) {
+      conversion_done = true;
       break;
     }
     delay(10);
   }
 
-  // Force ADC off if it didn't auto-clear (e.g. no VBUS → some channels stuck)
-  if (this->getADCEnabled()) {
+  if (!conversion_done) {
     this->setADCEnabled(false);
   }
 
-  // Read all available ADC results — partially converted channels read 0,
-  // but TS (temperature) typically completes even without VBUS.
-  telemetryData.solar.voltage = getVBUS();
-  telemetryData.solar.current = getIBUS();
-  if (telemetryData.solar.current < 0) {
-    telemetryData.solar.current = 0;
+  if (conversion_done) {
+    telemetryData.solar.voltage = getVBUS();
+    telemetryData.solar.current = getIBUS();
+    if (telemetryData.solar.current < 0) {
+      telemetryData.solar.current = 0;
+    }
+    telemetryData.solar.power = ((int32_t)telemetryData.solar.voltage * telemetryData.solar.current) / 1000;
+
+    if (ts_enabled) {
+      telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
+    } else {
+      // TS disabled due to low VBAT — cannot read NTC
+      telemetryData.batterie.temperature = -888.0f;
+    }
+  } else {
+    // ADC didn't complete — VBAT < 2.9V and no VBUS, or I2C issue
+    telemetryData.batterie.temperature = -888.0f;
   }
-  telemetryData.solar.power = ((int32_t)telemetryData.solar.voltage * telemetryData.solar.current) / 1000;
+
   telemetryData.solar.mppt = getMPPTenable();
 
-  // Note: Battery voltage/current (VBAT/IBAT) are measured by INA228, not BQ25798
-  telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
-  
   return &telemetryData;
 }
 
@@ -438,14 +479,45 @@ bool BqDriver::setTsIgnore(bool ignore) {
   return true;
 }
 
-/// @brief Starts ADC one-shot conversion for all enabled channels
-/// @return true if successful
-bool BqDriver::startADCOneShot() {
+/// @brief Starts ADC one-shot conversion for selected channels
+///
+/// MR2 ADC Channel Map:
+///   Reg 0x2F (ADC_FUNCTION_DISABLE_0): bit=1 means DISABLED
+///     Bit 7: IBUS  → ENABLED  (solar current)
+///     Bit 6: IBAT  → disabled (INA228 measures battery current)
+///     Bit 5: VBUS  → ENABLED  (solar voltage)
+///     Bit 4: VBAT  → disabled (INA228 measures battery voltage)
+///     Bit 3: VSYS  → disabled (not used)
+///     Bit 2: TS    → ENABLED or disabled depending on VBAT level
+///     Bit 1: TDIE  → disabled (not used)
+///     Bit 0: reserved
+///
+///   Reg 0x30 (ADC_FUNCTION_DISABLE_1): all disabled on MR2
+///     Bit 7: D+   → disabled (AutoDPinsDetection=false, pin not connected)
+///     Bit 6: D-   → disabled (pin not connected)
+///     Bit 5: VAC2 → disabled (not routed on PCB)
+///     Bit 4: VAC1 → disabled (not routed on PCB)
+///
+/// Why only needed channels: ADC_EN only auto-clears when ALL enabled channels
+/// complete. Enabling unconnected channels (D+, D-, VAC) causes ADC_EN to hang
+/// indefinitely, requiring a timeout and forced disable.
+///
+/// @param ts_enabled true = enable TS channel (requires VBAT >= 3.2V per datasheet)
+/// @return true if I2C writes successful
+bool BqDriver::startADCOneShot(bool ts_enabled) {
   Adafruit_BusIO_Register disable_reg_0 = Adafruit_BusIO_Register(ih_i2c_dev, 0x2F);
   Adafruit_BusIO_Register disable_reg_1 = Adafruit_BusIO_Register(ih_i2c_dev, 0x30);
 
-  if (!disable_reg_0.write(0x00)) return false;
-  if (!disable_reg_1.write(0x00)) return false;
+  // Reg 0x2F bit map: IBUS(7) IBAT(6) VBUS(5) VBAT(4) VSYS(3) TS(2) TDIE(1) reserved(0)
+  // 1 = disabled, 0 = enabled
+  uint8_t disable0 = 0x5A;  // Enable IBUS(7), VBUS(5), TS(2) — disable rest
+  if (!ts_enabled) {
+    disable0 |= 0x04;       // Also disable TS(2) → 0x5E
+  }
+  if (!disable_reg_0.write(disable0)) return false;
+
+  // Reg 0x30: Disable all — D+(7), D-(6), VAC2(5), VAC1(4) not connected on MR2
+  if (!disable_reg_1.write(0xF0)) return false;
 
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
   return adc_ctrl_reg.write(0xC0);

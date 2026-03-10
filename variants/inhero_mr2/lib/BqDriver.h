@@ -189,7 +189,11 @@ public:
   bool getTsIgnore();
   bool setTsIgnore(bool ignore);
 
-  const Telemetry* const getTelemetryData();
+  /// @brief Read solar + temperature telemetry via BQ25798 ADC
+  /// @param vbat_mv Battery voltage from INA228 in mV. Used to decide if TS channel
+  ///        can be enabled (requires VBAT >= 3.2V without VBUS, per datasheet 9.3.16).
+  ///        Pass 0 if unknown (assumes sufficient voltage).
+  const Telemetry* const getTelemetryData(uint16_t vbat_mv = 0);
 
   // Charger Status
   bool getChargerStatusPowerGood();
@@ -218,7 +222,7 @@ protected:
 private:
   // In MyBQ25798 class (under NTC functions):
   // ADC Control
-  bool startADCOneShot();
+  bool startADCOneShot(bool ts_enabled = true);
 
   bool getADCEnabled();
   bool setADCEnabled(bool enabled);

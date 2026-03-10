@@ -8,6 +8,7 @@
 - [2. Coulomb Counter & SOC (Ladezustand)](#2-coulomb-counter--soc-ladezustand)
 - [3. Tägliche Energiebilanz](#3-tägliche-energiebilanz)
 - [4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung](#4-solar-energieverwaltung--interrupt-loop-vermeidung)
+  - [BQ25798 ADC bei niedrigen Batteriespannungen](#bq25798-adc-bei-niedrigen-batteriespannungen)
 - [5. Time-To-Live (TTL)-Prognose](#5-time-to-live-ttl-prognose)
 - [6. RTC-Wakeup-Management](#6-rtc-wakeup-management)
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
@@ -59,7 +60,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 |------------|----------|-----|-----|---------|
 | **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 100mΩ Shunt, 1.6A max, Coulomb Counter |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
-| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS has ~±30mA error at low currents) |
+| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-batteriespannungen)) |
 | **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Active LOW, ext. Pull-Up zu VSYS, Dual-Layer mit I2C |
 | **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
 
@@ -329,6 +330,69 @@ Interrupt Event:
 - **HIZ Toggle Cooldown**: 5 Minuten (verhindert excessive toggling)
 - **Periodic Check**: 15 Minuten (normal task run)
 - **Interrupt Response**: Sofort (weckt task)
+
+### BQ25798 ADC bei niedrigen Batteriespannungen
+
+> **Referenz:** BQ25798 Datasheet (TI SLUSE22), Section 9.3.16 — ADC
+
+#### Problem
+
+Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**, die im reinen Batteriebetrieb (ohne Solar) relevant werden. Bei niedrigen Batteriespannungen kann der ADC seine Konvertierung nicht abschließen — `ADC_EN` bleibt gesetzt und die Firmware läuft in einen Timeout.
+
+#### Datasheet-Zitat (Section 9.3.16)
+
+> *"The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
+> At battery only condition, if the TS_ADC channel is enabled, the ADC only works
+> when battery voltage is higher than 3.2V, otherwise, the ADC works when the
+> battery voltage is higher than 2.9V."*
+
+#### Betriebsszenarien
+
+| Bedingung | VBUS | VBAT | TS-Kanal | ADC | Temperatur |
+|-----------|------|------|----------|-----|------------|
+| Solar angeschlossen | > 3.4V | beliebig | aktiviert | ✅ läuft | ✅ verfügbar |
+| Batteriebetrieb, normal | — | ≥ 3.2V | aktiviert | ✅ läuft | ✅ verfügbar |
+| Batteriebetrieb, niedrig | — | 2.9–3.2V | **deaktiviert** | ✅ läuft | ❌ nicht verfügbar |
+| Batteriebetrieb, kritisch | — | < 2.9V | deaktiviert | ❌ Timeout | ❌ nicht verfügbar |
+
+#### Firmware-Lösung: VBAT-abhängige TS-Kanal-Steuerung
+
+Die Firmware liest die aktuelle Batteriespannung vom INA228 und übergibt sie an `BqDriver::getTelemetryData(vbat_mv)`:
+
+- **VBAT ≥ 3.2V** (oder unbekannt): TS-Kanal aktiviert → ADC-Schwelle 3.2V, Temperatur verfügbar
+- **VBAT < 3.2V**: TS-Kanal deaktiviert → ADC-Schwelle sinkt auf 2.9V, Temperatur als "N/A" angezeigt
+
+Dadurch funktioniert der ADC im Bereich 2.9–3.2V weiterhin für Solar-Messungen (VBUS, IBUS), auch wenn die Batterietemperatur nicht gelesen werden kann.
+
+#### ADC-Kanal-Konfiguration (nur benötigte Kanäle)
+
+Auf dem MR-2 sind D+, D−, VAC1, VAC2 nicht verbunden. Die Firmware aktiviert nur die tatsächlich genutzten Kanäle:
+
+| Register | Wert (TS ein) | Wert (TS aus) | Aktive Kanäle |
+|----------|---------------|---------------|---------------|
+| 0x2F (ADC_FUNCTION_DISABLE_0) | `0x5A` | `0x5E` | IBUS, VBUS, (TS) |
+| 0x30 (ADC_FUNCTION_DISABLE_1) | `0xF0` | `0xF0` | keine (D+/D−/VAC disabled) |
+
+**Wichtig:** Im One-Shot-Modus wird `ADC_EN` erst gelöscht, wenn **alle aktivierten Kanäle** fertig konvertiert haben. Nicht-verbundene Kanäle können dies blockieren → deshalb werden nur die benötigten Kanäle aktiviert.
+
+#### Temperatur-Sentinel-Werte
+
+Die Firmware verwendet spezielle Rückgabewerte für ungültige Temperaturen:
+
+| Wert | Bedeutung | Anzeige |
+|------|-----------|--------|
+| −999.0 | I2C-Kommunikationsfehler | N/A |
+| −888.0 | ADC nicht bereit / TS deaktiviert (niedriges VBAT) | N/A |
+| −99.0 | NTC offen/nicht angeschlossen | N/A |
+| +99.0 | NTC Kurzschluss | N/A |
+| −50…+90°C | Gültiger Messwert | XX°C |
+
+**Anzeigeregel:** Werte ≤ −100°C werden in der CLI als "N/A" angezeigt und in CayenneLPP-Paketen weggelassen.
+
+#### Code-Referenzen
+- `BqDriver::getTelemetryData(vbat_mv)` — Hauptfunktion mit VBAT-abhängiger TS-Steuerung
+- `BqDriver::startADCOneShot(ts_enabled)` — Konfiguriert ADC-Kanäle und startet Konvertierung
+- `BoardConfigContainer::getTelemetryData()` — Übergibt INA228-VBAT an BqDriver
 
 ---
 
