@@ -216,6 +216,10 @@ public:
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
 
+  // ADC status/result accessors (needed by BoardConfigContainer::readVbusInHiz)
+  bool getADCEnabled();
+  uint16_t getVBUS();
+
 protected:
   Adafruit_I2CDevice* ih_i2c_dev = nullptr; ///< Dedicated I2C device for NTC access
 
@@ -224,7 +228,6 @@ private:
   // ADC Control
   bool startADCOneShot(bool ts_enabled = true);
 
-  bool getADCEnabled();
   bool setADCEnabled(bool enabled);
 
   bool getADCRate(); // false = continuous, true = one-shot
@@ -269,7 +272,6 @@ private:
   bool setVAC1ADCDisable(bool disable);
 
   int16_t getIBUS();
-  uint16_t getVBUS();
   uint16_t getVSYS();
 
   float getTS();   // TS voltage in % of REGN

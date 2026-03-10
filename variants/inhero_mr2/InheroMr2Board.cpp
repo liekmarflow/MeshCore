@@ -604,10 +604,27 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "Err: INA228 not initialized");
     }
     return true;
+  } else if (strcmp(cmd, "panel") == 0) {
+    const char* classStr = "UNKNOWN";
+    switch (boardConfig.getPanelClass()) {
+      case PANEL_LOW_V:  classStr = "LOW_V (<9.5V)";  break;
+      case PANEL_HIGH_V: classStr = "HIGH_V (>=9.5V)"; break;
+      default: break;
+    }
+    const char* stateStr = "";
+    if (boardConfig.getPanelClass() == PANEL_HIGH_V) {
+      switch (boardConfig.getHizGateState()) {
+        case HIZ_IDLE:      stateStr = " [HIZ]";   break;
+        case HIZ_PROBING:   stateStr = " [PROBE]"; break;
+        case CHARGE_ACTIVE: stateStr = " [CHG]";   break;
+      }
+    }
+    snprintf(reply, maxlen, "%s%s", classStr, stateStr);
+    return true;
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|uvlo|leds|batcap");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|panel");
   return true;
 }
 
@@ -854,9 +871,30 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid SOC (0-100) or INA228 not ready");
     }
     return ret;
+  } else if (strncmp(setCommand, "panel ", 6) == 0) {
+    const char* val = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
+    if (strcmp(val, "auto") == 0) {
+      boardConfig.classifySolarPanel();
+      const char* cls = "UNKNOWN";
+      switch (boardConfig.getPanelClass()) {
+        case PANEL_LOW_V:  cls = "LOW_V";  break;
+        case PANEL_HIGH_V: cls = "HIGH_V"; break;
+        default: break;
+      }
+      snprintf(ret, sizeof(ret), "Panel re-detected: %s", cls);
+    } else if (strcmp(val, "6v") == 0) {
+      BoardConfigContainer::setPanelOverride(PANEL_LOW_V);
+      snprintf(ret, sizeof(ret), "Panel forced: LOW_V, PFM enabled");
+    } else if (strcmp(val, "12v") == 0) {
+      BoardConfigContainer::setPanelOverride(PANEL_HIGH_V);
+      snprintf(ret, sizeof(ret), "Panel forced: HIGH_V, HIZ gated");
+    } else {
+      snprintf(ret, sizeof(ret), "Err: panel auto|6v|12v");
+    }
+    return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc|panel");
   return ret;
 }
 

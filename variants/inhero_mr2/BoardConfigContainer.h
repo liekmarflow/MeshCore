@@ -29,7 +29,25 @@
 #include <Arduino.h>
 
 // Solar MPPT polling interval (no interrupt — pure polling)
-#define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute (test value)
+#define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute
+
+// Solar Panel Classification
+// Detected at boot via Voc measurement in HIZ mode (VBUS = open-circuit voltage).
+// Determines PFM setting and whether HIZ-Gated charging is used.
+enum SolarPanelClass : uint8_t {
+  PANEL_UNKNOWN = 0,  ///< No panel detected or not yet classified (treated as HIGH_V for safety)
+  PANEL_LOW_V   = 1,  ///< 5-9V panel (Voc < 9.5V) — PFM enabled, charger always active
+  PANEL_HIGH_V  = 2   ///< 12V+ panel (Voc >= 9.5V) — PFM disabled, HIZ-Gated charging
+};
+
+// HIZ-Gated Charging State Machine (for HIGH_V panels only)
+// Default state is HIZ (charger off) — fail-safe: no parasitic battery drain.
+// Charging is only enabled after proving the panel delivers net positive current.
+enum HizGateState : uint8_t {
+  HIZ_IDLE       = 0,  ///< Charger in HIZ (safe default). Periodically checks Voc.
+  HIZ_PROBING    = 1,  ///< Exited HIZ, verifying panel delivers net positive IBAT
+  CHARGE_ACTIVE  = 2   ///< Panel proven good — charger active, monitored via Coulomb Counter
+};
 
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
@@ -195,11 +213,27 @@ public:
   static void checkAndFixSolarLogic();
 
   /// Detect parasitic battery discharge when solar panel has voltage but no power.
-  /// When PG=1 but INA228 shows net battery discharge for several consecutive checks,
-  /// the BQ25798 is consuming more from the battery than the panel delivers.
-  /// Puts BQ into HIZ mode to disconnect solar input, retries periodically.
+  /// Only used for LOW_V panels as a safety fallback. HIGH_V panels use HIZ-Gated logic instead.
   static void checkParasiticDischarge();
-  
+
+  /// Classify the connected solar panel by measuring Voc in HIZ mode.
+  /// Sets detectedPanelClass and configures PFM accordingly.
+  /// Called at boot and when panel type might have changed (e.g. PG transition after HIZ exit).
+  static void classifySolarPanel();
+
+  /// Read VBUS voltage via BQ25798 ADC while in HIZ mode (= panel open-circuit voltage).
+  /// @return VBUS in mV, or 0 on failure
+  static uint16_t readVbusInHiz();
+
+  /// Get the currently detected solar panel class
+  static SolarPanelClass getPanelClass() { return detectedPanelClass; }
+
+  /// Get the current HIZ gate state (meaningful only for HIGH_V panels)
+  static HizGateState getHizGateState() { return hizGateState; }
+
+  /// Force panel class override (for CLI: auto re-detects, 6v/12v forces)
+  static void setPanelOverride(SolarPanelClass cls);
+
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
   static void socUpdateTask(void* pvParameters); ///< SOC update task (runs every minute)
@@ -337,9 +371,15 @@ private:
   // MPPT Statistics helper
   static void updateMpptStats();
 
-  // Parasitic discharge guard state
+  // Parasitic discharge guard state (LOW_V panels only)
   static bool    parasiticGuardActive;        ///< true = HIZ forced on, solar disconnected
   static uint32_t parasiticGuardActivatedAt;  ///< millis() when guard activated HIZ
+
+  // HIZ-Gated charging state (HIGH_V panels)
+  static SolarPanelClass detectedPanelClass;  ///< Detected panel type (persists across task cycles)
+  static HizGateState    hizGateState;        ///< Current state of HIZ gate machine
+  static float           chargeBaseline_mAh;  ///< INA228 CHARGE reading at start of monitoring window
+  static uint32_t        chargeBaselineTime;   ///< millis() when baseline was taken
   
   // Battery SOC helpers (v0.2)
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
