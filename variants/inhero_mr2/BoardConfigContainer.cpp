@@ -155,6 +155,8 @@ MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
+bool BoardConfigContainer::parasiticGuardActive = false;
+uint32_t BoardConfigContainer::parasiticGuardActivatedAt = 0;
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -292,6 +294,25 @@ static bool wdt_enabled = false;
 // Cooldown timer for HIZ toggles (stuck PGOOD recovery)
 static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 #define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
+
+// Parasitic discharge guard parameters
+//
+// WARNING: Small 12V solar panels (e.g. 5W/12V) are poorly suited for the BQ25798.
+// At low irradiance (sunrise, sunset, overcast) they deliver high Voc (~17V) but
+// near-zero Isc. The buck converter must step down from 17V to ~3.7V (ratio 4.6:1),
+// which has ~75% efficiency at best. The BQ25798's own quiescent current (~10-20mA
+// from VBUS in active mode) plus switching losses easily exceed the panel's output.
+// Result: net battery discharge DESPITE an active charging session.
+//
+// Recommended: Use 5-6V panels with the same area. They deliver 3x the current
+// at 1/3 the voltage, with a much smaller buck ratio (~1.6:1, ~90% efficiency).
+//
+// Guard logic: PG=1 AND IBAT < 0 → parasitic discharge.
+// To avoid false triggers during BQ25798 MPPT VOC measurement (where IBAT is
+// briefly negative for ~2s every VOC_RATE interval), we re-check after 3s.
+//
+#define PARASITIC_GUARD_RETRY_MS  (5UL * 60UL * 1000UL)  // retry every 5 minutes
+#define PARASITIC_VOC_SETTLE_MS   3000                     // wait after first negative IBAT to skip VOC window
 
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
@@ -460,6 +481,87 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   }
 }
 
+/// @brief Detect and handle parasitic battery discharge from weak solar input
+/// @details When PG=1 (BQ sees sufficient VBUS voltage) but the solar panel cannot
+///          deliver enough current, the BQ25798's own quiescent consumption (~10-20mA)
+///          is drawn from the battery instead of from solar. The INA228 sees net negative
+///          battery current despite an active charging session.
+///
+///          Detection: PG=1 AND IBAT < 0 (net battery discharge despite solar input).
+///          To avoid false triggers during the BQ25798's periodic MPPT VOC measurement
+///          (which disconnects the input for ~2s, causing temporary negative IBAT),
+///          a 3s settle delay is applied before confirming.
+///
+///          Action: Force EN_HIZ=1 to fully disconnect the solar input, eliminating
+///          the BQ25798's VBUS-side quiescent current. Retry every PARASITIC_GUARD_RETRY_MS
+///          by briefly exiting HIZ and checking if the panel can now deliver net positive current.
+
+void BoardConfigContainer::checkParasiticDischarge() {
+  if (!bqDriverInstance || !ina228DriverInstance) return;
+
+  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
+  uint32_t now = millis();
+
+  // === Guard is currently ACTIVE: periodic retry ===
+  if (parasiticGuardActive) {
+    if ((now - parasiticGuardActivatedAt) < PARASITIC_GUARD_RETRY_MS) {
+      return; // Not yet time to retry
+    }
+
+    // Exit HIZ briefly to let BQ re-qualify the input
+    MESH_DEBUG_PRINTLN("Parasitic guard: retry — exiting HIZ");
+    bq.setHIZMode(false);
+    delay(500); // Allow input qualification + one switching cycle
+
+    int16_t current_ma = ina228DriverInstance->readCurrent_mA();
+    powerGood = bqDriverInstance->getChargerStatusPowerGood();
+
+    if (!powerGood || current_ma >= 0) {
+      // Panel recovered (or disappeared) — deactivate guard
+      parasiticGuardActive = false;
+      MESH_DEBUG_PRINT("Parasitic guard: resolved (IBAT=");
+      MESH_DEBUG_PRINT("%d", current_ma);
+      MESH_DEBUG_PRINT("mA, PG=");
+      MESH_DEBUG_PRINT("%d", powerGood);
+      MESH_DEBUG_PRINTLN(")");
+    } else {
+      // Still parasitic — re-enable HIZ
+      bq.setHIZMode(true);
+      parasiticGuardActivatedAt = now;
+      MESH_DEBUG_PRINT("Parasitic guard: still active (IBAT=");
+      MESH_DEBUG_PRINT("%d", current_ma);
+      MESH_DEBUG_PRINTLN("mA) — HIZ re-engaged");
+    }
+    return;
+  }
+
+  // === Guard is NOT active: monitor for parasitic discharge ===
+  if (!powerGood) return; // No solar input — nothing to guard
+
+  int16_t current_ma = ina228DriverInstance->readCurrent_mA();
+  if (current_ma >= 0) return; // Net charging — all good
+
+  // PG=1 AND IBAT<0: possible parasitic discharge.
+  // But the BQ25798 MPPT periodically disconnects the input for ~2s to measure VOC.
+  // During that window IBAT is naturally negative (system runs from battery).
+  // Wait for the VOC window to pass, then re-check.
+  delay(PARASITIC_VOC_SETTLE_MS);
+
+  // Re-read after VOC settle — if it was just a VOC measurement, IBAT is now positive
+  current_ma = ina228DriverInstance->readCurrent_mA();
+  powerGood = bqDriverInstance->getChargerStatusPowerGood();
+
+  if (!powerGood || current_ma >= 0) return; // Was transient (VOC measurement or panel recovered)
+
+  // Confirmed: PG=1 AND IBAT<0 after VOC settle — parasitic discharge
+  bq.setHIZMode(true);
+  parasiticGuardActive = true;
+  parasiticGuardActivatedAt = now;
+  MESH_DEBUG_PRINT("Parasitic guard ACTIVATED (IBAT=");
+  MESH_DEBUG_PRINT("%d", current_ma);
+  MESH_DEBUG_PRINTLN("mA) — solar disconnected via HIZ");
+}
+
 void BoardConfigContainer::solarMpptTask(void* pvParameters) {
   (void)pvParameters;
 
@@ -481,8 +583,14 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
       bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
     }
 
-    checkAndFixPgoodStuck();  // Check for stuck PGOOD
-    checkAndFixSolarLogic();  // Re-enable MPPT if needed
+    // Parasitic discharge guard takes priority: while active, skip normal solar logic
+    // to avoid HIZ conflicts (checkAndFixPgoodStuck would clear HIZ that guard set)
+    checkParasiticDischarge();
+
+    if (!parasiticGuardActive) {
+      checkAndFixPgoodStuck();  // Check for stuck PGOOD
+      checkAndFixSolarLogic();  // Re-enable MPPT if needed
+    }
 
     // Update statistics - only if MPPT enabled in config
     if (bqDriverInstance) {
@@ -778,16 +886,18 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   }
   
   // Show time since last automatic HIZ toggle (from checkAndFixPgoodStuck)
+  // Also show parasitic discharge guard state if active
+  const char* guardTag = parasiticGuardActive ? " GUARD" : "";
   if (lastHizToggleTime == 0) {
-    snprintf(buffer, bufferSize, "%s / %s HIZ:never", powerGood, statusString);
+    snprintf(buffer, bufferSize, "%s / %s HIZ:never%s", powerGood, statusString, guardTag);
   } else {
     uint32_t agoSec = (millis() - lastHizToggleTime) / 1000;
     if (agoSec < 60) {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%ds ago", powerGood, statusString, agoSec);
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%ds ago%s", powerGood, statusString, agoSec, guardTag);
     } else if (agoSec < 3600) {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%dm ago", powerGood, statusString, agoSec / 60);
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dm ago%s", powerGood, statusString, agoSec / 60, guardTag);
     } else {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%dh%dm ago", powerGood, statusString, agoSec / 3600, (agoSec % 3600) / 60);
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dh%dm ago%s", powerGood, statusString, agoSec / 3600, (agoSec % 3600) / 60, guardTag);
     }
   }
 }
@@ -1611,7 +1721,7 @@ bool BoardConfigContainer::configureBaseBQ() {
 
   bq.setVOCdelay(BQ25798_VOC_DLY_2S);
   bq.setVOCrate(BQ25798_VOC_RATE_2MIN);
-  bq.setVOCpercent(BQ25798_VOC_PCT_75);
+  bq.setVOCpercent(BQ25798_VOC_PCT_81_25); // 81.25% matches Vmp/Voc of typical crystalline Si panels (~80-83%)
   bq.setAutoDPinsDetection(false);
   bq.setMPPTenable(true);
 

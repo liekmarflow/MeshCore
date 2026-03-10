@@ -193,6 +193,12 @@ public:
   /// Implements 60-second cooldown to prevent interrupt loops between MPPT writes and BQ interrupts.
   /// Only writes to MPPT register if PowerGood is high to avoid false positives.
   static void checkAndFixSolarLogic();
+
+  /// Detect parasitic battery discharge when solar panel has voltage but no power.
+  /// When PG=1 but INA228 shows net battery discharge for several consecutive checks,
+  /// the BQ25798 is consuming more from the battery than the panel delivers.
+  /// Puts BQ into HIZ mode to disconnect solar input, retries periodically.
+  static void checkParasiticDischarge();
   
   static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
@@ -330,6 +336,10 @@ private:
   
   // MPPT Statistics helper
   static void updateMpptStats();
+
+  // Parasitic discharge guard state
+  static bool    parasiticGuardActive;        ///< true = HIZ forced on, solar disconnected
+  static uint32_t parasiticGuardActivatedAt;  ///< millis() when guard activated HIZ
   
   // Battery SOC helpers (v0.2)
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
