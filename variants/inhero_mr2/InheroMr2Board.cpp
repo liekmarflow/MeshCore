@@ -472,11 +472,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
-  } else if (strcmp(cmd, "regdump") == 0) {
-    char dumpBuffer[256];
-    boardConfig.getRegisterDump(dumpBuffer, sizeof(dumpBuffer));
-    snprintf(reply, maxlen, "%s", dumpBuffer);
-    return true;
   } else if (strcmp(cmd, "hiz") == 0 || strcmp(cmd, "togglehiz") == 0) {
     // Manual HIZ cycle to force input detection (like automatic task)
     char hizBuffer[100];
@@ -550,11 +545,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f V0:%.2f", batType, frostBehaviour,
              mpptEnabled ? "1" : "0", imax, chargeVoltage, voltage0Soc);
     return true;
-  } else if (strcmp(cmd, "ibcal") == 0) {
-    // Get current INA228 calibration factor
-    float factor = boardConfig.getIna228CalibrationFactor();
-    snprintf(reply, maxlen, "INA228 calibration: %.4f (1.0=default)", factor);
-    return true;
   } else if (strcmp(cmd, "iboffset") == 0) {
     // Get current INA228 current offset correction
     float offset = boardConfig.getIna228CurrentOffset();
@@ -620,7 +610,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|regdump|conf|ibcal|iboffset|tccal|leds|batcap|energy|panel");
+           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|iboffset|tccal|leds|batcap|energy|panel");
   return true;
 }
 
@@ -706,37 +696,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid capacity (100-100000 mAh)");
     }
     return ret;
-  } else if (strncmp(setCommand, "ibcal ", 6) == 0) {
-    // INA228 current calibration: set board.ibcal <actual_current_mA> or set board.ibcal reset
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
-
-    // Check for reset command
-    if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
-      if (boardConfig.setIna228CalibrationFactor(1.0f)) {
-        snprintf(ret, sizeof(ret), "INA228 calibration reset to 1.0000 (default)");
-      } else {
-        snprintf(ret, sizeof(ret), "Err: Failed to reset calibration");
-      }
-      return ret;
-    }
-
-    float actual_current_ma = atof(value);
-
-    // Validate reasonable current range (-2000 to +2000 mA)
-    if (actual_current_ma < -2000.0f || actual_current_ma > 2000.0f) {
-      snprintf(ret, sizeof(ret), "Err: Current out of range (-2000 to +2000 mA)");
-      return ret;
-    }
-
-    // Perform calibration and store factor
-    float new_factor = boardConfig.performIna228Calibration(actual_current_ma);
-
-    if (new_factor > 0.0f) {
-      snprintf(ret, sizeof(ret), "INA228 calibrated: factor=%.4f", new_factor);
-    } else {
-      snprintf(ret, sizeof(ret), "Err: Calibration failed (zero current?)");
-    }
-    return ret;
   } else if (strncmp(setCommand, "iboffset ", 9) == 0) {
     // INA228 current offset calibration:
     //   set board.iboffset <actual_current_mA>  → calibrate offset using reference meter
@@ -768,7 +727,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   } else if (strncmp(setCommand, "tccal", 5) == 0) {
     // NTC temperature calibration:
     //   set board.tccal          → auto-read BME280 as reference
-    //   set board.tccal <temp_C>  → manual reference value
     //   set board.tccal reset     → reset to 0.00
     const char* rest = &setCommand[5];
 
@@ -787,42 +745,13 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       return ret;
     }
 
-    float new_offset;
-
-    if (value[0] == '\0') {
-      // No argument: auto-read BME280 as reference (averages 5 samples each)
-      float bme_avg = 0.0f;
-      new_offset = boardConfig.performTcCalibration(&bme_avg);
-      if (new_offset > -900.0f) {
-        snprintf(ret, sizeof(ret), "TC auto-cal: BME=%.1f offset=%+.2f C", bme_avg, new_offset);
-      } else {
-        snprintf(ret, sizeof(ret), "Err: Auto-cal failed (BME280/NTC error?)");
-      }
+    // Auto-read BME280 as reference (averages 5 samples each)
+    float bme_avg = 0.0f;
+    float new_offset = boardConfig.performTcCalibration(&bme_avg);
+    if (new_offset > -900.0f) {
+      snprintf(ret, sizeof(ret), "TC auto-cal: BME=%.1f offset=%+.2f C", bme_avg, new_offset);
     } else {
-      // Manual reference value provided
-      float actual_temp_c = atof(value);
-
-      // Validate reasonable temperature range (-40 to +85 °C)
-      if (actual_temp_c < -40.0f || actual_temp_c > 85.0f) {
-        snprintf(ret, sizeof(ret), "Err: Temp out of range (-40 to +85 C)");
-        return ret;
-      }
-
-      new_offset = boardConfig.performTcCalibration(actual_temp_c);
-      if (new_offset > -900.0f) {
-        snprintf(ret, sizeof(ret), "TC calibrated: offset=%+.2f C", new_offset);
-      } else {
-        snprintf(ret, sizeof(ret), "Err: TC calibration failed (NTC read error?)");
-      }
-    }
-    return ret;
-  } else if (strcmp(setCommand, "bqreset") == 0) {
-    // Perform BQ25798 software reset and reload config from FS
-    bool success = boardConfig.resetBQ();
-    if (success) {
-      snprintf(ret, sizeof(ret), "BQ25798 reset done - reconfigured from FS");
-    } else {
-      snprintf(ret, sizeof(ret), "Err: BQ reset failed");
+      snprintf(ret, sizeof(ret), "Err: Auto-cal failed (BME280/NTC error?)");
     }
     return ret;
   } else if (strncmp(setCommand, "leds ", 5) == 0) {
@@ -873,7 +802,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|soc|panel");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|iboffset|tccal|leds|soc|panel");
   return ret;
 }
 

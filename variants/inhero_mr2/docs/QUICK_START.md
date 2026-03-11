@@ -68,7 +68,6 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
 - Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `get board.togglehiz` fuer eine manuelle Neuqualifikation.
-- Bei falschen Stromwerten kann `set board.ibcal <mA>` die INA228-Strommessung kalibrieren.
 - Bei konstantem Strom-Offset (z.B. INA228 zeigt immer 2mA zu viel) hilft `set board.iboffset <mA>` fuer eine Offset-Korrektur.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
@@ -164,6 +163,5 @@ get board.conf
 - `get board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
 - `get board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
 - `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
-- `get board.ibcal` - INA228-Kalibrierfaktor (1.0 = default).
 - `get board.iboffset` - INA228-Strom-Offset in mA (0.00 = default).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).

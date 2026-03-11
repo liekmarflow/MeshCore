@@ -199,10 +199,6 @@ public:
   /// Only writes to MPPT register if PowerGood is high to avoid false positives.
   static void checkAndFixSolarLogic();
 
-  /// Detect parasitic battery discharge when solar panel has voltage but no power.
-  /// Only used for LOW_V panels as a safety fallback. HIGH_V panels use HIZ-Gated logic instead.
-  static void checkParasiticDischarge();
-
   /// Classify the connected solar panel by measuring Voc in HIZ mode.
   /// Sets detectedPanelClass and configures PFM accordingly.
   /// Called at boot and when panel type might have changed (e.g. PG transition after HIZ exit).
@@ -249,7 +245,6 @@ public:
   bool begin();
 
   const Telemetry* getTelemetryData(); ///< Get combined telemetry (INA228 for VBAT/IBAT, BQ25798 for Solar)
-  bool resetBQ(); ///< Reset BQ25798 to defaults and reconfigure
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
@@ -280,11 +275,6 @@ public:
   void setLowVoltageRecovery() { lowVoltageRecovery = true; } ///< Mark as low-voltage recovery boot
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance
   
-  // INA228 Calibration methods
-  bool setIna228CalibrationFactor(float factor); ///< Store INA228 current calibration factor
-  float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
-  float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
-  
   // INA228 Current Offset Calibration
   bool setIna228CurrentOffset(float offset_mA);  ///< Store INA228 current offset in mA (persistent)
   float getIna228CurrentOffset() const;           ///< Get current INA228 offset correction
@@ -293,7 +283,6 @@ public:
   // NTC Temperature Calibration methods
   bool setTcCalOffset(float offset_c);           ///< Store temperature calibration offset in °C (persistent)
   float getTcCalOffset() const;                  ///< Get current temperature calibration offset
-  float performTcCalibration(float actual_temp_c); ///< Calibrate NTC using manual reference temp
   float performTcCalibration(float* bme_temp_out = nullptr); ///< Calibrate NTC using BME280 as auto-reference
   static float readBmeTemperature();               ///< Read BME280 temperature directly via I2C
   
@@ -314,7 +303,6 @@ public:
   // LED control methods
   bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)
   bool getLEDsEnabled() const;       ///< Get current LED enable state
-  void getRegisterDump(char* buffer, uint32_t bufferSize); ///< Raw BQ25798 register dump for debugging
 
 private:
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
@@ -335,13 +323,13 @@ private:
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
   bool configureSolarOnlyInterrupts();
+  float performTcCalibration(float actual_temp_c); ///< Internal: calibrate NTC given reference temp (called by BME auto-cal)
   static constexpr const char* PREFS_NAMESPACE = "inheromr2";
   static constexpr const char* BATTKEY = "batType";
   static constexpr const char* FROSTKEY = "frost";
   static constexpr const char* MAXCHARGECURRENTKEY = "maxChrg";
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
-  static constexpr const char* INA228_CALIB_KEY = "ina228Cal";
   static constexpr const char* INA228_OFFSET_KEY = "ina228Off";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
@@ -349,16 +337,11 @@ private:
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadBatteryCapacity(float& capacity_mah) const;
-  bool loadIna228CalibrationFactor(float& factor) const;
   bool loadIna228CurrentOffset(float& offset) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
   
   // MPPT Statistics helper
   static void updateMpptStats();
-
-  // Parasitic discharge guard state (LOW_V panels only)
-  static bool    parasiticGuardActive;        ///< true = HIZ forced on, solar disconnected
-  static uint32_t parasiticGuardActivatedAt;  ///< millis() when guard activated HIZ
 
   // HIZ-Gated charging state (HIGH_V panels)
   static SolarPanelClass detectedPanelClass;  ///< Detected panel type (persists across task cycles)

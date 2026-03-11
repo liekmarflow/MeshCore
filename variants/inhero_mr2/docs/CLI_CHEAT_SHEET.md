@@ -36,25 +36,17 @@ set board.leds off             # LEDs deaktivieren (off/0)
 
 # SOC manuell setzen (0–100%)
 set board.soc 85.0
-
-# BQ25798 Software-Reset (laedt Config neu aus FS)
-set board.bqreset
 ```
 
 ### Kalibrierung
 
 ```bash
-# INA228-Strom-Kalibrierfaktor
-set board.ibcal <mA>           # Kalibrieren mit Referenzstrom
-set board.ibcal reset          # Faktor auf 1.0 zuruecksetzen
-
 # INA228-Strom-Offset-Korrektur
 set board.iboffset <mA>        # Offset mit Referenzstrom kalibrieren
 set board.iboffset reset       # Offset auf 0.00 zuruecksetzen
 
 # NTC-Temperatur-Kalibrierung
 set board.tccal                # Auto-Kalibrierung via BME280
-set board.tccal <°C>           # Manuell mit Referenztemperatur (-40 bis +85)
 set board.tccal reset          # Offset auf 0.00 zuruecksetzen
 ```
 
@@ -92,7 +84,6 @@ get board.diag                 # Detail-Diagnose BQ25798 (kompakt: PG, HZ, MP, C
 get board.hiz                  # Manuelles Input-Qualify via HIZ-Toggle (Alias: togglehiz)
 
 # Kalibrierung
-get board.ibcal                # INA228-Kalibrierfaktor (1.0 = default)
 get board.iboffset             # INA228-Strom-Offset in mA (0.00 = default)
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 ```
@@ -117,7 +108,6 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.cinfo` | Ladegeraet-Status (Charger State + Flags) |
 | `get board.diag` | Detail-Diagnose BQ25798 (kompakt: PG, HZ, MP, CHG, VBUS, TS, VOC) |
 | `get board.hiz` | Manuelles Input-Qualify via HIZ-Toggle (Alias: `togglehiz`) |
-| `get board.ibcal` | INA228-Kalibrierfaktor (`1.0` = default) |
 | `get board.iboffset` | INA228-Strom-Offset in mA (`0.00` = default) |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
 
@@ -134,10 +124,8 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
-| `set board.bqreset` | *(kein Wert)* | BQ25798 Software-Reset + Config neu laden |
-| `set board.ibcal` | `<mA>` · `reset` | INA228-Strom kalibrieren oder zuruecksetzen |
 | `set board.iboffset` | `<mA>` · `reset` | INA228-Strom-Offset kalibrieren oder zuruecksetzen |
-| `set board.tccal` | `<°C>` · `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zuruecksetzen |
+| `set board.tccal` | `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zuruecksetzen |
 
 ---
 

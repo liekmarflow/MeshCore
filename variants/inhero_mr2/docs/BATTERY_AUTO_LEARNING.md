@@ -316,15 +316,7 @@ MESH_DEBUG_PRINTLN("Boot reason: 0x%02X", shutdown_reason);
 #### Learning ergibt 150% der erwarteten Kapazität
 **Ursache:** INA228 Kalibrationsfehler
 
-**Lösung:**
-```bash
-# Messe echten Strom mit DMM während Entladung
-# Erwarteter Strom: 100mA
-# INA228 zeigt: 150mA
-# Faktor: 100/150 = 0.667
-set board.ibcal 0.667
-board.relearn  # Re-learning mit korrigiertem Faktor
-```
+**Lösung:** Offset-Kalibrierung mit `set board.iboffset <mA>` durchführen (siehe README.md).
 
 ## Zukünftige Erweiterungen
 

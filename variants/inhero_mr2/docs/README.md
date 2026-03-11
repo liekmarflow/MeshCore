@@ -130,7 +130,6 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 > | 6V/5W | ~7V | ~150mA | 1.9:1 | ~90% | ~3mA |
 > | 12V/5W | ~17V | ~50mA | 4.6:1 | ~75% | ~12mA |
 
-- **Parasitäre-Entladungs-Guard 🆕:** Erkennt automatisch, wenn trotz PG=1 (Solar verbunden) der Akku netto entladen wird (IBAT < 0 via INA228). Zur Vermeidung von Fehlauslösungen während der BQ25798 MPPT-VOC-Messung (2s Input-Trennung alle 2min) wird nach dem ersten negativen IBAT 3s gewartet und erneut gemessen. Bei bestätigter parasitärer Entladung wird EN_HIZ=1 gesetzt (Solar getrennt), alle 5 Minuten wird geprüft ob das Panel inzwischen genug Leistung liefert.
 - **Solarstrom-Anzeige:** Der BQ25798 IBUS-ADC ist bei niedrigen Strömen ungenau (~±30mA Fehler). Daher wird der Solarstrom abgestuft angezeigt:
   - `0mA` — ADC meldet exakt 0 (kein Solarstrom)
   - `<50mA` — 1–49mA (ADC in diesem Bereich unzuverlässig)
@@ -237,10 +236,6 @@ get board.togglehiz # Force input detection via HIZ cycle 🆕
 get board.conf      # Alle Konfigurationswerte abfragen
                     # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-get board.ibcal     # INA228-Kalibrierfaktor abfragen (v0.2-Feature)
-                    # Ausgabe: INA228 calibration: <factor> (1.0=default)
-                    # Used to correct current measurement errors
-
 get board.iboffset  # INA228-Strom-Offset abfragen (v0.2-Feature)
                     # Ausgabe: INA228 offset: <+/-offset> mA (0.00=default)
                     # Korrigiert einen konstanten Offset der Strommessung
@@ -291,14 +286,6 @@ set board.batcap <capacity>    # Batteriekapazität in mAh setzen (v0.2-Feature)
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
 
-set board.ibcal <current_mA>   # INA228-Stromsensor kalibrieren (v0.2-Feature)
-                               # Range: -2000 to +2000 mA
-                               # Measures actual current, calculates correction factor
-                               # Beispiel: set board.ibcal 100.5
-                               # Ausgabe: INA228 calibrated: factor=0.9850
-                               # Oder: set board.ibcal reset
-                               # Setzt Kalibrierung auf Standardwert 1.0 zurück
-
 set board.iboffset <current_mA> # INA228-Strom-Offset kalibrieren (v0.2-Feature)
                                # Range: -2000 to +2000 mA
                                # Berechnet Offset: offset = actual - ina228_reading
@@ -308,18 +295,12 @@ set board.iboffset <current_mA> # INA228-Strom-Offset kalibrieren (v0.2-Feature)
                                # Oder: set board.iboffset reset
                                # Setzt Offset auf +0.00 mA zurück
 
-set board.tccal [<temp_C>]     # NTC-Temperatur kalibrieren (v0.2-Feature)
-                               # Drei Modi:
+set board.tccal                # NTC-Temperatur kalibrieren (v0.2-Feature)
+                               # Zwei Modi:
                                # 1) set board.tccal         → Auto-Kalibrierung via BME280
                                #    Ausgabe: TC auto-cal: BME=<temp> offset=<+/-offset> C
-                               # 2) set board.tccal <temp_C> → Manueller Referenzwert (-40 bis +85°C)
-                               #    Ausgabe: TC calibrated: offset=<+/-offset> C
-                               # 3) set board.tccal reset    → Offset auf 0.00 zurücksetzen
+                               # 2) set board.tccal reset    → Offset auf 0.00 zurücksetzen
                                #    Ausgabe: TC calibration reset to 0.00 (default)
-
-set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS neu laden
-                               # Performs software reset and reconfigures
-                               # all settings from stored preferences
 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
@@ -352,13 +333,10 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 
 ### INA228-Kalibrierung (v0.2)
 
-Die INA228-Strommessung kann zwei Arten von Fehlern aufweisen:
-- **Offset-Fehler** (additiv): Konstante Abweichung, unabhängig vom Strom
-- **Skalierungsfehler** (multiplikativ): Proportionale Abweichung, wächst mit dem Strom
+Die INA228-Strommessung kann einen **Offset-Fehler** (additiv, konstante Abweichung) aufweisen.
+Die Rev 1.0 PCB-Kelvin-Traces minimieren Skalierungsfehler, daher ist nur die Offset-Kalibrierung nötig.
 
-Für eine saubere Kalibrierung wird **zuerst der Offset** und **dann der Skalierungsfaktor** korrigiert.
-
-#### Schritt 1: Offset-Kalibrierung (iboffset)
+#### Offset-Kalibrierung (iboffset)
 
 Im Ruhezustand des Repeaters (kein USB-Kabel, kein Solar) ein Multimeter in den Batteriekreis hängen und den Ruhestrom vergleichen:
 
@@ -376,36 +354,8 @@ get board.iboffset
 # Ausgabe: INA228 offset: -1.50 mA (0.00=default)
 ```
 
-#### Schritt 2: Skalierungsfaktor-Kalibrierung (ibcal)
-
-Nun ein USB-Ladekabel anschließen und den Ladestrom auf einen bekannten Wert begrenzen:
-
-```bash
-# Ladestrom begrenzen für saubere Messung:
-set board.imax 100
-
-# Multimeter zeigt: 95 mA (Ladestrom)
-# INA228 zeigt:     93 mA (nach Offset-Korrektur)
-# → Proportionaler Fehler von ~2%
-
-# Skalierungsfaktor kalibrieren: den tatsächlichen DMM-Wert angeben
-set board.ibcal 95
-# Ausgabe: INA228 calibrated: factor=1.0215
-
-# Prüfen:
-get board.ibcal
-# Ausgabe: INA228 calibration: 1.0215 (1.0=default)
-```
-
-#### Zusammenfassung
-
-| Kalibrierung | Korrigiert | Formel | Reihenfolge |
-|---|---|---|---|
-| `iboffset` | Konstanter Nullpunktfehler | `corrected = raw + offset` | **Zuerst** |
-| `ibcal` | Proportionaler Skalierungsfehler | `corrected = raw × factor` | **Danach** |
-
-Beide Werte werden persistent gespeichert und bei jedem Boot geladen.
-Zurücksetzen mit `set board.iboffset reset` bzw. `set board.ibcal reset`.
+Der Wert wird persistent gespeichert und bei jedem Boot geladen.
+Zurücksetzen mit `set board.iboffset reset`.
 
 ## Siehe auch
 

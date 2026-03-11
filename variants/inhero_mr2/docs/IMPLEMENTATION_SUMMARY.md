@@ -819,10 +819,6 @@ board.conf      # Gesamte Konfiguration
                 # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 
-board.ibcal     # INA228 calibration factor
-                # Output: "INA228 calibration: 0.9850 (1.0=default)"
-                # Code: InheroMr2Board.cpp - getCustomGetter()
-
 board.leds      # LED enable status
                 # Output: "LEDs: ON (Heartbeat + BQ Stat)"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
@@ -833,14 +829,6 @@ board.leds      # LED enable status
 set board.batcap <mAh>      # Set battery capacity
                             # Range: 100-100000 mAh
                             # Example: set board.batcap 2200
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
-
-set board.ibcal <current>   # Calibrate INA228 current sensor
-                            # Range: -2000 to +2000 mA (actual measured current)
-                            # Example: set board.ibcal 100.5
-                            # Output: "INA228 calibrated: factor=0.9824"
-                            # Or: set board.ibcal reset
-                            # Resets calibration to default value (1.0)
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.bat <type>        # Set battery chemistry
@@ -866,8 +854,6 @@ set board.soc <percent>     # Manually set SOC percentage
                             # Range: 0-100 (INA228 must be ready)
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
-set board.bqreset           # Reset BQ25798 and reload config
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
 ```
 
 ---

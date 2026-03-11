@@ -155,8 +155,6 @@ MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
-bool BoardConfigContainer::parasiticGuardActive = false;
-uint32_t BoardConfigContainer::parasiticGuardActivatedAt = 0;
 SolarPanelClass BoardConfigContainer::detectedPanelClass = PANEL_UNKNOWN;
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
@@ -176,29 +174,11 @@ static bool wdt_enabled = false;
 static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 #define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
 
-// Parasitic discharge guard parameters
-//
-// WARNING: Small 12V solar panels (e.g. 5W/12V) are poorly suited for the BQ25798.
-// At low irradiance (sunrise, sunset, overcast) they deliver high Voc (~17V) but
-// near-zero Isc. The buck converter must step down from 17V to ~3.7V (ratio 4.6:1),
-// which has ~75% efficiency at best. The BQ25798's own quiescent current (~10-20mA
-// from VBUS in active mode) plus switching losses easily exceed the panel's output.
-// Result: net battery discharge DESPITE an active charging session.
-//
-// Recommended: Use 5-6V panels with the same area. They deliver 3x the current
-// at 1/3 the voltage, with a much smaller buck ratio (~1.6:1, ~90% efficiency).
-//
-// Guard logic: PG=1 AND IBAT < 0 → parasitic discharge.
-// To avoid false triggers during BQ25798 MPPT VOC measurement (where IBAT is
-// briefly negative for ~2s every VOC_RATE interval), we re-check after 3s.
-//
-#define PARASITIC_GUARD_RETRY_MS  (5UL * 60UL * 1000UL)  // retry every 5 minutes
-#define PARASITIC_VOC_SETTLE_MS   3000                     // wait after first negative IBAT to skip VOC window
-
 // HIZ-Gated charging constants (HIGH_V panels only)
 #define PANEL_VOC_THRESHOLD_MV    9500   // Voc < 9.5V = LOW_V, >= 9.5V = HIGH_V
 #define HIZ_MIN_USEFUL_VOC_MV     12000  // Don't even try exiting HIZ below 12V Voc (~70% of 17V)
 #define HIZ_PROBE_SETTLE_MS       500    // Time after HIZ exit for BQ input qualification
+#define HIZ_VOC_SETTLE_MS         3000   // Wait for BQ's MPPT VOC measurement window before sampling IBAT
 #define HIZ_PROBE_IBAT_SAMPLES    3      // Number of IBAT samples for median filter
 #define HIZ_PROBE_SAMPLE_INTERVAL 1000   // ms between IBAT samples during probe
 #define HIZ_CHARGE_MONITOR_WINDOW 55000  // ~55s Coulomb Counter measurement window (< 60s task interval)
@@ -506,89 +486,6 @@ void BoardConfigContainer::setPanelOverride(SolarPanelClass cls) {
   }
 }
 
-/// @brief Detect and handle parasitic battery discharge from weak solar input
-/// @details When PG=1 (BQ sees sufficient VBUS voltage) but the solar panel cannot
-///          deliver enough current, the BQ25798's own quiescent consumption (~10-20mA)
-///          is drawn from the battery instead of from solar. The INA228 sees net negative
-///          battery current despite an active charging session.
-///
-///          Detection: PG=1 AND IBAT < 0 (net battery discharge despite solar input).
-///          To avoid false triggers during the BQ25798's periodic MPPT VOC measurement
-///          (which disconnects the input for ~2s, causing temporary negative IBAT),
-///          a 3s settle delay is applied before confirming.
-///
-///          Action: Force EN_HIZ=1 to fully disconnect the solar input, eliminating
-///          the BQ25798's VBUS-side quiescent current. Retry every PARASITIC_GUARD_RETRY_MS
-///          by briefly exiting HIZ and checking if the panel can now deliver net positive current.
-
-void BoardConfigContainer::checkParasiticDischarge() {
-  if (!bqDriverInstance || !ina228DriverInstance) return;
-
-  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
-  uint32_t now = millis();
-
-  // === Guard is currently ACTIVE: periodic retry ===
-  if (parasiticGuardActive) {
-    if ((now - parasiticGuardActivatedAt) < PARASITIC_GUARD_RETRY_MS) {
-      return; // Not yet time to retry
-    }
-
-    // Exit HIZ briefly to let BQ re-qualify the input
-    MESH_DEBUG_PRINTLN("Parasitic guard: retry — exiting HIZ");
-    bq.setHIZMode(false);
-    delay(500); // Allow input qualification + one switching cycle
-
-    int16_t current_ma = ina228DriverInstance->readCurrent_mA();
-    powerGood = bqDriverInstance->getChargerStatusPowerGood();
-
-    if (!powerGood || current_ma >= 0) {
-      // Panel recovered (or disappeared) — deactivate guard
-      parasiticGuardActive = false;
-      MESH_DEBUG_PRINT("Parasitic guard: resolved (IBAT=");
-      MESH_DEBUG_PRINT("%d", current_ma);
-      MESH_DEBUG_PRINT("mA, PG=");
-      MESH_DEBUG_PRINT("%d", powerGood);
-      MESH_DEBUG_PRINTLN(")");
-    } else {
-      // Still parasitic — re-enable HIZ (only if battery present)
-      if (canSafelyEnterHiz()) bq.setHIZMode(true);
-      else parasiticGuardActive = false;  // Can't maintain guard without battery
-      parasiticGuardActivatedAt = now;
-      MESH_DEBUG_PRINT("Parasitic guard: still active (IBAT=");
-      MESH_DEBUG_PRINT("%d", current_ma);
-      MESH_DEBUG_PRINTLN("mA) — HIZ re-engaged");
-    }
-    return;
-  }
-
-  // === Guard is NOT active: monitor for parasitic discharge ===
-  if (!powerGood) return; // No solar input — nothing to guard
-
-  int16_t current_ma = ina228DriverInstance->readCurrent_mA();
-  if (current_ma >= 0) return; // Net charging — all good
-
-  // PG=1 AND IBAT<0: possible parasitic discharge.
-  // But the BQ25798 MPPT periodically disconnects the input for ~2s to measure VOC.
-  // During that window IBAT is naturally negative (system runs from battery).
-  // Wait for the VOC window to pass, then re-check.
-  delay(PARASITIC_VOC_SETTLE_MS);
-
-  // Re-read after VOC settle — if it was just a VOC measurement, IBAT is now positive
-  current_ma = ina228DriverInstance->readCurrent_mA();
-  powerGood = bqDriverInstance->getChargerStatusPowerGood();
-
-  if (!powerGood || current_ma >= 0) return; // Was transient (VOC measurement or panel recovered)
-
-  // Confirmed: PG=1 AND IBAT<0 after VOC settle — parasitic discharge
-  if (!canSafelyEnterHiz()) return;  // Can't activate guard without battery
-  bq.setHIZMode(true);
-  parasiticGuardActive = true;
-  parasiticGuardActivatedAt = now;
-  MESH_DEBUG_PRINT("Parasitic guard ACTIVATED (IBAT=");
-  MESH_DEBUG_PRINT("%d", current_ma);
-  MESH_DEBUG_PRINTLN("mA) — solar disconnected via HIZ");
-}
-
 void BoardConfigContainer::solarMpptTask(void* pvParameters) {
   (void)pvParameters;
 
@@ -624,10 +521,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
     // === Panel-class-dependent solar management ===
     //
-    // LOW_V panels (5-9V): Traditional approach — charger always active, parasitic guard as safety net.
-    //   - High buck efficiency → parasitic drain effectively impossible
-    //   - checkAndFixPgoodStuck handles slow sunrise edge
-    //   - checkParasiticDischarge as safety fallback
+    // LOW_V panels (5-9V): Charger always active, PGOOD recovery handles edge cases.
     //
     // HIGH_V panels (12V+): HIZ-Gated approach — charger off by default, prove panel delivers first.
     //   - 75% buck efficiency + high Voc → parasitic drain at weak light is the norm
@@ -673,7 +567,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
         // PG is up — take median of 3 IBAT samples to reject single TX bursts
         // Wait 3s first to skip BQ's MPPT VOC measurement window
-        delay(PARASITIC_VOC_SETTLE_MS);
+        delay(HIZ_VOC_SETTLE_MS);
 
         int16_t samples[HIZ_PROBE_IBAT_SAMPLES];
         for (int i = 0; i < HIZ_PROBE_IBAT_SAMPLES; i++) {
@@ -756,13 +650,8 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
       // ──────────────────────────────────────────────────────────
       // LOW_V / UNKNOWN: Traditional charger-always-active approach
       // ──────────────────────────────────────────────────────────
-      // Parasitic discharge guard as safety fallback (should rarely trigger for 6V panels)
-      checkParasiticDischarge();
-
-      if (!parasiticGuardActive) {
-        checkAndFixPgoodStuck();  // Check for stuck PGOOD
-        checkAndFixSolarLogic();  // Re-enable MPPT if needed
-      }
+      checkAndFixPgoodStuck();  // Check for stuck PGOOD
+      checkAndFixSolarLogic();  // Re-enable MPPT if needed
 
       // Update statistics - only if MPPT enabled in config
       if (bqDriverInstance) {
@@ -1064,9 +953,7 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  // Show solar management state tag:
-  // HIGH_V panels: HIZ gate state (HIZ / PROBE / CHG)
-  // LOW_V panels: parasitic guard state (GUARD or empty)
+  // Show solar management state tag (HIGH_V panels only: HIZ gate state)
   const char* solarTag = "";
   if (detectedPanelClass == PANEL_HIGH_V) {
     switch (hizGateState) {
@@ -1074,8 +961,6 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
       case HIZ_PROBING:   solarTag = " PROBE";    break;
       case CHARGE_ACTIVE: solarTag = " CHG-OK";   break;
     }
-  } else {
-    solarTag = parasiticGuardActive ? " GUARD" : "";
   }
 
   if (lastHizToggleTime == 0) {
@@ -1308,69 +1193,6 @@ void BoardConfigContainer::getDetailedDiagnostics(char* buffer, uint32_t bufferS
            vbat_v, ibat_ma_int, temp_str, ts_str, reg0F, reg15, voc_pct_str, voc_dly_str, voc_rate_str);
 }
 
-/// @brief Raw BQ25798 register dump for low-level debugging
-void BoardConfigContainer::getRegisterDump(char* buffer, uint32_t bufferSize) {
-  if (!buffer || bufferSize == 0) return;
-  memset(buffer, 0, bufferSize);
-
-  if (!BQ_INITIALIZED || !bqDriverInstance) {
-    snprintf(buffer, bufferSize, "BQ not init");
-    return;
-  }
-
-  // Read VINDPM (REG05): 8-bit, offset 0mV, step 100mV → mV = reg * 100
-  uint8_t reg05 = bqDriverInstance->readReg(0x05);
-  uint16_t vindpm_mV = (uint16_t)reg05 * 100;
-
-  // Read IINDPM (REG06-07): 9-bit, step 10mA
-  uint8_t reg06 = bqDriverInstance->readReg(0x06);
-  uint8_t reg07 = bqDriverInstance->readReg(0x07);
-  uint16_t iindpm_mA = (((uint16_t)(reg06 & 0x01) << 8) | reg07) * 10;
-
-  // ICHG limit (REG03-04): 9-bit, step 10mA
-  uint8_t reg03 = bqDriverInstance->readReg(0x03);
-  uint8_t reg04 = bqDriverInstance->readReg(0x04);
-  uint16_t ichg_mA = (((uint16_t)(reg03 & 0x01) << 8) | reg04) * 10;
-
-  // Charger Control 0 (REG0F)
-  uint8_t reg0F = bqDriverInstance->readReg(0x0F);
-
-  // Charger Control 3 (REG12) - contains PFM_FWD_DIS
-  uint8_t reg12 = bqDriverInstance->readReg(0x12);
-
-  // MPPT Control (REG15)
-  uint8_t reg15 = bqDriverInstance->readReg(0x15);
-
-  // Status registers
-  uint8_t reg1B = bqDriverInstance->readReg(0x1B); // CHARGER_STATUS_0
-  uint8_t reg1C = bqDriverInstance->readReg(0x1C); // CHARGER_STATUS_1
-  uint8_t reg1D = bqDriverInstance->readReg(0x1D); // CHARGER_STATUS_2
-  uint8_t reg1E = bqDriverInstance->readReg(0x1E); // CHARGER_STATUS_3
-  uint8_t reg1F = bqDriverInstance->readReg(0x1F); // CHARGER_STATUS_4
-
-  // Flag registers (reading clears them — shows what happened since last read)
-  uint8_t reg20 = bqDriverInstance->readReg(0x20); // FAULT_STATUS_0
-  uint8_t reg21 = bqDriverInstance->readReg(0x21); // FAULT_STATUS_1
-  uint8_t reg22 = bqDriverInstance->readReg(0x22); // CHARGER_FLAG_0
-  uint8_t reg23 = bqDriverInstance->readReg(0x23); // CHARGER_FLAG_1
-  uint8_t reg24 = bqDriverInstance->readReg(0x24); // CHARGER_FLAG_2
-  uint8_t reg25 = bqDriverInstance->readReg(0x25); // CHARGER_FLAG_3
-
-  // POORSRC status from REG1D bit 5
-  bool poorsrc = (reg1D & 0x20) != 0;
-  bool vindpm_active = (reg1B & 0x40) != 0;
-  bool iindpm_active = (reg1B & 0x80) != 0;
-
-  // Compact: max ~160 chars
-  // Example: "Vi16500 Ii1000 Ic200 VD1 ID0 PS0|0F:A2 12:10 15:6B|1B-1F:08 62 00 00 04|F:00 00 00 00 00 00"
-  snprintf(buffer, bufferSize,
-    "Vi%u Ii%u Ic%u VD%d ID%d PS%d|%02X %02X %02X|%02X%02X%02X%02X%02X|%02X%02X %02X%02X%02X%02X",
-    vindpm_mV, iindpm_mA, ichg_mA, vindpm_active, iindpm_active, poorsrc,
-    reg0F, reg12, reg15,
-    reg1B, reg1C, reg1D, reg1E, reg1F,
-    reg20, reg21, reg22, reg23, reg24, reg25);
-}
-
 /// @brief Initializes battery manager, preferences, and background tasks
 /// @return true if BQ25798 initialized successfully
 bool BoardConfigContainer::begin() {
@@ -1449,15 +1271,6 @@ bool BoardConfigContainer::begin() {
         delay(150);
         digitalWrite(LED_BLUE, LOW);
         delay(100);
-      }
-      
-      // Load and apply current calibration factor (gain)
-      float calib_factor = 1.0f;
-      if (loadIna228CalibrationFactor(calib_factor)) {
-        ina228.setCalibrationFactor(calib_factor);
-        MESH_DEBUG_PRINTLN("INA228 calibration factor loaded: %.4f", calib_factor);
-      } else {
-        MESH_DEBUG_PRINTLN("INA228 using default calibration (1.0)");
       }
       
       // Load and apply current offset correction (additive)
@@ -1831,57 +1644,6 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   telemetry.batterie.power = batt_power;
 
   return &telemetry;
-}
-
-/// @brief Resets BQ25798 to default register values and reconfigures
-/// @return true if reset and reconfiguration successful
-bool BoardConfigContainer::resetBQ() {
-  if (!BQ_INITIALIZED) {
-    return false;
-  }
-  
-  MESH_DEBUG_PRINTLN("Resetting BQ25798 to defaults...");
-  
-  // Software reset via REG_RST bit - resets all registers to default
-  bool success = bq.reset();
-  if (!success) {
-    MESH_DEBUG_PRINTLN("BQ reset failed");
-    return false;
-  }
-  
-  delay(100); // Allow reset to complete
-  
-  MESH_DEBUG_PRINTLN("Reconfiguring BQ25798 from stored preferences...");
-  
-  // Reload configuration from preferences (not current values!)
-  prefs.begin(PREFS_NAMESPACE);
-  BatteryType bat;
-  FrostChargeBehaviour frost;
-  uint16_t maxChargeCurrent_mA;
-  
-  if (!loadBatType(bat)) {
-    bat = DEFAULT_BATTERY_TYPE;  // Safe: no charging until user configures
-  }
-  if (!loadFrost(frost)) {
-    frost = DEFAULT_FROST_BEHAVIOUR;  // Safe: no frost charging
-  }
-  if (!loadMaxChrgI(maxChargeCurrent_mA)) {
-    maxChargeCurrent_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
-  }
-  
-  // Apply configuration
-  configureBaseBQ();
-  configureChemistry(bat);
-  if (bat != BatteryType::LTO_2S) {
-    setFrostChargeBehaviour(frost);
-  }
-  setMaxChargeCurrent_mA(maxChargeCurrent_mA);
-  
-  // Re-enable interrupts
-  bq.configureSolarOnlyInterrupts();
-  
-  MESH_DEBUG_PRINTLN("BQ25798 reset and reconfiguration complete");
-  return true;
 }
 
 /// @brief Configures base BQ25798 settings (timers, watchdog, input limits, MPPT)
@@ -2440,90 +2202,6 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   }
   
   return false;  // Not loaded from prefs
-}
-
-/// @brief Load INA228 calibration factor from preferences
-/// @param factor Output parameter
-/// @return true if loaded successfully, false if using default
-bool BoardConfigContainer::loadIna228CalibrationFactor(float& factor) const {
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  
-  char buffer[20];
-  if (prefs.getString(INA228_CALIB_KEY, buffer, sizeof(buffer), "") > 0) {
-    if (buffer[0] != '\0') {
-      factor = atof(buffer);
-      
-      // Validate factor is in reasonable range
-      if (factor >= 0.5f && factor <= 2.0f) {
-        return true;
-      }
-    }
-  }
-  
-  // Default: no calibration
-  factor = 1.0f;
-  return false;
-}
-
-/// @brief Set INA228 calibration factor and save to preferences
-/// @param factor Calibration factor (0.5 to 2.0)
-/// @return true if saved successfully
-bool BoardConfigContainer::setIna228CalibrationFactor(float factor) {
-  // Clamp to reasonable range
-  if (factor < 0.5f) factor = 0.5f;
-  if (factor > 2.0f) factor = 2.0f;
-  
-  // Apply to INA228 driver
-  if (ina228DriverInstance) {
-    ina228DriverInstance->setCalibrationFactor(factor);
-  }
-  
-  // Save to preferences
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  
-  char buffer[20];
-  snprintf(buffer, sizeof(buffer), "%.4f", factor);
-  
-  if (prefs.putString(INA228_CALIB_KEY, buffer)) {
-    MESH_DEBUG_PRINTLN("INA228 calibration factor saved: %.4f", factor);
-    return true;
-  }
-  
-  return false;
-}
-
-/// @brief Get current INA228 calibration factor
-/// @return Current calibration factor
-float BoardConfigContainer::getIna228CalibrationFactor() const {
-  if (ina228DriverInstance) {
-    return ina228DriverInstance->getCalibrationFactor();
-  }
-  return 1.0f;  // Default if INA228 not available
-}
-
-/// @brief Perform INA228 current calibration and store result
-/// @param actual_current_ma Actual measured battery current in mA (from reference meter)
-/// @return Calculated and applied calibration factor, or 0.0 on error
-float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
-  if (!ina228DriverInstance) {
-    return 0.0f;
-  }
-  
-  // Perform calibration
-  float new_factor = ina228DriverInstance->calibrateCurrent(actual_current_ma);
-  
-  if (new_factor <= 0.0f) {
-    return 0.0f;  // Failed
-  }
-  
-  // Store persistently
-  if (!setIna228CalibrationFactor(new_factor)) {
-    return 0.0f;
-  }
-  
-  return new_factor;
 }
 
 /// @brief Get INA228 driver instance
