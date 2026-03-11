@@ -225,6 +225,9 @@ public:
   /// @return VBUS in mV, or 0 on failure
   static uint16_t readVbusInHiz();
 
+  /// Check if HIZ mode can safely be activated (requires battery to sustain VSYS)
+  static bool canSafelyEnterHiz();
+
   /// Get the currently detected solar panel class
   static SolarPanelClass getPanelClass() { return detectedPanelClass; }
 

@@ -325,6 +325,26 @@ static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 #define HIZ_CHARGE_MONITOR_WINDOW 55000  // ~55s Coulomb Counter measurement window (< 60s task interval)
 #define HIZ_CHARGE_DRAIN_THRESH   0.0f   // ΔCharge <= 0 mAh over window = parasitic drain
 
+// VSYS safety: minimum VBAT to safely enter HIZ mode.
+// Without battery (VBAT=0), the board runs on VSYS powered directly by solar.
+// Activating HIZ disconnects solar input → VSYS collapses → instant crash.
+// 2500mV is well below any usable battery voltage but safely above "no battery".
+#define MIN_VBAT_FOR_HIZ_MV       2500
+
+/// @brief Check if HIZ mode can be safely activated without losing VSYS
+/// @details Returns false when no battery is present (VBAT < MIN_VBAT_FOR_HIZ_MV),
+///          which means the system is powered solely by solar via VSYS.
+///          Activating HIZ in this state would disconnect the only power source.
+bool BoardConfigContainer::canSafelyEnterHiz() {
+  if (!ina228DriverInstance) return false;  // No INA228 → can't verify, refuse
+  uint16_t vbat = ina228DriverInstance->readVoltage_mV();
+  if (vbat < MIN_VBAT_FOR_HIZ_MV) {
+    MESH_DEBUG_PRINTLN("HIZ blocked: VBAT=%dmV < %dmV (no battery?)", vbat, MIN_VBAT_FOR_HIZ_MV);
+    return false;
+  }
+  return true;
+}
+
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
 ///          Watchdog continues running during sleep and pauses during debug.
@@ -435,6 +455,7 @@ void BoardConfigContainer::checkAndFixPgoodStuck() {
       delay(200); // Allow HIZ exit to settle
     } else {
       // EN_HIZ not set - toggle to force input re-detection
+      if (!canSafelyEnterHiz()) return;  // No battery → can't toggle HIZ
       MESH_DEBUG_PRINTLN("Toggling HIZ to force input scan");
       bq.setHIZMode(true);
       delay(250); // Give BQ time to process HIZ state
@@ -530,7 +551,28 @@ void BoardConfigContainer::classifySolarPanel() {
     return;
   }
 
-  // Ensure HIZ mode for accurate Voc measurement (no load on panel)
+  // Ensure HIZ mode for accurate Voc measurement (no load on panel).
+  // SAFETY: If no battery present (VBAT~0), VSYS is powered solely by solar.
+  // Entering HIZ would disconnect the only power source → instant crash.
+  // In that case, classify based on loaded VBUS instead of Voc.
+  if (!canSafelyEnterHiz()) {
+    // Can't enter HIZ — read loaded VBUS instead (always <= Voc)
+    uint16_t vbus_mv = readVbusInHiz();  // One-shot ADC, works without HIZ
+    if (vbus_mv >= PANEL_VOC_THRESHOLD_MV) {
+      detectedPanelClass = PANEL_LOW_V;  // Force LOW_V — cannot use HIZ-gated approach without battery
+      bq.setPFMForwardDisable(true);     // But still disable PFM (high VBUS = 12V panel)
+      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> forced LOW_V (no HIZ possible)", vbus_mv);
+    } else if (vbus_mv >= MIN_VBUS_FOR_CHARGING) {
+      detectedPanelClass = PANEL_LOW_V;
+      bq.setPFMForwardDisable(false);
+      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> LOW_V", vbus_mv);
+    } else {
+      detectedPanelClass = PANEL_UNKNOWN;
+      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> UNKNOWN", vbus_mv);
+    }
+    return;
+  }
+
   bq.setHIZMode(true);
   delay(100);  // Let VBUS settle to Voc
 
@@ -573,6 +615,12 @@ void BoardConfigContainer::setPanelOverride(SolarPanelClass cls) {
     bq.setHIZMode(false);
     bq.setPFMForwardDisable(false);
   } else if (cls == PANEL_HIGH_V) {
+    if (!canSafelyEnterHiz()) {
+      MESH_DEBUG_PRINTLN("setPanelOverride: HIGH_V blocked (no battery), staying LOW_V");
+      detectedPanelClass = PANEL_LOW_V;
+      bq.setPFMForwardDisable(true);  // Still disable PFM for 12V panel
+      return;
+    }
     hizGateState = HIZ_IDLE;
     bq.setHIZMode(true);
     bq.setPFMForwardDisable(true);
@@ -623,8 +671,9 @@ void BoardConfigContainer::checkParasiticDischarge() {
       MESH_DEBUG_PRINT("%d", powerGood);
       MESH_DEBUG_PRINTLN(")");
     } else {
-      // Still parasitic — re-enable HIZ
-      bq.setHIZMode(true);
+      // Still parasitic — re-enable HIZ (only if battery present)
+      if (canSafelyEnterHiz()) bq.setHIZMode(true);
+      else parasiticGuardActive = false;  // Can't maintain guard without battery
       parasiticGuardActivatedAt = now;
       MESH_DEBUG_PRINT("Parasitic guard: still active (IBAT=");
       MESH_DEBUG_PRINT("%d", current_ma);
@@ -652,6 +701,7 @@ void BoardConfigContainer::checkParasiticDischarge() {
   if (!powerGood || current_ma >= 0) return; // Was transient (VOC measurement or panel recovered)
 
   // Confirmed: PG=1 AND IBAT<0 after VOC settle — parasitic discharge
+  if (!canSafelyEnterHiz()) return;  // Can't activate guard without battery
   bq.setHIZMode(true);
   parasiticGuardActive = true;
   parasiticGuardActivatedAt = now;
@@ -737,7 +787,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
         bool pg = bqDriverInstance->getChargerStatusPowerGood();
         if (!pg) {
           // BQ couldn't qualify input — back to HIZ
-          bq.setHIZMode(true);
+          if (canSafelyEnterHiz()) bq.setHIZMode(true);
           MESH_DEBUG_PRINTLN("HIZ_IDLE: Probe failed (!PG), back to HIZ");
           break;
         }
@@ -764,7 +814,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
         if (ibat_median < 0) {
           // Net drain despite PG — panel can't overcome BQ quiescent losses
-          bq.setHIZMode(true);
+          if (canSafelyEnterHiz()) bq.setHIZMode(true);
           MESH_DEBUG_PRINTLN("HIZ_IDLE: Probe IBAT=%dmA (drain), back to HIZ", ibat_median);
           break;
         }
@@ -791,7 +841,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
         if (!pg) {
           // Panel gone (cloud, sunset) — back to safe HIZ
-          bq.setHIZMode(true);
+          if (canSafelyEnterHiz()) bq.setHIZMode(true);
           hizGateState = HIZ_IDLE;
           MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (!PG)");
           break;
@@ -805,7 +855,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
         if (elapsed_ms >= HIZ_CHARGE_MONITOR_WINDOW) {
           if (delta_mAh <= HIZ_CHARGE_DRAIN_THRESH) {
             // Net drain or zero over full window — parasitic, back to HIZ
-            bq.setHIZMode(true);
+            if (canSafelyEnterHiz()) bq.setHIZMode(true);
             hizGateState = HIZ_IDLE;
             MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (delta=%.2fmAh/%lums, drain)",
                                delta_mAh, elapsed_ms);
