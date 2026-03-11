@@ -22,9 +22,8 @@
  * SOFTWARE.
  */
 #pragma once
-// #include "lib/SimplePreferences.h"
 #include "lib/BqDriver.h"
-#include "lib/Ina228Driver.h"  // v0.2 power monitor
+#include "lib/Ina228Driver.h"
 
 #include <Arduino.h>
 
@@ -68,7 +67,7 @@ typedef struct {
   int32_t lastPower_mW;                    ///< Last measured power for energy calculation
 } MpptStatistics;
 
-// Battery SOC Tracking (v0.2) - mAh-based using INA228 Hardware Coulomb Counter (CHARGE register)
+// Battery SOC Tracking - mAh-based using INA228 Hardware Coulomb Counter (CHARGE register)
 #define HOURLY_STATS_HOURS 168  // 7 days * 24 hours = 168 hours
 
 // Hourly battery statistics for rolling window
@@ -121,8 +120,6 @@ typedef struct {
 class BoardConfigContainer {
 
 public:
-  // static constexpr char* boardCommands[] = { "bat", "fmax", "life", "imax" };
-
   enum BatteryType : uint8_t { BAT_UNKNOWN = 0, LTO_2S = 1, LIFEPO4_1S = 2, LIION_1S = 3 };
   typedef struct {
     const char* command_string;
@@ -148,16 +145,6 @@ public:
     { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true  }, // LiFePO4: 200mV hysteresis
     { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true  }  // Li-Ion: 200mV hysteresis
   };
-
-  // Legacy constants for backward compatibility
-  static constexpr float LIION_1S_VOLTAGE = 4.1f;      // ~90-95% capacity, extended lifetime
-  static constexpr float LIFEPO4_1S_VOLTAGE = 3.5f;    // ~95% capacity, optimal for longevity
-  static constexpr float LTO_2S_VOLTAGE = 5.4f;        // 2.7V/cell, conservative for LTO
-  
-  // Nominal voltages for energy calculations (mAh → mWh conversion)
-  static constexpr float LIION_1S_NOMINAL = 3.7f;      // Li-Ion nominal voltage
-  static constexpr float LIFEPO4_1S_NOMINAL = 3.2f;    // LiFePO4 nominal voltage
-  static constexpr float LTO_2S_NOMINAL = 5.0f;        // LTO 2S nominal (2.5V/cell)
 
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
                                                        { "lifepo1s", LIFEPO4_1S },
@@ -274,7 +261,7 @@ public:
   uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
   void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
   
-  // Battery SOC & Coulomb Counter methods (v0.2) - mWh-based
+  // Battery SOC & Coulomb Counter methods
   float getStateOfCharge() const;              ///< Get current SOC in % (0-100)
   float getBatteryCapacity() const;            ///< Get battery capacity in mAh
   bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI (converts to mWh internally)
@@ -291,14 +278,14 @@ public:
 
   static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
   void setLowVoltageRecovery() { lowVoltageRecovery = true; } ///< Mark as low-voltage recovery boot
-  Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
+  Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance
   
-  // INA228 Calibration methods (v0.2)
+  // INA228 Calibration methods
   bool setIna228CalibrationFactor(float factor); ///< Store INA228 current calibration factor
   float getIna228CalibrationFactor() const;      ///< Get current INA228 calibration factor
   float performIna228Calibration(float actual_current_ma); ///< Perform calibration and store factor
   
-  // INA228 Current Offset Calibration (v0.2)
+  // INA228 Current Offset Calibration
   bool setIna228CurrentOffset(float offset_mA);  ///< Store INA228 current offset in mA (persistent)
   float getIna228CurrentOffset() const;           ///< Get current INA228 offset correction
   float performIna228OffsetCalibration(float actual_current_ma); ///< Calibrate offset and store
@@ -331,40 +318,39 @@ public:
 
 private:
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
-  static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228 (v0.2 hardware) (v0.2)
+  static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
   static TaskHandle_t socUpdateTaskHandle; ///< Handle for SOC update task (runs every minute)
   static volatile bool lowVoltageAlertFired; ///< ISR flag: INA228 ALERT fired
   static MpptStatistics mpptStats; ///< MPPT statistics data
-  static BatterySOCStats socStats; ///< Battery SOC statistics (v0.2)
+  static BatterySOCStats socStats; ///< Battery SOC statistics
   
   bool BQ_INITIALIZED = false;
-  bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
+  bool INA228_INITIALIZED = false;
   bool lowVoltageRecovery = false;  ///< Set in begin() if booting from low-voltage sleep (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
 
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
-  // configureMCP() removed - v0.1 only, MR2 doesn't have MCP4652
   bool configureSolarOnlyInterrupts();
   static constexpr const char* PREFS_NAMESPACE = "inheromr2";
   static constexpr const char* BATTKEY = "batType";
   static constexpr const char* FROSTKEY = "frost";
   static constexpr const char* MAXCHARGECURRENTKEY = "maxChrg";
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
-  static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
-  static constexpr const char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
-  static constexpr const char* INA228_OFFSET_KEY = "ina228Off";   // v0.2: INA228 current offset in mA
+  static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
+  static constexpr const char* INA228_CALIB_KEY = "ina228Cal";
+  static constexpr const char* INA228_OFFSET_KEY = "ina228Off";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
-  bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
-  bool loadIna228CalibrationFactor(float& factor) const; // v0.2
-  bool loadIna228CurrentOffset(float& offset) const; // v0.2: current offset
+  bool loadBatteryCapacity(float& capacity_mah) const;
+  bool loadIna228CalibrationFactor(float& factor) const;
+  bool loadIna228CurrentOffset(float& offset) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
   
   // MPPT Statistics helper
@@ -380,7 +366,7 @@ private:
   static float           chargeBaseline_mAh;  ///< INA228 CHARGE reading at start of monitoring window
   static uint32_t        chargeBaselineTime;   ///< millis() when baseline was taken
   
-  // Battery SOC helpers (v0.2)
+  // Battery SOC helpers
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
   static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
   static void calculateTTL();    ///< Calculate TTL from 7-day avg net deficit and remaining SOC capacity

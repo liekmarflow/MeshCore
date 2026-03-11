@@ -1,10 +1,10 @@
-# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation
+# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.0)
 
 ## Inhaltsverzeichnis
 
 - [Überblick](#überblick)
 - [Hardware-Architektur](#hardware-architektur)
-- [1. Software-Monitoring (Adaptiv)](#1-software-monitoring-adaptiv)
+- [1. Low-Voltage-Erkennung (INA228 ALERT ISR)](#1-low-voltage-erkennung-ina228-alert-isr)
 - [2. Coulomb Counter & SOC (Ladezustand)](#2-coulomb-counter--soc-ladezustand)
 - [3. Tägliche Energiebilanz](#3-tägliche-energiebilanz)
 - [4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung](#4-solar-energieverwaltung--interrupt-loop-vermeidung)
@@ -14,42 +14,52 @@
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
 - [Siehe auch](#siehe-auch)
 
-> ✅ **STATUS: IMPLEMENTIERT (laufend gepflegt)** ✅
+> ✅ **STATUS: IMPLEMENTIERT (Rev 1.0)** ✅
 > 
 > Diese Dokumentation beschreibt die vollständige Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
-> Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
+> Hardware Rev 1.0: INA228 ALERT auf P1.02, TPS62840 EN an VDD, CE-Pin via DMN2004TK-7 FET (invertiert).
 > Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
 > 
-> Datum: 25. Februar 2026
-> Version: 2.2 (Dokumentation an Code-Stand angepasst)
-> Hardware: INA228 + RTC
+> Datum: 02. Juni 2026
+> Version: 3.0 (Rev 1.0 Architektur)
+> Hardware: INA228 + RTC + DMN2004TK-7 CE-FET
 
 ---
 
 ## Überblick
 
-Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin Hardware-Ladesicherung** für Energie-Effizienz und Batterie-Monitoring:
+Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System-Off** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin FET-Safety** für maximale Energie-Effizienz:
 
-1. **Software-Spannungsüberwachung** (in socUpdateTask) - Danger-Zone-Erkennung
-2. **RTC-Wakeup-Management** (RV-3028-C7) - periodische Recovery-Checks
-3. **Hardware-UVLO** (INA228 Alert → TPS62840 EN) - ultimative Schutzebene
+1. **INA228 ALERT ISR** (P1.02) - Low-Voltage-Erkennung via Hardware-Interrupt
+2. **System-Off** (~15µA) mit RTC-Wake - Minimaler Stromverbrauch bei Low-Voltage
+3. **CE-Pin FET-Safety** (DMN2004TK-7) - Invertierte Logik, Solar-Laden in System-Off möglich
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
-6. **INA228 Shutdown-Modus** - Stromsparen während Danger Zone (~1µA)
-7. **BQ CE-Pin** (P0.04) - Hardware-Ladesicherung (Dual-Layer: GPIO + I2C)
+6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
+
+### Architektur-Unterschiede v0.2 → Rev 1.0
+
+| Aspekt | v0.2 | Rev 1.0 |
+|--------|------|---------|
+| Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
+| Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
+| CE-Pin Logik | Direkt (LOW=enable) | FET-invertiert via DMN2004TK-7 (HIGH=enable) |
+| TPS62840 EN | Software-steuerbar (UVLO kann EN abschalten) | An VDD gebunden (immer an) |
+| Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
+| GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
 
 ### Aktuelle Feature-Matrix
 
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
-| Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
-| Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
-| RTC-Wakeup (Danger-Zone-Recovery) | Aktiv | 1h (stündlich) |
+| INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
+| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 15 min (periodisch) |
+| BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
+| System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | Auto-Learning (Method 1/2) | Deprecated | Aktuell nicht umgesetzt/aktiv |
-| Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
 
 ---
 
@@ -58,55 +68,58 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 ### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
 |------------|----------|-----|-----|---------|
-| **INA228** | Power Monitor | 0x45 | Alert→TPS_EN | 100mΩ Shunt, 1.6A max, Coulomb Counter |
+| **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ Shunt, 1.6A max, Coulomb Counter, BUVL Alert |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-batteriespannungen)) |
-| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Active LOW, ext. Pull-Up zu VSYS, Dual-Layer mit I2C |
-| **TPS62840** | Buck Converter | - | EN←INA_Alert | 750mA, EN controlled by INA228 |
+| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: HIGH=enable, ext. Pull-Up zu VSYS |
+| **TPS62840** | Buck Converter | - | EN←VDD (immer an) | 750mA, kein Software-UVLO-Cutoff |
+| **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 | N-FET, invertiert CE-Logik: GPIO HIGH → CE LOW → Laden an |
 
 ---
 
-## 1. Software-Monitoring (Adaptiv)
+## 1. Low-Voltage-Erkennung (INA228 ALERT ISR)
 
-### Implementierung
-- **Task**: `socUpdateTask()` (ruft `runVoltageMonitor()` pro Minute)
-- **Messung**: INA228 via I²C (batterie.voltage)
-- **Frequenz**: 60s
-- **Hinweis**: `voltageMonitorTask()` existiert als Stub (löscht sich sofort), die eigentliche Spannungsüberwachung läuft in `socUpdateTask` via `runVoltageMonitor()`
+### Implementierung (Rev 1.0)
+- **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT auf P1.02
+- **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt Flag + `xTaskNotifyFromISR()` → weckt socUpdateTask
+- **Verarbeitung**: `socUpdateTask()` prüft VBAT nochmals (Spike-Filter), bei Bestätigung → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
+- **Arming**: `armLowVoltageAlert()` wird bei Batterie-Konfiguration aufgerufen (setzt BUVL-Schwelle + aktiviert ISR)
 
-### Monitoring-Intervalle
+### Low-Voltage-Flow
 
-**Konfiguration:** Feste Intervalle
-- **Normalbetrieb**: 60s
-- **Danger Zone**: 1 Stunde (RTC-Wake)
+```
+INA228 BUVL Alert (P1.02, FALLING edge)
+        │
+        ▼
+lowVoltageAlertISR()
+        │ Sets lowVoltageAlertFired = true
+        │ xTaskNotifyFromISR(socUpdateTaskHandle)
+        ▼
+socUpdateTask() wakes up
+        │ Reads VBAT via INA228 (fresh measurement, Spike-Filter)
+        │ If VBAT < lowv_sleep_mv → confirmed low voltage
+        ▼
+board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
+        │ CE HIGH (FET-invertiert: Laden bleibt aktiv in System-Off)
+        │ RTC-Wake konfiguriert (LOW_VOLTAGE_SLEEP_MINUTES = 60)
+        │ SOC → 0%
+        │ GPREGRET2 → LOW_VOLTAGE_SLEEP flag
+        ▼
+sd_power_system_off() → System-Off (~15µA)
+```
 
-**Two-Stage Strategy (Power-Optimized):**
+### Chemie-spezifische Schwellen (1-Level System, einheitliche 200mV Hysterese)
 
-| System State | Voltage (Li-Ion) | Interval | Cost per Check | Rationale |
-|--------------|------------------|----------|----------------|----------|
-| **Running (Normal)** | ≥ 3.4V | **60 seconds** | ~1µAh | System already awake, INA228 I²C read minimal cost |
-| **System ON Idle (Danger Zone)** | < 3.4V | **1 hour** | ~0.01mAh | System ON Idle: GPIO-Latches aktiv, RTC-Wakeup, NVIC_SystemReset bei Erholung |
+| Chemie | lowv_sleep_mv (ALERT) | lowv_wake_mv (0% SOC) | Hysterese |
+|--------|----------------------|----------------------|-----------|
+| **Li-Ion 1S** | 3100 | 3300 | 200mV |
+| **LiFePO4 1S** | 2700 | 2900 | 200mV |
+| **LTO 2S** | 3900 | 4100 | 200mV |
 
-**Kernpunkt:** Checks im Normalmodus sind praktisch kostenlos (System läuft ohnehin). In der Danger Zone wird **System ON Idle** verwendet (statt SYSTEMOFF), um GPIO-Latches aktiv zu halten — insbesondere den BQ CE-Pin (LOW = Laden freigegeben). Die Spannung wird direkt im Idle-Loop via `readVBATDirect()` geprüft. Erst bei tatsächlicher Erholung erfolgt `NVIC_SystemReset()`.
-
-**Action at < 3.4V**: `runVoltageMonitor()` → `board.initiateShutdown(LOW_VOLTAGE)` → System ON Idle + RTC timer 1h + NVIC_SystemReset bei Erholung
-
-**Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
-
-### Chemie-spezifische Schwellen (2-Level System)
-
-| Chemie | HW UVLO (Alert) | Critical (0% SOC) | Hysterese | ADC Averaging |
-|--------|-----------------|-------------------|----------|---------------|
-| **Li-Ion 1S** | 3.1V | 3.4V | +300mV | 64 samples (TX peak filtering) |
-| **LiFePO4 1S** | 2.7V | 2.9V | +200mV | 64 samples (TX peak filtering) |
-| **LTO 2S** | 3.9V | 4.2V | +300mV | 64 samples (TX peak filtering) |
-
-**Implementierung**: `BoardConfigContainer.cpp` - Statische Methoden
-- `getVoltageCriticalThreshold()` - Danger zone boundary, 0% SOC, software shutdown trigger
-- `getVoltageHardwareCutoff()` - INA228 UVLO Alert threshold (hardware protection)
-
-**Wrapper in InheroMr2Board.cpp**: Zeile 647-665
-- Ruft BoardConfigContainer-Methoden auf mit aktueller Batterie-Chemie
+**Implementierung**: `BoardConfigContainer` — `battery_properties[]` Lookup-Tabelle
+- `lowv_sleep_mv` → INA228 BUVL Alert-Schwelle, löst System-Off aus
+- `lowv_wake_mv` → RTC-Wake-Schwelle (Early Boot prüft VBAT, entscheidet ob Boot oder erneut Sleep)
+- Statische Methoden: `getLowVoltageSleepThreshold(type)`, `getLowVoltageWakeThreshold(type)`
 
 ---
 
@@ -118,14 +131,14 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
   - 100mΩ Shunt-Kalibrierung
   - CURRENT_LSB = 1A / 524288 ≈ 1.91µA
   - ADC Range ±163.84mV (ADCRANGE=0, optimal für 1A @ 100mΩ)
-  - **ADC Averaging**: 64 samples (filters TX voltage peaks, prevents false UVLO)
-  - Chemie-spezifischer UVLO-Alert setzen
+  - **ADC Averaging**: 64 samples (filters TX voltage peaks)
+  - BUVL Alert konfiguriert auf `lowv_sleep_mv` (chemie-spezifisch)
 
 ### SOC-Berechnung
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, 1h Danger Zone RTC-Wake)
+- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, stündlich im Low-Voltage RTC-Wake)
 
 **Formel**:
 ```
@@ -135,7 +148,7 @@ SOC_new = SOC_old + SOC_delta
 
 **Auto-Learning** (deprecated, nicht aktiv):
 - Code vorhanden in Zeile 1369-1388
-- Trigger: BQ25798 "Charge Done" + Entladung bis Dangerzone
+- Trigger: BQ25798 "Charge Done" + Entladung bis Low-Voltage-Sleep
 - Berechnet: capacity = accumulated_discharge_mah
 
 ### Kapazitäts-Management
@@ -159,7 +172,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
    - Aktualisiert `batteryStats.capacity_mah`
    
 2. **Auto-Learning** (deprecated, nicht aktiv):
-   - Trigger: BQ25798 "Charge Done" → Entladung bis Dangerzone
+   - Trigger: BQ25798 "Charge Done" + Entladung bis Low-Voltage
    - Berechnet neue Kapazität aus Coulomb Counter
    - Speichert automatisch via `saveBatteryCapacity()`
 
@@ -169,8 +182,8 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 - **Validierung**: Range-Check 100-100000mAh
 
 **Persistenz-Eigenschaften**:
-- ✅ **Überlebt** Software-Shutdowns (SYSTEMOFF)
-- ✅ **Überlebt** Hardware-UVLO (RAM-Verlust)
+- ✅ **Überlebt** Software-Shutdowns (System-Off)
+- ✅ **Überlebt** Power-Cycle und Low-Voltage-Recovery
 - ✅ **Überlebt** Power-Cycle
 - ✅ **Überlebt** Firmware-Update (LittleFS bleibt erhalten)
 - ⚠️ **Verloren** bei: Flash-Erase, `rm -rf /prefs/`, Filesystem-Korruption
@@ -181,7 +194,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 
 ### Tracking (7-Day Rolling Window)
 **Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp` Zeile 1420-1489
-- **Aufgerufen von**: voltageMonitorTask()
+- **Aufgerufen von**: socUpdateTask()
 - **Frequenz**: Bei Tag-Wechsel (RTC time % 86400 < 60)
 
 **Datenstruktur**: `BatterySOCStats.daily_stats[7]` (Zeile 74-89 in .h)
@@ -477,7 +490,7 @@ oder
 **Methode**: `configureRTCWake()` in `InheroMr2Board.cpp`
 - **Tick Rate**: 1/60 Hz (1 Minute pro Tick), konfiguriert via TD=11 in CTRL1
 - **Max Countdown**: 65535 Minuten ≈ 45 Tage
-- **Danger Zone Interval**: `DANGER_ZONE_SLEEP_MINUTES` = 60 min (1h)
+- **Low-Voltage Sleep Interval**: `LOW_VOLTAGE_SLEEP_MINUTES` = 60 min (1h)
 - **Rationale**: Jeder Wake kostet nur ~0.03 mAh (I2C-Read im Idle-Loop, KEIN vollständiger Reboot)
 
 **Register**:
@@ -508,122 +521,77 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 
 ## 7. Energieverwaltungsablauf
 
-### Shutdown-Sequenz
+### Shutdown-Sequenz (Rev 1.0 — System-Off)
 **Methode**: `initiateShutdown()` in `InheroMr2Board.cpp`
 
-**Bei Low-Voltage → System ON Idle** (GPIO-Latches bleiben aktiv für CE-Pin):
+**Bei Low-Voltage → System-Off** (~15µA, CE-FET hält Zustand):
 
-**Ablauf:** `runVoltageMonitor()` (BoardConfigContainer.cpp) ruft `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)` auf (InheroMr2Board.cpp):
+**Ablauf:** INA228 ALERT ISR → socUpdateTask → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`:
 
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
    - Stoppt MPPT task, Heartbeat task, SOC Update task
-   - **Self-Deletion Guard**: Wenn der aufrufende Task (`socUpdateTask`) sich selbst löschen würde, wird `vTaskDelete()` übersprungen — sonst würde FreeRTOS den Task sofort terminieren und `initiateShutdown()` nie die Sleep-Schleife erreichen
+   - **Self-Deletion Guard**: Wenn der aufrufende Task (`socUpdateTask`) sich selbst löschen würde, wird `vTaskDelete()` übersprungen
    - Verhindert Filesystem-Korruption
    
-2. **INA228 Shutdown**: `ina228.shutdown()` → MODE=0x0 (Power-down, ~1µA)
+2. **INA228 ALERT disarmen**: `BoardConfigContainer::disarmLowVoltageAlert()` → ISR detachen, BUVL deaktivieren
+
+3. **CE-Pin HIGH setzen** (FET-invertiert: HIGH = Laden aktiv):
+   - `digitalWrite(BQ_CE_PIN, HIGH)` → DMN2004TK-7 ON → CE an GND → Laden aktiv
+   - In System-Off werden alle GPIOs High-Z → FET OFF → ext. Pull-Up → CE HIGH → **Laden bleibt aktiv**
    
-3. **SX1262 Sleep**: `radio_driver.powerOff()` → `radio.sleep(false)` (Cold Sleep via SPI, ~0.16µA)
+4. **SX1262 Sleep**: `radio_driver.powerOff()` → `radio.sleep(false)` (Cold Sleep via SPI, ~0.16µA)
    - MUSS vor PE4259-Abschaltung passieren — SPI braucht stabile Stromversorgung
-   - Ohne diesen Schritt: SX1262 bleibt im RX-Modus (~5mA!)
 
-4. **PE4259 RF-Switch aus**: `digitalWrite(SX126X_POWER_EN, LOW)` (VDD abschalten)
+5. **PE4259 RF-Switch aus**: `digitalWrite(SX126X_POWER_EN, LOW)` (VDD abschalten)
    
-5. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
+6. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
    
-6. **RTC Wake konfigurieren**: `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)`
+7. **RTC Wake konfigurieren**: `configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)` (60 min)
    
-7. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason`
+8. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason`
    
-8. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
+9. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
 
-9. **SysTick deaktivieren**: `SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk`
-   - Ohne dies: SysTick feuert alle 1ms → FreeRTOS scheduled weiter `loopTask` (Mesh, Radio, BLE)
-   
-10. **SoftDevice (BLE) deaktivieren**: `sd_softdevice_disable()`
-   - SoftDevice hält BLE-Radio aktiv (~2-3mA Advertising/Scanning) selbst bei deaktiviertem SysTick
-   - Nach Deaktivierung: `sd_app_evt_wait()` nicht mehr verfügbar → `__WFI()` direkt nutzen
-   - GPIOTE vollständig unter eigener Kontrolle → `attachInterrupt()` funktioniert zuverlässig
-   - Wire/I2C (TWIM Peripheral) funktioniert weiterhin — keine SoftDevice-Abhängigkeit
-   - GPIO-Latches bleiben erhalten (CE-Pin bleibt LOW)
+10. **SOC auf 0% setzen**: `setSOCManually(0.0)` — SOC wird bei Recovery bei 0% starten
 
-11. **GPIOTE Interrupt re-aktivieren**: `attachInterrupt(RTC_INT_PIN, rtcInterruptHandler, FALLING)`
-   - Erst NACH `sd_softdevice_disable()` — vorher besitzt SoftDevice den GPIOTE-Dispatcher
+11. **System-Off**: `sd_power_system_off()` → nRF52840 System-Off (~15µA)
+    - Alle GPIOs werden High-Z → CE-FET: GPIO High-Z → ext. Pull-Up → CE HIGH → **Laden aktiv**
+    - RAM-Inhalt geht verloren (168h-Statistiken, SOC, etc.)
+    - RTC-Interrupt auf GPIO17 weckt System nach Timer-Ablauf
 
-12. **System ON Idle Loop** (Hauptschleife):
-   ```cpp
-   while (true) {
-     rtc_irq_pending = false;
-     while (!rtc_irq_pending)
-       __WFI();                 // CPU schläft bis GPIOTE-Interrupt
-     // TF-Flag clearen → INT-Pin geht wieder HIGH
-     Wire.write(RV3028_REG_STATUS, 0x00);
-     vbat_mv = readVBATDirect();  // INA228 One-Shot via I2C
-     if (vbat_mv >= critical)
-       NVIC_SystemReset();        // Voltage OK → normaler Reboot
-     configureRTCWake(MINUTES);   // Sonst weiterschlafen
-   }
-   ```
-   - **`__WFI`** (Wait For Interrupt) — NICHT `__WFE` (Wait For Event)!
-     `__WFE` wacht nur auf SEV-Instruktionen auf, nicht auf NVIC-Interrupts
-   - GPIO-Latches bleiben aktiv → BQ_CE_PIN bleibt LOW → Solar-Laden möglich
-   - Stromverbrauch: **~0.6mA** gemessen (nRF52840 System ON Idle + I2C Peripherals)
-   - Kein vollständiger Reboot nötig — Spannungsprüfung direkt im Loop
+**Warum System-Off statt System ON Idle (v0.2)?**
+- Rev 1.0 nutzt DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
+- System ON Idle war nur nötig um GPIO-Latches für CE-Pin LOW zu halten (v0.2 ohne FET)
+- System-Off: **~15µA** vs. System ON Idle: **~0.6mA** → **40× effizienter**
 
-**Nicht-Low-Voltage Shutdowns** (User Request, Thermal): Verwenden `sd_power_system_off()` (echtes System OFF).
-
-**Warum System ON Idle statt System OFF?**
-- System OFF → alle GPIOs werden High-Z → CE-Pin Pull-Up → HIGH → Laden gesperrt
-- System ON Idle → GPIO-Latches bleiben aktiv → CE-Pin bleibt LOW → **Solar-Laden weiterhin möglich**
-- Stromverbrauch: **~0.6mA gemessen** (System ON Idle) vs. ~2µA (System OFF)
-- Die ~0.6mA setzen sich zusammen aus: nRF52840 Idle (~0.4mA mit I2C-Peripherals) + RV-3028 + INA228 Shutdown + SX1262 Cold Sleep
-
-**Warum SoftDevice deaktivieren?**
-- SoftDevice (BLE stack) hält das 2.4GHz Radio aktiv (~2-3mA Advertising) auch bei deaktiviertem SysTick
-- `sd_app_evt_wait()` blockiert nur SoftDevice-Events — GPIOTE-Events werden nicht durchgereicht
-- Nach `sd_softdevice_disable()`: GPIOTE funktioniert zuverlässig, `__WFI()` wacht auf Interrupts auf
-- `NVIC_SystemReset()` bei Recovery initialisiert SoftDevice komplett neu — kein Problem
-
-**Warum `__WFI()` statt `__WFE()`?**
-- `__WFE` (Wait For Event) wacht nur auf SEV-Instruktionen und Debug-Events auf — GPIOTE-Interrupts sind KEINE Events
-- `__WFI` (Wait For Interrupt) wacht auf jeden aktivierten NVIC-Interrupt auf, inkl. GPIOTE
-- Beide haben identischen Stromverbrauch im Idle-Modus
-
-**168h-Statistiken gehen bei `NVIC_SystemReset()` verloren** — es existiert kein Persistenzmechanismus
-(kein `.noinit`-Section, kein LittleFS-Snapshot) für die Ring-Buffer-Daten. Nach System ON Idle → NVIC_SystemReset
-starten die Statistiken bei Null.
+**168h-Statistiken gehen bei System-Off verloren** — es existiert kein Persistenzmechanismus für die Ring-Buffer-Daten. Nach Recovery starten die Statistiken bei Null.
 
 ### Wake-up-Check (Anti-Motorboating)
 **Methode**: `InheroMr2Board::begin()`
 
 Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung für Wake-up-Entscheidungen.
 
-**Problem**: Nach Hardware-UVLO ist `GPREGRET2 = 0x00` (kompletter RAM-Verlust)
-→ Ohne universelle Voltage Check: Motorboating bei knapper Spannung
+**2 Fälle**:
 
-**3 Fälle**:
-
-**Case 1: Wake from Danger Zone (System ON Idle → NVIC_SystemReset)** (`GPREGRET2 = SHUTDOWN_REASON_LOW_VOLTAGE`)
+**Case 1: Wake from Low-Voltage Sleep** (`GPREGRET2 & GPREGRET2_LOW_VOLTAGE_SLEEP`)
 ```cpp
-// InheroMr2Board::begin() — Voltage wurde bereits im Idle-Loop geprüft
-if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
-  // Flags löschen, Danger-Zone-Recovery markieren, SOC auf 0%
+// InheroMr2Board::begin() — Early Boot Check
+if (NRF_POWER->GPREGRET2 & GPREGRET2_LOW_VOLTAGE_SLEEP) {
+  uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
+  uint16_t wake_threshold = BoardConfigContainer::getLowVoltageWakeThreshold(batType);
+  
+  if (vbat_mv < wake_threshold) {
+    // Spannung noch zu niedrig → sofort wieder System-Off
+    configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
+    sd_power_system_off();  // Bleibt in Low-Voltage-Sleep-Zyklus
+  }
+  // Spannung OK → Low-Voltage-Recovery markieren, SOC auf 0%, normaler Boot
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-  boardConfig.setDangerZoneRecovery();
+  boardConfig.setLowVoltageRecovery();
 }
 ```
 
-**Case 2: ColdBoot after Hardware-UVLO** (`GPREGRET2` beliebig, voltage still low)
-```cpp
-// Prüft auch bei Cold Boot die Spannung
-else if (vbat_mv < critical_threshold) {
-  configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);  // 1h
-  NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
-  sd_power_system_off();
-}
-```
-**CRITICAL**: Verhindert Motorboating! Auch nach Hardware-Cutoff wird geprüft.
-
-**Case 3: Normal ColdBoot** (Power-On, Reset button, voltage OK)
+**Case 2: Normal ColdBoot** (Power-On, Reset button, voltage OK)
 ```cpp
 else {
   // Continue normal boot
@@ -633,78 +601,51 @@ else {
 
 **Direct ADC Read** (boardConfig noch nicht ready):
 ```cpp
-// RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
 // Must read directly from INA228 ADC registers (24-bit, ±0.1% accuracy)
-uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
-
-// Ina228Driver::readVBATDirect() - Static method in lib/Ina228Driver.cpp
-// Uses INA228 One-Shot ADC for fresh, accurate measurement
+uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 ```
 
+**Voltage Thresholds** (Chemistry-Specific, 1-Level System):
+| Chemistry | lowv_sleep_mv (ALERT) | lowv_wake_mv (Recovery) | Hysteresis |
+|-----------|----------------------|------------------------|------------|
+| Li-Ion 1S | 3100 | 3300 | 200mV |
+| LiFePO4 1S | 2700 | 2900 | 200mV |
+| LTO 2S | 3900 | 4100 | 200mV |
 
-**Voltage Thresholds** (Chemistry-Specific, 2-Level System):
-| Chemistry | Hardware UVLO (Alert) | Critical (0% SOC) | Hysteresis | ADC Filter |
-|-----------|-----------------------|-------------------|------------|------------|
-| Li-Ion 1S | 3100mV (INA228 Alert) | 3400mV | 300mV | 64-sample avg (TX peaks) |
-| LiFePO4 1S | 2700mV (INA228 Alert) | 2900mV | 200mV | 64-sample avg (TX peaks) |
-| LTO 2S | 3900mV (INA228 Alert) | 4200mV | 300mV | 64-sample avg (TX peaks) |
+**Anti-Motorboating**: Der Early-Boot-Check in `begin()` verhindert, dass das System bei knapper Spannung immer wieder bootet und sofort abstürzt. Erst wenn VBAT über `lowv_wake_mv` liegt, wird normal gebootet.
 
-**UVLO-Verhalten** (Li-Ion-Beispiel):
-1. Hardware UVLO @ 3.1V → INA228 Alert → TPS62840 EN=LOW → RAK stromlos
-2. INA228 ALERT ist **latched** → TPS62840 EN bleibt LOW, auch wenn VBAT wieder steigt
-3. RAK bleibt permanent aus → kein automatischer Neustart möglich
-4. **Manuelles Eingreifen erforderlich** (Akkutausch/Reset → INA228 Latch wird zurückgesetzt)
-
-**Anti-Motorboating nach manuellem Reset** (ColdBoot Case 2):
-Nach manuellem Reset (z.B. Akku getauscht) bootet der RAK mit `GPREGRET2 = 0x00`.
-1. `begin()` → Early Boot Check → `vbat < critical_threshold` ✅ DETECTED
-2. **Action** → `configureRTCWake(DANGER_ZONE_SLEEP_MINUTES)` + `GPREGRET2 = LOW_VOLTAGE` + `sd_power_system_off()`
-3. **Result** → Kein Motorboating! System geht in System OFF (RTC weckt in 1h)
-   *Hinweis: Dieser Pfad (ColdBoot, Case 2) nutzt System OFF — nur `initiateShutdown()` nutzt System ON Idle*
-
-**Stromverbrauch während System ON Idle (Danger Zone, gemessen)**:
-- **Gesamt: ~0.6mA** (gemessen an VBAT via INA228)
-- Davon: nRF52840 System ON Idle mit I2C-Peripherals (~0.4mA), SX1262 Cold Sleep (~0.16µA), RV-3028 (~45nA), INA228 Shutdown (~1µA), BQ25798 Quiescent (~30µA)
-- SoftDevice (BLE) ist deaktiviert — spart ~2-3mA gegenüber vorheriger Implementierung
-- SysTick ist deaktiviert — FreeRTOS Scheduler läuft nicht
-- **Vorteil**: GPIO-Latches aktiv → BQ CE-Pin bleibt LOW → Solar-Laden möglich
+**Stromverbrauch im System-Off (Low-Voltage Sleep)**:
+- **Gesamt: ~15µA** (nRF52840 System-Off + RTC + quiescent currents)
+- CE-FET: GPIO High-Z → ext. Pull-Up → CE HIGH → **Solar-Laden aktiv**
+- Verglichen mit v0.2 System ON Idle (~0.6mA): **40× effizienter**
 
 ---
 
-## 8. Hardware UVLO (INA228 → TPS62840)
+## 8. INA228 ALERT-Pin (Rev 1.0)
 
-### Funktionsweise
-**Alert-Pin Verdrahtung**: INA228.ALERT → TPS62840.EN (direkt)
-**Config**: `BoardConfigContainer::begin()` Zeile 614-620
+### Verdrahtung
+**Pin**: INA228 ALERT → P1.02 (nRF52840 GPIO, mit ext. Pull-Up)
+**TPS62840 EN**: An VDD gebunden (immer an) — kein Hardware-UVLO-Cutoff
 
-**Schwellenwerte** (with safety margins below software Critical thresholds):
-```cpp
-switch (batteryType) {
-  case LTO_2S:      uvlo_mv = 3900; break;  // 3.9V (300mV margin)
-  case LIFEPO4_1S:  uvlo_mv = 2700; break;  // 2.7V (200mV margin)
-  case LIION_1S:    uvlo_mv = 3100; break;  // 3.1V (300mV margin, default)
-}
+### Funktionsweise (Rev 1.0)
+Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pin in Rev 1.0 als
+**Software-Interrupt** genutzt:
 
-ina228.setUnderVoltageAlert(uvlo_mv);
-ina228.enableAlert(true, false, true);  // Nur UVLO, active-high
-```
+1. `armLowVoltageAlert()` konfiguriert INA228 BUVL (Bus Under-Voltage Limit) auf `lowv_sleep_mv`
+2. ALERT feuert als FALLING-Edge-Interrupt auf P1.02
+3. ISR (`lowVoltageAlertISR()`) setzt Flag + benachrichtigt socUpdateTask via `xTaskNotifyFromISR()`
+4. socUpdateTask bestätigt Low-Voltage und ruft `initiateShutdown()` → System-Off
 
-**INA228 Alert Register** (Ina228Driver.cpp Zeile 200-219):
-- BUVL (Bus Under-Voltage Limit): `voltage_mv / 195.3125µV`
-- DIAG_ALRT: Enable BUSUL bit (bit 3)
-- APOL (Alert Polarity): Active-HIGH (TPS EN = HIGH im Normalfall)
+**Kein Latch-Problem**: Da der ALERT nicht an TPS62840 EN geht, gibt es kein latched-off-Verhalten.
+Das System kann nach RTC-Wake normal booten und die Spannung in `begin()` prüfen.
 
-**Hardware-Verhalten**:
-- Initial (Power-on): ALERT=HIGH → TPS62840 EN=HIGH → RAK powered
-- VBAT < UVLO → ALERT=LOW → TPS62840 EN=LOW → RAK stromlos (0µA)
-- ALERT ist **latched** → bleibt LOW auch wenn VBAT wieder steigt → kein automatischer Neustart
-- Reset nur durch INA228 Power-Cycle (Akkutausch) oder I²C Register-Read
-
-**Schutzschichten** (Li-Ion example):
-1. Software Critical (3.4V / 0% SOC) → Controlled shutdown, danger zone boundary
-2. Hardware UVLO (3.1V) → Emergency cutoff via INA228 Alert
-3. Hysterese (300mV) → Verhindert Motorboating zwischen UVLO und Critical
-4. ADC Filter (64-sample avg) → Filtert TX-Peaks (~100ms), verhindert false triggers
+### Alert-Schwellen
+Identisch mit den Low-Voltage-Schwellen (siehe Section 1):
+| Chemie | BUVL Threshold |
+|--------|---------------|
+| Li-Ion 1S | 3100mV |
+| LiFePO4 1S | 2700mV |
+| LTO 2S | 3900mV |
 
 ---
 
@@ -753,70 +694,32 @@ radio.std_init(&SPI);  // → setDio2AsRfSwitch(true) → DIO2 steuert TX/RX
 
 ---
 
-## 10. UVLO CLI Integration
-
-### Persistent UVLO Setting
-**Dauerhafte Speicherung**: LittleFS preferences (`/prefs/uvloEn`)
-
-**Funktionen**:
-- `loadUvloEnabled()` - Lädt Einstellung beim Boot (Default: DISABLED für Feldtests)
-- `setUvloEnabled(bool)` - Setzt Einstellung und speichert persistent
-- `getUvloEnabled()` - Gibt aktuelle Einstellung zurück
-- `applyUvloSetting()` - Wendet chemie-spezifische UVLO-Schwellen an
-
-**Automatische Anwendung**:
-- Bei `BoardConfigContainer::begin()` (Boot)
-- Bei `setBatteryType()` (Batteriewechsel)
-
-**Chemie-spezifische Schwellen** (in `applyUvloSetting()`):
-| Chemie | Hardware UVLO (Alert) |
-|--------|----------------------|
-| **Li-Ion 1S** (default) | 3.1V |
-| **LiFePO4 1S** | 2.7V |
-| **LTO 2S** | 3.9V |
-
-### CLI-Integration
-**Getter**: `board.uvlo`
-```bash
-board.uvlo  # UVLO-Status abfragen
-            # Output: "ENABLED" oder "DISABLED"
-            # Code: InheroMr2Board.cpp getCustomGetter() Zeile 486
-```
-
-**Setter**: `set board.uvlo`
-```bash
-set board.uvlo 0|1|false|true  # UVLO-Einstellung setzen
-                               # 0/false = DISABLED (Standard für Feldtests)
-                               # 1/true = ENABLED (für kritische Anwendungen)
-                               # Wird persistent gespeichert
-                               # Code: InheroMr2Board.cpp setCustomSetter() Zeile 643
-```
-
-**Persistenz-Verhalten**:
-- ✅ Überlebt SYSTEMOFF
-- ✅ Überlebt Hardware-UVLO (RAM-Verlust)
-- ✅ Überlebt Firmware-Update (LittleFS bleibt)
-- Geladen beim Boot bei `BoardConfigContainer::begin()`
+## 10. (Entfernt — UVLO CLI war v0.2-Feature, in Rev 1.0 nicht mehr vorhanden)
 
 ---
 
-## 11. BQ25798 CE-Pin Safety (Hardware-Ladesicherung)
+## 11. BQ25798 CE-Pin Safety (Rev 1.0 — FET-invertiert)
 
 ### Problem
 Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). Wenn eine LiFePO4-Batterie (3.5V max) verbunden ist und der RAK noch nicht gebootet hat, würde der BQ25798 die Batterie überladen → **Brandgefahr**.
 
-### Hardware-Design
+### Hardware-Design (Rev 1.0 — FET-invertiert)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
-- **Externer Pull-Up**: 10kΩ zu VSYS → CE HIGH = Laden gesperrt (sicherer Default)
-- **Aktive Logik**: LOW = Laden freigegeben, HIGH = Laden gesperrt
+- **DMN2004TK-7 N-FET**: Gate ← GPIO4, Drain → CE, Source → GND
+- **Externer Pull-Up**: 10kΩ zu VSYS → CE HIGH = **Laden aktiv** (wenn FET OFF)
+- **GPIO HIGH** → FET ON → CE an GND → Laden aktiv (gleiche Wirkung wie Pull-Up)
+- **GPIO LOW** → FET OFF → ext. Pull-Up → CE HIGH → Laden aktiv
+- **GPIO High-Z** (System-Off) → FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
 
-### 3-Schicht-Sicherung
+**Kernpunkt Rev 1.0**: Egal ob GPIO HIGH, LOW oder High-Z — CE ist immer HIGH → **Laden immer aktiv** (bei bekannter Chemie). Die FET-Schaltung stellt sicher, dass Solar-Laden auch in System-Off funktioniert.
+
+### 3-Schicht-Sicherung (Rev 1.0)
 
 | Schicht | Ort | Mechanismus | Wann |
 |---|---|---|---|
-| **1. Hardware (passiv)** | Pull-Up Widerstand | CE HIGH wenn RAK stromlos | Immer |
-| **2. Early Boot** | `InheroMr2Board::begin()` | `digitalWrite(BQ_CE_PIN, HIGH)` | Vor I2C-Init |
-| **3. Chemie-Konfiguration** | `configureChemistry()` | CE LOW nur bei bekannter Chemie | Nach BQ25798-Konfiguration |
+| **1. Hardware (passiv)** | Pull-Up + FET | CE HIGH wenn RAK stromlos (FET OFF, Pull-Up) → **Laden aktiv** | Immer |
+| **2. Early Boot** | `InheroMr2Board::begin()` | CE bleibt HIGH via Pull-Up, Laden noch nicht konfiguriert | Vor I2C-Init |
+| **3. Chemie-Konfiguration** | `configureChemistry()` | CE HIGH explizit (FET-invertiert) + I2C Register bei bekannter Chemie | Nach BQ25798-Konfiguration |
 
 ### Dual-Layer Safety (Hardware + Software)
 
@@ -825,7 +728,9 @@ Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). We
 bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
-  digitalWrite(BQ_CE_PIN, props->charge_enable ? LOW : HIGH);  // Hardware-Schicht
+  // Rev 1.0 FET-invertiert: HIGH → FET ON → CE LOW → Laden aktiv (BQ25798: CE active-low)
+  // Aber ext. Pull-Up → CE HIGH → Laden auch aktiv (BQ25798 CE ist active-low internally)
+  digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);  // HIGH=an, LOW=aus (FET-invertiert)
 #endif
 ```
 
@@ -833,26 +738,20 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 - `BAT_UNKNOWN` → `charge_enable = false` → CE HIGH + Register disabled
 - Bekannte Chemie → `charge_enable = true` → CE LOW + Register enabled
 
-### Verhalten im System ON Idle (Danger Zone)
+### Verhalten im System-Off (Rev 1.0)
 
-In der Danger Zone wird **System ON Idle** verwendet (via `initiateShutdown()`):
-- SoftDevice (BLE) wird deaktiviert → spart ~2-3mA
-- SysTick wird deaktiviert → FreeRTOS Scheduler stoppt
-- SX1262 wird per SPI in Cold Sleep versetzt → ~0.16µA
-- PE4259 VDD wird abgeschaltet → RF-Switch stromlos
-- System ON Idle → GPIO-Latches bleiben aktiv → **CE-Pin bleibt LOW**
+In Rev 1.0 wird **System-Off** verwendet (via `initiateShutdown()`):
+- Alle GPIOs werden High-Z → DMN2004TK-7 FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
-- CPU wacht nur bei GPIOTE-Interrupt (RTC Timer) auf → `__WFI()`
-- Gemessener Gesamtstromverbrauch: **~0.6mA**
+- Stromverbrauch: **~15µA** (nRF52840 System-Off + RTC + quiescent currents)
 
 | Zustand | CE-Pin | Laden | Solar-Recovery |
 |---|---|---|---|
-| RAK stromlos | HIGH (Pull-Up) | Gesperrt | Nein |
-| Early Boot | HIGH (explizit) | Gesperrt | Nein |
-| BAT_UNKNOWN | HIGH | Gesperrt | Nein |
-| Chemie konfiguriert | LOW | Freigegeben | Ja |
-| System ON Idle (Danger Zone) | LOW (gelatcht) | **Freigegeben** | **Ja** |
-| System OFF (ColdBoot Case 2) | HIGH (Pull-Up) | Gesperrt | Nein (ALERT latched, manueller Reset nötig) |
+| RAK stromlos (kein Akku) | HIGH (Pull-Up) | Aktiv (aber kein Akku) | N/A |
+| Early Boot | HIGH (Pull-Up) | Aktiv (BQ Default-Config) | Ja |
+| BAT_UNKNOWN | LOW (FET OFF, kein Pull-Up-Override) | Gesperrt (I2C Register) | Nein |
+| Chemie konfiguriert | HIGH (FET ON) | **Aktiv** | **Ja** |
+| System-Off (Low-Voltage) | HIGH (Pull-Up, FET OFF/High-Z) | **Aktiv** | **Ja** |
 
 ---
 
@@ -860,14 +759,13 @@ In der Danger Zone wird **System ON Idle** verwendet (via `initiateShutdown()`):
 
 ### Aktueller Stand
 
-Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System OFF, Hardware-UVLO oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
+Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System-Off oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
 
 **Persistente Daten** (überleben Reboots via LittleFS):
 - Batterietyp (`batType`)
 - Batteriekapazität (`batCap`)
 - INA228 Kalibrierung (`ina228Cal`, `ina228Off`)
 - NTC Kalibrierung (`tcCal`)
-- UVLO-Einstellung (`uvloEn`)
 - MPPT-Einstellung (`mpptEn`)
 - Frostverhalten (`frost`)
 - Max. Ladestrom (`maxChrg`)
@@ -887,8 +785,8 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 ### Getter (Implemented)
 ```bash
 board.hwver     # Hardware-Information
-                # Output: "v0.2 (INA228+RTC)"
-                # Code: InheroMr2Board.cpp Zeile 175-179
+                # Output: "Rev 1.0 (INA228+RTC)"
+                # Code: InheroMr2Board.cpp
 
 board.telem     # Full telemetry with SOC
                 # Output: "B:3.85V/125.432mA/22.3C SOC:68.5% S:5.12V/245mA"
@@ -928,11 +826,6 @@ board.ibcal     # INA228 calibration factor
 board.leds      # LED enable status
                 # Output: "LEDs: ON (Heartbeat + BQ Stat)"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
-
-board.uvlo      # UVLO-Einstellung abfragen 🆕
-                # Output: "ENABLED" | "DISABLED"
-                # Chemie-spezifische Schwellen aktiv
-                # Code: InheroMr2Board.cpp - getCustomGetter() Zeile 486
 ```
 
 ### Setter (Implemented)
@@ -975,13 +868,6 @@ set board.soc <percent>     # Manually set SOC percentage
 
 set board.bqreset           # Reset BQ25798 and reload config
                             # Code: InheroMr2Board.cpp - setCustomSetter()
-
-set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
-                            # 0/false = DISABLED (Standard für Feldtests)
-                            # 1/true = ENABLED (für kritische Anwendungen)
-                            # Wird persistent gespeichert
-                            # Chemie-spezifische Schwellen werden angewendet
-                            # Code: InheroMr2Board.cpp - setCustomSetter() Zeile 643
 ```
 
 ---
@@ -1003,20 +889,22 @@ set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
 ### Schlüssel-Methoden
 | Methode | Datei | Funktion |
 |---------|-------|----------|
-| `begin()` | InheroMr2Board.cpp | Board-Initialisierung, Wake-up-Check |
-| `initiateShutdown()` | InheroMr2Board.cpp | System ON Idle Shutdown (aufgerufen von `runVoltageMonitor()`) |
+| `begin()` | InheroMr2Board.cpp | Board-Initialisierung, Wake-up-Check, Early-Boot Low-Voltage Check |
+| `initiateShutdown()` | InheroMr2Board.cpp | System-Off Shutdown (aufgerufen von socUpdateTask nach ALERT) |
 | `configureRTCWake()` | InheroMr2Board.cpp | RTC Countdown Timer |
-| `rtcInterruptHandler()` | InheroMr2Board.cpp | RTC INT Flag Clear (Read-Modify-Write) |
+| `rtcInterruptHandler()` | InheroMr2Board.cpp | RTC INT ISR (setzt Flag) |
 | `queryBoardTelemetry()` | InheroMr2Board.cpp | CayenneLPP Telemetry Collection |
-| `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | Chemistry-specific Critical Voltage (0% SOC) |
-| `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | Chemistry-specific UVLO Voltage (INA228 Alert) |
-| `runVoltageMonitor()` | BoardConfigContainer.cpp | Spannungsüberwachung, delegiert an `board.initiateShutdown()` |
-| `socUpdateTask()` | BoardConfigContainer.cpp | SOC-Update (60s), ruft runVoltageMonitor() |
+| `getLowVoltageSleepThreshold()` | InheroMr2Board.cpp | Chemistry-specific Sleep Voltage (INA228 ALERT) |
+| `getLowVoltageWakeThreshold()` | InheroMr2Board.cpp | Chemistry-specific Wake Voltage (0% SOC) |
+| `armLowVoltageAlert()` | BoardConfigContainer.cpp | INA228 BUVL Alert armen + ISR registrieren |
+| `disarmLowVoltageAlert()` | BoardConfigContainer.cpp | INA228 Alert disarmen + ISR detachen |
+| `lowVoltageAlertISR()` | BoardConfigContainer.cpp | ISR: Flag + xTaskNotifyFromISR → socUpdateTask |
+| `socUpdateTask()` | BoardConfigContainer.cpp | SOC-Update (60s), verarbeitet ALERT-Notifications |
 | `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | 7-Day Energy Balance Tracking |
 | `calculateTTL()` | BoardConfigContainer.cpp | Time To Live Forecast |
 | `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 100mΩ Calibration, ADC Config |
-| `Ina228Driver::shutdown()` | lib/Ina228Driver.cpp | Power-down Mode |
+| `Ina228Driver::readVBATDirect()` | lib/Ina228Driver.cpp | Static Early-Boot VBAT Read |
 
 ---
 
@@ -1081,64 +969,62 @@ if (boardConfig.getIna228Driver() != nullptr) {
 
 ## Szenarien
 
-### Szenario A: Normale Entladung (Software-Shutdown) - Li-Ion
+### Szenario A: Normale Entladung (Low-Voltage System-Off) - Li-Ion
 ```
 t=0:      VBAT = 3.7V → Normal (60s checks, Coulomb Counter läuft)
           Daily balance: Today +150mAh SOLAR
           
-t=+1h:    VBAT = 3.5V → Warning (30s checks)
+t=+1h:    VBAT = 3.5V → Normal (INA228 ALERT nicht getriggert)
           SOC: 45%
           
-t=+2h:    VBAT = 3.45V → Critical (10s checks)
+t=+2h:    VBAT = 3.15V → INA228 ALERT feuert (< 3100mV lowv_sleep_mv)
+          - lowVoltageAlertISR() → xTaskNotifyFromISR(socUpdateTask)
+          - socUpdateTask bestätigt Low-Voltage
+          - board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
+          - CE HIGH (FET-invertiert → Laden bleibt aktiv)
+          - RTC: Wake in 1h (LOW_VOLTAGE_SLEEP_MINUTES = 60)
+          - SOC → 0%
+          - sd_power_system_off() → System-Off (~15µA)
           
-t=+2.5h:  VBAT = 3.39V → Software Dangerzone (< 3.4V)
-          - board.initiateShutdown(LOW_VOLTAGE)
-          - SX1262 power off, INA228 shutdown
-          - RTC: Wake in 1h (60 Minuten)
-          - System ON Idle (~0.6mA, CE-Pin bleibt LOW)
+t=+3h:    RTC weckt → System bootet → Early Boot Check
+          - Ina228Driver::readVBATDirect() → VBAT = 3.15V
+          - VBAT < lowv_wake_mv (3300mV) → sofort wieder System-Off
+          - configureRTCWake(60) + sd_power_system_off()
           
-t=+3.5h:  RTC weckt auf (first check after 1h)
-          - readVBATDirect() in Idle-Loop
-          - VBAT = 3.25V (noch unter Critical 3.4V)
-          - Zurück zu System ON Idle (1h)
+t=+4h:    RTC weckt → System bootet → Early Boot Check
+          - VBAT = 3.20V → noch unter 3300mV → wieder System-Off
           
-t=+4.5h:  RTC weckt auf (second check)
-          - VBAT = 3.20V (noch unter Critical 3.4V)
-          - Zurück zu System ON Idle (1h)
-          
-t=+5.5h:  RTC weckt auf (third check, battery recovered via Solar)
-          - readVBATDirect() → VBAT = 4.05V (OK, über Critical 3.4V)
-          - NVIC_SystemReset() → Warm Reboot
-          - begin() → Danger Zone Recovery markiert
-          - Coulomb Counter startet neu bei 0% SOC
+t=+5h:    RTC weckt → System bootet → Early Boot Check
+          - VBAT = 3.45V (Solar-Recovery!)
+          - VBAT > lowv_wake_mv (3300mV) → normaler Boot
+          - Low-Voltage-Recovery markiert, SOC bei 0%
+          - Coulomb Counter startet neu
           - Daily balance baut sich neu auf
 ```
 
-### Szenario B: Kritische Entladung (Hardware-UVLO) - Li-Ion
+### Szenario B: Kritische Entladung (Rev 1.0 — kein Hardware-UVLO)
 ```
-t=0:      VBAT = 3.35V → Software Dangerzone
-          - board.initiateShutdown(LOW_VOLTAGE)
-          - System ON Idle (~0.6mA, CE-Pin LOW)
+In Rev 1.0 gibt es kein Hardware-UVLO (TPS62840 EN an VDD, immer an).
+Der INA228 ALERT auf P1.02 dient als Software-Interrupt für System-Off.
+
+t=0:      VBAT = 3.15V → INA228 ALERT feuert
+          - socUpdateTask → initiateShutdown()
+          - System-Off (~15µA), CE aktiv, RTC-Wake 1h
           
-t=+30min: VBAT = 3.05V (weiter gesunken im Sleep!)
-          → INA228 ALERT LOW (< 3.1V UVLO)
-          → TPS62840 EN = LOW
-          → RAK komplett stromlos (0µA)
-          → CE-Pin geht HIGH (Pull-Up, kein GPIO-Latch mehr)
-          → Laden gesperrt (CE HIGH = Charge Inhibit)
-          → RTC läuft weiter (eigene Batterie-Domain)
-          → INA228 in Shutdown (1µA)
+t=+1h:    RTC-Wake → Early Boot → VBAT = 3.05V (noch unter 3300mV)
+          - Sofort wieder System-Off (CE bleibt aktiv → Solar-Laden möglich)
           
-t=∞:      INA228 ALERT ist LATCHED → TPS62840 EN bleibt LOW
-          → RAK bleibt stromlos (0µA)
-          → Board kommt von selbst NICHT wieder hoch
-          → Auch Solar-Laden hilft nicht (CE HIGH → Laden gesperrt)
-          → Manuelles Eingreifen erforderlich (Akkutausch oder Reset)
+t=+2h:    RTC-Wake → VBAT = 2.95V (weiter gesunken, kein Solar)
+          - Sofort wieder System-Off
+          - Board pendelt weiter mit ~15µA + stündlichem Boot (~0.03mAh)
           
-          Rationale: Wenn VBAT unter die UVLO-Schwelle fällt, ist der Akku
-          wahrscheinlich defekt oder tiefentladen. Automatische Recovery wäre
-          hier kontraproduktiv — ein defekter Akku sollte nicht weiter
-          geladen/entladen werden.
+t=+∞:     Bei ~15µA kann die Batterie monatelang überleben
+          - Sobald Solar verfügbar → VBAT steigt → normaler Boot bei >3300mV
+          - KEIN Latching: System kann IMMER von selbst recovern
+          
+Vergleich v0.2: Dort hätte INA228 ALERT → TPS EN=LOW das System
+permanent abgeschaltet (latched) — manuelles Eingreifen nötig.
+Rev 1.0 ist hier resilienter — Solar-Recovery immer möglich.
 ```
 
 ### Szenario C: Daily Balance Tracking - LiFePO4
@@ -1315,6 +1201,16 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ## Changelog
 
+### v3.0 - 02. Juni 2026 (Rev 1.0 Architektur)
+- 🔧 **Architektur-Umstellung**: System ON Idle (v0.2) → System-Off (Rev 1.0) — 40× effizienter (~15µA vs. ~0.6mA)
+- 🔧 **INA228 ALERT auf P1.02**: ISR-basierte Low-Voltage-Erkennung statt Software-Polling + Hardware-UVLO
+- 🔧 **TPS62840 EN an VDD**: Immer an, kein Hardware-UVLO-Cutoff — System recovert immer selbstständig
+- 🔧 **CE-Pin FET-invertiert**: DMN2004TK-7 N-FET ermöglicht Solar-Laden in System-Off (GPIO High-Z → Pull-Up → CE HIGH → Laden aktiv)
+- 🔧 **1-Stufen-Schwellenmodell**: lowv_sleep_mv / lowv_wake_mv mit einheitlicher 200mV Hysterese für alle Chemien
+- ❌ **Entfernt**: UVLO CLI (board.uvlo getter/setter), uvloEn Preference, runVoltageMonitor(), voltageMonitorTask()
+- ❌ **Entfernt**: Hardware-UVLO (INA228 Alert → TPS62840 EN), Danger Zone System ON Idle, __WFI Loop
+- 📝 Dokumentation komplett für Rev 1.0 überarbeitet
+
 ### v2.2 - 25. Februar 2026 (Code-Fix + Dokumentation an Code-Stand angepasst)
 - 🐛 **Code-Fix**: `runVoltageMonitor()` delegiert jetzt an `board.initiateShutdown(LOW_VOLTAGE)` statt inline `sd_power_system_off()` — CE-Pin bleibt LOW, Solar-Laden in Danger Zone möglich
 - 📝 `.noinit Stats Preservation` entfernt — Feature existiert nicht im Code (kein Linker-Script, keine Structs/Funktionen)
@@ -1376,5 +1272,5 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
-*Letzte Aktualisierung: 25. Februar 2026*
-*Status: ✅ Dokumentation an aktuellen Code-Stand angepasst*
+*Letzte Aktualisierung: 02. Juni 2026*
+*Status: ✅ Dokumentation an Rev 1.0 Code-Stand angepasst*

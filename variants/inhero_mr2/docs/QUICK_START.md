@@ -1,4 +1,4 @@
-# Inhero MR2 Quick-Start (v0.2)
+# Inhero MR2 Quick-Start (Rev 1.0)
 
 Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
 
@@ -28,7 +28,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
   - set board.bat liion1s
   - oder set board.bat lifepo1s
   - oder set board.bat lto2s
-- Legt Ladeparameter und UVLO-Schwellen fest.
+- Legt Ladeparameter und Low-Voltage-Schwellen fest.
 
 ## 7) Akkukapazitaet setzen
 - Command: set board.batcap <mAh>
@@ -57,16 +57,11 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - 1 = MPPT an, 0 = MPPT aus.
 - Fuer Solar-Eingang typischerweise aktivieren.
 
-## 11) UVLO latched aktivieren/deaktivieren
-- Command: set board.uvlo <0|1|true|false>
-- 1/true = aktiv, 0/false = deaktiviert.
-- Die Einstellung ist persistent und nutzt chemie-spezifische Schwellen.
-
-## 12) LEDs aktivieren/deaktivieren
+## 11) LEDs aktivieren/deaktivieren
 - Command: set board.leds <on|off> oder set board.leds <1|0>
 - Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
 
-## 13) Akku voll laden (SOC-Sync)
+## 12) Akku voll laden (SOC-Sync)
 - Den Akku einmal komplett ueber USB aufladen, damit der SOC sauber synchronisiert.
 
 ## Zusatzhinweise (Praxis)
@@ -75,7 +70,6 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `get board.togglehiz` fuer eine manuelle Neuqualifikation.
 - Bei falschen Stromwerten kann `set board.ibcal <mA>` die INA228-Strommessung kalibrieren.
 - Bei konstantem Strom-Offset (z.B. INA228 zeigt immer 2mA zu viel) hilft `set board.iboffset <mA>` fuer eine Offset-Korrektur.
-- `get board.uvlo` zeigt, ob UVLO latched aktiv ist; fuer Feldtests ist oft DISABLED gesetzt.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
 Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
@@ -116,15 +110,15 @@ Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
 ## Spannungsschwellen je Akkuchemie
 Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 
-| Akkuchemie | Hardware-UVLO (Alert) | Kritisch (0% SOC) | Hysterese |
+| Akkuchemie | lowv_sleep_mv (System-Off) | lowv_wake_mv (0% SOC) | Hysterese |
 |---|---|---|---|
-| Li-Ion 1S | 3.1V | 3.4V | +0.3V |
-| LiFePO4 1S | 2.7V | 2.9V | +0.2V |
-| LTO 2S | 3.9V | 4.2V | +0.3V |
+| Li-Ion 1S | 3100 | 3300 | 200mV |
+| LiFePO4 1S | 2700 | 2900 | 200mV |
+| LTO 2S | 3900 | 4100 | 200mV |
 
-## Verhalten bei Danger-Zone und UVLO
-- **Danger-Zone (Critical / 0% SOC):** Die Firmware fährt SX1262 (Cold Sleep), SoftDevice (BLE) und SysTick herunter, dann geht die CPU in einen `__WFI()`-Idle-Loop. Periodische RTC-Wakes prüfen die Spannung via INA228 One-Shot. Gemessener Verbrauch: ~0.6mA. CE-Pin bleibt gelatcht → Solar-Laden läuft autonom weiter.
-- **Unter UVLO-Schwelle (latched):** Die Hardware schaltet hart ab (INA228 Alert -> TPS62840 EN). Das Board bleibt dann aus und kommt nie wieder von selbst hoch. Das ist ein reiner Akkuschutz und kein normaler Sleep-Modus.
+## Verhalten bei Low-Voltage
+- **Low-Voltage System-Off:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware setzt CE HIGH (Laden bleibt aktiv über FET-Schaltung), konfiguriert den RTC-Wake-Timer und geht in System-Off (~15µA). Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
+- **Solar-Recovery:** Im System-Off bleibt der CE-Pin über den DMN2004TK-7 FET aktiv (GPIO High-Z → ext. Pull-Up → CE HIGH → Laden an). Solar-Laden läuft autonom weiter bis die Batterie über `lowv_wake_mv` geladen ist.
 
 ## CLI-Beispiele (kompakt)
 ```bash
@@ -137,8 +131,7 @@ set board.imax 500
 set board.fmax 20%
 set board.mppt 1
 
-# UVLO und LEDs
-set board.uvlo 1
+# LEDs
 set board.leds off
 
 # Statuschecks
@@ -146,7 +139,6 @@ get board.bat
 get board.imax
 get board.fmax
 get board.mppt
-get board.uvlo
 get board.leds
 get board.batcap
 get board.telem
@@ -159,11 +151,10 @@ get board.conf
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
 - `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
-- `get board.hwver` - Hardware-Version (MR2 immer v0.2).
+- `get board.hwver` - Hardware-Version (MR2 immer Rev 1.0).
 - `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).
-- `get board.uvlo` - UVLO latched Status (ENABLED/DISABLED).
 - `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
 - `get board.batcap` - Batteriekapazität in mAh (set/default).
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).

@@ -1,10 +1,10 @@
-# Inhero MR-2 (Hardware v0.2)
+# Inhero MR-2 (Hardware Rev 1.0)
 
 ## Inhaltsverzeichnis
 
 - [Übersicht](#übersicht)
 - [Aktuelle Feature-Matrix](#aktuelle-feature-matrix)
-- [Energieverwaltungsfunktionen (v0.2)](#energieverwaltungsfunktionen-v02)
+- [Energieverwaltungsfunktionen (Rev 1.0)](#energieverwaltungsfunktionen-rev-10)
 - [Firmware-Build](#firmware-build)
 - [CLI-Befehle](#cli-befehle)
 - [Diagnose & Fehlersuche](#diagnose--fehlersuche)
@@ -14,65 +14,80 @@
 
 Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Power-Management.
 
-**Hardware-Version:** v0.2  
+**Hardware-Version:** Rev 1.0  
 **Hauptmerkmale:**
-- INA228 Power Monitor mit Coulomb Counter
+- INA228 Power Monitor mit Coulomb Counter + ALERT-Interrupt auf P1.02
 - RV-3028-C7 RTC für Wake-up Management
-- TPS62840 Buck Converter mit Hardware-UVLO
+- TPS62840 Buck Converter (EN an VDD — immer an)
 - BQ25798 Battery Charger mit MPPT
-- BQ CE-Pin (P0.04/WB_IO4) für Hardware-Ladesicherung
+- BQ CE-Pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (invertierte Logik: HIGH=Laden an)
 
 ## Aktuelle Feature-Matrix
 
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
-| Spannungsüberwachung + Danger-Zone-Shutdown | Aktiv | Produktiv im Betrieb |
-| Hardware-UVLO (INA228 Alert → TPS62840 EN) | Aktiv | Hardware-Schutz aktiv |
-| RTC-Wakeup (Danger-Zone-Recovery) | Aktiv | 1h (stündlich) |
-| BQ CE-Pin Safety (Hardware-Ladesicherung) | Aktiv | Dual-Layer: GPIO + I2C Register |
-| System ON Idle (Danger Zone) | Aktiv | SX1262 Sleep + SoftDevice off + SysTick off → ~0.6mA, CE-Pin gelatcht |
-| SOC 0% nach Danger Zone | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
+| INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
+| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 15 min (periodisch) |
+| BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
+| System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
+| SOC 0% nach Low-Voltage-Recovery | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
-| Erweiterte Auto-Learning-Reaktivierung | Geplant | Nur als zukünftige Aufgabe dokumentiert |
 
-## Energieverwaltungsfunktionen (v0.2)
+## Energieverwaltungsfunktionen (Rev 1.0)
 
-### Monitoring-Intervalle
-Die Firmware nutzt feste Intervalle:
-- **VBAT-Check**: 60s (im Normalbetrieb via socUpdateTask)
-- **RTC-Wake**: `DANGER_ZONE_SLEEP_MINUTES` = 60 (stündlich)
+### Architektur-Vergleich v0.2 → Rev 1.0
 
-### 2-stufiges Schutzsystem
-1. **Software-Spannungsüberwachung** - feste Strategie:
-   - **Normalbetrieb**: 60s Checks (System läuft bereits)
-   - **Danger Zone**: System ON Idle mit RTC-Wakeup (GPIO-Latches aktiv für CE-Pin)
-     - SX1262 → Cold Sleep via SPI (~0.16µA)
-     - PE4259 RF Switch → VDD abgeschaltet
-     - SysTick → deaktiviert (FreeRTOS Scheduler stoppt)
-     - SoftDevice (BLE) → `sd_softdevice_disable()` (~2-3mA gespart)
-     - CPU → `__WFI()` Loop (wacht nur bei GPIOTE/RTC-Interrupt auf)
-     - Gemessen: **~0.6mA** Gesamtverbrauch
-2. **Hardware-UVLO** - INA228 Alert → TPS62840 EN (absoluter Schutz auf Hardware-Ebene)
-3. **SX1262 Power Control** - RadioLib `powerOff()` vor PE4259-Abschaltung (SPI-Kommunikation braucht stabilen VDD)
-4. **BQ CE-Pin** (P0.04) - Hardware-Ladesicherung:
-   - Ext. Pull-Up → CE HIGH wenn RAK stromlos (Default: Laden gesperrt)
-   - `begin()` setzt CE explizit HIGH (Laden gesperrt bis Chemie konfiguriert)
-   - `configureChemistry()` setzt CE LOW nur bei bekannter Batterie-Chemie
-   - Dual-Layer: CE-Pin (Hardware) + `setChargeEnable()` (I2C Register)
+| Aspekt | v0.2 | Rev 1.0 |
+|--------|------|---------|
+| Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
+| Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
+| CE-Pin Logik | Direkt (LOW=enable) | FET-invertiert via DMN2004TK-7 (HIGH=enable) |
+| TPS62840 EN | Software-steuerbar (UVLO kann EN abschalten) | An VDD gebunden (immer an) |
+| Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
+| GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
 
-**Kernpunkt:** Im Danger-Zone-Modus wird **System ON Idle** statt System OFF verwendet, um die GPIO-Latches (insbesondere BQ CE-Pin) aktiv zu halten und Solar-Recovery zu ermöglichen. SX1262, SoftDevice und SysTick werden vor dem Idle-Loop deaktiviert — gemessener Verbrauch: **~0.6mA**. Die Spannung wird **direkt im Idle-Loop** via `readVBATDirect()` (INA228 One-Shot I²C) geprüft — erst bei tatsächlicher Spannungs-Erholung wird `NVIC_SystemReset()` ausgelöst. Nach einem Danger-Zone-Recovery wird der SOC auf 0% initialisiert und synchronisiert sich automatisch beim nächsten „Charging Done"-Event auf 100%.
+### Low-Voltage-Handling (Rev 1.0)
 
-### Spannungsschwellen (Li-Ion 1S)
-- **Hardware-Cutoff (UVLO):** 3.1V (INA228 Alert → TPS62840 EN, 64-Sample-Averaging filtert TX-Spitzen)
-- **Kritische Schwelle (0% SOC):** 3.4V (Danger-Zone-Grenze, Software-Shutdown)
-- **Hysterese:** 300mV verhindert Motorboating und schafft Sicherheitsreserve bei Spannungseinbrüchen
+1. **INA228 ALERT** feuert bei `lowv_sleep_mv` (Hardware-Interrupt auf P1.02)
+2. **ISR** setzt Flag + `xTaskNotifyFromISR()` → weckt socUpdateTask
+3. **socUpdateTask** prüft VBAT nochmals (Spike-Filter), bei Bestätigung:
+   - CE-Pin → HIGH (Laden an, da FET-invertiert — Solar-Laden bleibt möglich)
+   - RTC-Wake konfiguriert (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
+   - SOC auf 0% gesetzt
+   - `sd_power_system_off()` → **System-Off** (~15µA)
+4. **RTC-Wake** (stündlich) → System bootet, Early-Boot prüft VBAT:
+   - Unter `lowv_wake_mv` → sofort wieder System-Off (CE bleibt gelatcht)
+   - Über `lowv_wake_mv` → normaler Boot, SOC startet bei 0%
+
+### BQ CE-Pin (Rev 1.0 — FET-invertiert)
+- **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE an GND → Laden aktiv
+- **GPIO LOW** → FET OFF → CE floatet → ext. Pull-Up → CE HIGH → Laden gesperrt
+- **Vorteil**: In System-Off (alle GPIOs High-Z) floatet CE → ext. Pull-Up → CE HIGH → **Laden bleibt aktiv** → Solar-Recovery möglich
+- **Dual-Layer**: CE-Pin (Hardware-FET) + `setChargeEnable()` (I2C Register)
+
+### Spannungsschwellen (alle Chemien)
+
+| Chemie | lowv_sleep_mv | lowv_wake_mv | Hysterese |
+|--------|--------------|-------------|-----------|
+| Li-Ion 1S | 3100 | 3300 | 200mV |
+| LiFePO4 1S | 2700 | 2900 | 200mV |
+| LTO 2S | 3900 | 4100 | 200mV |
+
+- **lowv_sleep_mv**: INA228 ALERT-Schwelle → löst System-Off aus
+- **lowv_wake_mv**: RTC-Wake-Schwelle → Boot nur wenn VBAT darüber liegt, gleichzeitig 0% SOC-Marker
+
+### Stromverbrauch im System-Off
+- **~15µA** Gesamtverbrauch (nRF52840 System-Off + RTC + quiescent currents)
+- CE-Pin bleibt über FET-Schaltung aktiv → Solar-Laden möglich
+- Verglichen mit v0.2 System ON Idle (~0.6mA): **40× effizienter**
 
 ### Coulomb Counter & Auto-Learning (veraltet)
 - **Echtzeit-SOC-Tracking** via INA228 (±0.1% Genauigkeit)
 - **100mΩ Shunt-Widerstand** (1.6A max Strom)
+- **200mV einheitliche Hysterese** für alle Chemien (lowv_sleep_mv → lowv_wake_mv)
 - **Auto-Learning-Status:** veraltet / aktuell nicht aktiv in dieser Firmware
 
 ### SOC→Li-Ion mV Mapping (Workaround)
@@ -143,8 +158,8 @@ get board.bat       # Aktuellen Batterietyp abfragen
                     # Ausgabe: liion1s | lifepo1s | lto2s
 
 get board.hwver     # Hardware-Version abfragen
-                    # Ausgabe: v0.2 (INA228+RTC)
-                    # Hinweis: MR2 ist immer v0.2-Hardware
+                    # Ausgabe: Rev 1.0 (INA228+RTC)
+                    # Hinweis: MR2 ist immer Rev 1.0-Hardware
 
 get board.fmax      # Frost-Ladeverhalten abfragen
                     # Ausgabe: 0% | 20% | 40% | 100%
@@ -218,14 +233,6 @@ get board.togglehiz # Force input detection via HIZ cycle 🆕
                     # If HIZ=0: Set HIZ briefly, then clear → triggers input detection
                     # Always ends with HIZ=0
                     # Useful for manually triggering stuck PGOOD recovery
-
-get board.uvlo      # UVLO-Einstellung abfragen (v0.2-Feature) 🆕
-                    # Ausgabe: ENABLED | DISABLED
-                    # Zeigt die Persistente UVLO-Einstellung
-                    # Chemie-spezifische UVLO-Schwellen:
-                    # - Li-Ion 1S: 3.1V
-                    # - LiFePO4 1S: 2.7V
-                    # - LTO 2S: 3.9V
 
 get board.conf      # Alle Konfigurationswerte abfragen
                     # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
@@ -317,12 +324,6 @@ set board.bqreset              # BQ25798 zurücksetzen und Konfiguration aus FS 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
                                # Boot-LEDs (3 blaue Blinks) immer aktiv
-
-set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen (v0.2-Feature) 🆕
-                               # 0/false = DISABLED (Standard für Feldtests)
-                               # 1/true = ENABLED (für kritische Anwendungen)
-                               # Wird persistent gespeichert und bei nächstem Boot geladen
-                               # Chemie-spezifische Schwellen werden automatisch angewendet
 
 set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
                                # Bereich: 0-100

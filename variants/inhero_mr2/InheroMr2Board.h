@@ -49,7 +49,7 @@
 #define PIN_VBAT_READ                5
 #define ADC_MULTIPLIER               (3 * 1.73 * 1.187 * 1000)
 
-// Power Management Configuration (v0.2 - INA228 + RTC)
+// Power Management Configuration (INA228 + RTC)
 // Note: GPIO17 (WB_IO1) is used for RTC_INT, not available for GPS_1PPS
 #define RTC_INT_PIN                  17   // GPIO17 (WB_IO1) - RTC Interrupt from RV-3028
 #define RTC_I2C_ADDR                 0x52 // RV-3028-C7 I2C address
@@ -85,7 +85,7 @@ public:
 
   uint16_t getBattMilliVolts() override;
 
-  // Power Management Methods (v0.2 - INA228 + RTC)
+  // Power Management Methods (INA228 + RTC)
   /// @brief Initiate controlled shutdown with filesystem protection
   /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
   void initiateShutdown(uint8_t reason);

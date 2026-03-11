@@ -73,14 +73,14 @@ void InheroMr2Board::begin() {
   Wire.begin();
   delay(50); // Give I2C bus time to stabilize
 
-  // MR2 is v0.2 hardware only - no detection needed
+  // MR2 Rev 1.0 hardware — no detection needed
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.0 (INA228 ALERT + RTC + CE-FET)");
 
   // Initialize board configuration (BQ25798, INA228, etc.)
   boardConfig.begin();
 
-  // === v0.2 hardware initialization ===
-  MESH_DEBUG_PRINTLN("Initializing v0.2 features (RTC, INA228 alerts)");
+  // === Rev 1.0 hardware initialization ===
+  MESH_DEBUG_PRINTLN("Initializing Rev 1.0 features (RTC, INA228 ALERT, CE-FET)");
 
   // === CRITICAL: Configure RTC INT pin for wake-up from SYSTEMOFF ===
   // attachInterrupt() alone is NOT sufficient for SYSTEMOFF wake-up!
@@ -173,6 +173,13 @@ void InheroMr2Board::begin() {
 
       NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
       boardConfig.setLowVoltageRecovery();
+
+      // Set SOC to 0% immediately — battery was critically low,
+      // solar just charged it past the wake threshold.
+      // Must happen HERE (after setLowVoltageRecovery) because begin()
+      // needs INA228 initialized first, and the flag must be set before begin().
+      BoardConfigContainer::setSOCManually(0.0f);
+      MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
     }
     // Case 2: ColdBoot with voltage below sleep threshold — immediate sleep
     else if (vbat_mv < sleep_threshold) {
@@ -398,8 +405,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
              BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType()));
     return true;
   } else if (strcmp(cmd, "hwver") == 0) {
-    // MR2 is always v0.2 hardware
-    snprintf(reply, maxlen, "v0.2 (INA228+RTC)");
+    snprintf(reply, maxlen, "Rev 1.0 (INA228 ALERT+RTC+CE-FET)");
     return true;
   } else if (strcmp(cmd, "fmax") == 0) {
     // LTO batteries ignore JEITA temperature control
@@ -614,7 +620,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|leds|batcap|panel");
+           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|regdump|conf|ibcal|iboffset|tccal|leds|batcap|energy|panel");
   return true;
 }
 
@@ -690,7 +696,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       return "Err: Try true|false or 1|0";
     }
   } else if (strncmp(setCommand, "batcap ", 7) == 0) {
-    // Set battery capacity (v0.2 feature)
+    // Set battery capacity
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[7]));
     float capacity_mah = atof(value);
 
@@ -871,7 +877,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   return ret;
 }
 
-// ===== Power Management Methods (v0.2) =====
+// ===== Power Management Methods (Rev 1.0) =====
 
 /// @brief Get low-voltage sleep threshold (chemistry-specific)
 /// @return Sleep threshold in millivolts (INA228 ALERT fires here)
@@ -959,8 +965,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   // Never returns
 }
 
-/// @brief Configure RV-3028 RTC countdown timer for periodic wake-up (v0.2)
-/// @param minutes Wake-up interval in minutes
+/// @brief Configure RV-3028 RTC countdown timer for periodic wake-up
+/// @param minutes Wake-up interval in minutes (1-4095, RV-3028 12-bit limit)
 void InheroMr2Board::configureRTCWake(uint32_t minutes) {
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(true);
@@ -968,6 +974,10 @@ void InheroMr2Board::configureRTCWake(uint32_t minutes) {
   uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? LOW_VOLTAGE_SLEEP_MINUTES : minutes);
   if (countdown_ticks == 0) {
     countdown_ticks = 1;
+  }
+  // RV-3028 Timer Value register is 12-bit (max 4095)
+  if (countdown_ticks > 4095) {
+    countdown_ticks = 4095;
   }
   MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %u minutes",
                      static_cast<unsigned>(countdown_ticks));
@@ -1015,7 +1025,7 @@ void InheroMr2Board::configureRTCWake(uint32_t minutes) {
 #endif
 }
 
-/// @brief RTC interrupt handler - called when countdown timer expires (v0.2)
+/// @brief RTC interrupt handler - called when countdown timer expires
 void InheroMr2Board::rtcInterruptHandler() {
   // RTC countdown elapsed - device woke from SYSTEMOFF
   // Defer I2C work to the main loop to avoid ISR I2C collisions.

@@ -1,4 +1,10 @@
-# Auto-Learning-System für Batteriekapazität (Inhero MR-2 v0.2) [VERALTET]
+# Auto-Learning-System für Batteriekapazität (Inhero MR-2) [VERALTET]
+
+> ⚠️ **VERALTET**: Dieses Dokument beschreibt ein historisches Konzept aus der v0.2-Architektur.
+> In Rev 1.0 ist Auto-Learning nicht implementiert. Stattdessen wird die Kapazität manuell via
+> `set board.batcap <mAh>` gesetzt. Die hier beschriebenen Mechanismen (voltageMonitorTask,
+> Danger Zone, Hardware-UVLO) existieren in Rev 1.0 nicht mehr. Siehe [README.md](README.md)
+> und [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) für die aktuelle Architektur.
 
 > ⚠️ **Veraltet:** Auto-Learning ist im aktuellen Firmware-Stand nicht aktiv umgesetzt.
 > Dieses Dokument ist eine historische/konzeptionelle Referenz.
@@ -339,7 +345,7 @@ board.relearn  # Re-learning mit korrigiertem Faktor
 
 ## Siehe auch
 
-- [README.md](README.md) - Allgemeine MR-2 v0.2 Dokumentation
+- [README.md](README.md) - Allgemeine MR-2 Dokumentation (Rev 1.0)
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Technische Details
 - [BoardConfigContainer.cpp](BoardConfigContainer.cpp) - Source Code
 - [InheroMr2Board.cpp](InheroMr2Board.cpp) - Hardware Integration

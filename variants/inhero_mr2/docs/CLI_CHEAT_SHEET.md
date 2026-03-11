@@ -30,10 +30,6 @@ set board.fmax 100%            # keine Reduktion
 set board.mppt 1               # MPPT aktivieren
 set board.mppt 0               # MPPT deaktivieren
 
-# UVLO latched ein/aus (persistent)
-set board.uvlo 1               # UVLO aktivieren  (true/1)
-set board.uvlo 0               # UVLO deaktivieren (false/0)
-
 # LEDs ein/aus (Heartbeat + BQ-Stat)
 set board.leds on              # LEDs aktivieren  (on/1)
 set board.leds off             # LEDs deaktivieren (off/0)
@@ -69,12 +65,11 @@ set board.tccal reset          # Offset auf 0.00 zuruecksetzen
 ```bash
 # Konfiguration & Hardware
 get board.bat                  # Aktueller Batterietyp
-get board.hwver                # Hardware-Version (immer v0.2)
+get board.hwver                # Hardware-Version (immer Rev 1.0)
 get board.batcap               # Batteriekapazitaet in mAh (set/default)
 get board.imax                 # Maximaler Ladestrom in mA
 get board.fmax                 # Frost-Ladeverhalten (0%/20%/40%/100% oder N/A)
 get board.mppt                 # MPPT-Status (0/1)
-get board.uvlo                 # UVLO latched (ENABLED/DISABLED)
 get board.leds                 # LED-Status (ON/OFF)
 get board.conf                 # Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0)
 
@@ -109,12 +104,11 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | Befehl | Beschreibung |
 |---|---|
 | `get board.bat` | Batterietyp (`liion1s`, `lifepo1s`, `lto2s`) |
-| `get board.hwver` | Hardware-Version (MR2 immer `v0.2`) |
+| `get board.hwver` | Hardware-Version (MR2 immer `Rev 1.0`) |
 | `get board.batcap` | Batteriekapazitaet in mAh (set/default) |
 | `get board.imax` | Maximaler Ladestrom in mA |
 | `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO: `N/A`) |
 | `get board.mppt` | MPPT-Status (`0`/`1`) |
-| `get board.uvlo` | UVLO latched (`ENABLED`/`DISABLED`) |
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC |
@@ -138,7 +132,6 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.imax` | `50`–`1000` (mA) | Max. Ladestrom setzen |
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
-| `set board.uvlo` | `0`/`1` · `true`/`false` | UVLO latched ein-/ausschalten (persistent) |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
 | `set board.bqreset` | *(kein Wert)* | BQ25798 Software-Reset + Config neu laden |
@@ -157,7 +150,6 @@ set board.batcap 10000
 set board.imax 500
 set board.fmax 20%
 set board.mppt 1
-set board.uvlo 1
 set board.leds off
 ```
 
@@ -168,7 +160,6 @@ set board.batcap 6000
 set board.imax 300
 set board.fmax 40%
 set board.mppt 1
-set board.uvlo 1
 set board.leds off
 ```
 
@@ -178,7 +169,6 @@ set board.bat lto2s
 set board.batcap 18000
 set board.imax 700
 set board.mppt 1
-set board.uvlo 1
 set board.leds off
 ```
 

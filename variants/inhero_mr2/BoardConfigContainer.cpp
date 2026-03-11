@@ -135,7 +135,7 @@ namespace {
   }
 }
 
-// Hardware drivers (v0.2 only)
+// Hardware drivers
 static BqDriver bq;
 static Ina228Driver ina228(0x40);  // A0=GND, A1=GND
 
@@ -168,8 +168,6 @@ static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid so
 // Battery voltage thresholds moved to BatteryProperties structure (see .h file)
 // Rev 1.0: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
 // No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
-
-// runVoltageMonitor() removed in Rev 1.0 — replaced by INA228 ALERT ISR + task notification
 
 // Watchdog state
 static bool wdt_enabled = false;
@@ -1373,8 +1371,8 @@ void BoardConfigContainer::getRegisterDump(char* buffer, uint32_t bufferSize) {
     reg20, reg21, reg22, reg23, reg24, reg25);
 }
 
-/// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
-/// @return true if both BQ25798 and MCP4652 initialized successfully
+/// @brief Initializes battery manager, preferences, and background tasks
+/// @return true if BQ25798 initialized successfully
 bool BoardConfigContainer::begin() {
   // Initialize LEDs early for boot sequence visualization
   pinMode(LED_BLUE, OUTPUT);  // Blue LED (P1.03)
@@ -1477,13 +1475,8 @@ bool BoardConfigContainer::begin() {
       // ISR on ALERT pin → task notification → System-Off with latched CE
       armLowVoltageAlert();
 
-      // After low-voltage recovery, set SOC to 0% — battery was critically low,
-      // solar just charged it past the threshold. Coulomb counting starts from 0%
-      // and auto-corrects to 100% when BQ25798 signals "Charging Done".
-      if (lowVoltageRecovery) {
-        setSOCManually(0.0f);
-        MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
-      }
+      // NOTE: Low-voltage recovery SOC=0% is handled in InheroMr2Board::begin()
+      // (after setLowVoltageRecovery()), not here, because lowVoltageRecovery isn't set yet.
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
       INA228_INITIALIZED = false;
@@ -1494,7 +1487,7 @@ bool BoardConfigContainer::begin() {
   }
   delay(10);
 
-  // Initialize BQ25798 (common for both v0.1 and v0.2)
+  // Initialize BQ25798
   if (bq.begin()) {
     BQ_INITIALIZED = true;
     bqDriverInstance = &bq;
@@ -1521,7 +1514,7 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("TC using default calibration (0.0)");
   }
   
-  // === RV-3028 RTC Initialization (v0.2) ===
+  // === RV-3028 RTC Initialization ===
   bool rtc_initialized = false;
   Wire.beginTransmission(0x52);  // RV-3028 I2C address
   if (Wire.endTransmission() == 0) {
@@ -1539,7 +1532,7 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52");
   }
   
-  // === MR2 Configuration (v0.2 only) ===
+  // === MR2 Configuration ===
   SimplePreferences prefs_init;
   prefs_init.begin(PREFS_NAMESPACE);
   
@@ -1571,9 +1564,6 @@ bool BoardConfigContainer::begin() {
   // Sets detectedPanelClass, configures PFM per panel type,
   // and sets HIZ state (LOW_V: exits HIZ, HIGH_V: stays in HIZ).
   classifySolarPanel();
-  
-  // MR2 (v0.2) doesn't use MCP4652 - only v0.1 hardware
-  // this->configureMCP(bat);  // Commented out for MR2
   
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
@@ -1783,7 +1773,7 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
 }
 
 /// @brief Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature)
-/// @note MR2 v0.2: Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
+/// @note Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
 ///                  Solar data and battery temperature from BQ25798 ADC
 ///
 /// Temperature availability depends on power conditions:
@@ -1802,7 +1792,7 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   static Telemetry telemetry;
   
   // Battery voltage/current ALWAYS from INA228 (no fallback to BQ25798)
-  // MR2 v0.2 hardware uses INA228 for precise battery monitoring
+  // INA228 for precise battery monitoring
   uint16_t batt_voltage = 0;
   float batt_current = 0.0f;
   int32_t batt_power = 0;
@@ -1882,7 +1872,6 @@ bool BoardConfigContainer::resetBQ() {
   // Apply configuration
   configureBaseBQ();
   configureChemistry(bat);
-  // MR2 doesn't use MCP4652 (v0.1 only)
   if (bat != BatteryType::LTO_2S) {
     setFrostChargeBehaviour(frost);
   }
@@ -2081,8 +2070,6 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
     delay(10);
   }
   
-  // MR2 (v0.2) doesn't use MCP4652
-  
   // Store battery type in preferences
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -2237,7 +2224,7 @@ void BoardConfigContainer::getMpptStatsString(char* buffer, uint32_t bufferSize)
            percentage, avgDailyEnergy, days);
 }
 
-// ===== Battery SOC & Coulomb Counter Methods (v0.2) =====
+// ===== Battery SOC & Coulomb Counter Methods =====
 
 /// @brief Get current State of Charge in percent
 /// @return SOC in % (0-100)
@@ -2249,15 +2236,8 @@ float BoardConfigContainer::getStateOfCharge() const {
 /// @param type Battery chemistry type
 /// @return Nominal voltage in V (used for mAh → mWh conversion)
 float BoardConfigContainer::getNominalVoltage(BatteryType type) {
-  switch (type) {
-    case BatteryType::LTO_2S:
-      return LTO_2S_NOMINAL;        // 5.0V (2.5V/cell)
-    case BatteryType::LIFEPO4_1S:
-      return LIFEPO4_1S_NOMINAL;    // 3.2V
-    case BatteryType::LIION_1S:
-    default:
-      return LIION_1S_NOMINAL;      // 3.7V
-  }
+  const BatteryProperties* props = getBatteryProperties(type);
+  return props ? props->nominal_voltage : 3.7f;
 }
 
 /// @brief Get battery capacity in mAh
@@ -2462,7 +2442,7 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   return false;  // Not loaded from prefs
 }
 
-/// @brief Load INA228 calibration factor from preferences (v0.2)
+/// @brief Load INA228 calibration factor from preferences
 /// @param factor Output parameter
 /// @return true if loaded successfully, false if using default
 bool BoardConfigContainer::loadIna228CalibrationFactor(float& factor) const {
@@ -2486,7 +2466,7 @@ bool BoardConfigContainer::loadIna228CalibrationFactor(float& factor) const {
   return false;
 }
 
-/// @brief Set INA228 calibration factor and save to preferences (v0.2)
+/// @brief Set INA228 calibration factor and save to preferences
 /// @param factor Calibration factor (0.5 to 2.0)
 /// @return true if saved successfully
 bool BoardConfigContainer::setIna228CalibrationFactor(float factor) {
@@ -2514,7 +2494,7 @@ bool BoardConfigContainer::setIna228CalibrationFactor(float factor) {
   return false;
 }
 
-/// @brief Get current INA228 calibration factor (v0.2)
+/// @brief Get current INA228 calibration factor
 /// @return Current calibration factor
 float BoardConfigContainer::getIna228CalibrationFactor() const {
   if (ina228DriverInstance) {
@@ -2523,7 +2503,7 @@ float BoardConfigContainer::getIna228CalibrationFactor() const {
   return 1.0f;  // Default if INA228 not available
 }
 
-/// @brief Perform INA228 current calibration and store result (v0.2)
+/// @brief Perform INA228 current calibration and store result
 /// @param actual_current_ma Actual measured battery current in mA (from reference meter)
 /// @return Calculated and applied calibration factor, or 0.0 on error
 float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
@@ -2546,7 +2526,7 @@ float BoardConfigContainer::performIna228Calibration(float actual_current_ma) {
   return new_factor;
 }
 
-/// @brief Get INA228 driver instance (v0.2)
+/// @brief Get INA228 driver instance
 /// @return Pointer to INA228 driver or nullptr if not initialized
 Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
@@ -2554,7 +2534,7 @@ Ina228Driver* BoardConfigContainer::getIna228Driver() {
 
 // ===== INA228 Current Offset Calibration =====
 
-/// @brief Load INA228 current offset from preferences (v0.2)
+/// @brief Load INA228 current offset from preferences
 /// @param offset Output parameter in mA
 /// @return true if loaded successfully, false if using default (0.0)
 bool BoardConfigContainer::loadIna228CurrentOffset(float& offset) const {
@@ -2578,7 +2558,7 @@ bool BoardConfigContainer::loadIna228CurrentOffset(float& offset) const {
   return false;
 }
 
-/// @brief Set INA228 current offset and save to preferences (v0.2)
+/// @brief Set INA228 current offset and save to preferences
 /// @param offset_mA Offset in mA (-50 to +50)
 /// @return true if saved successfully
 bool BoardConfigContainer::setIna228CurrentOffset(float offset_mA) {
@@ -2606,7 +2586,7 @@ bool BoardConfigContainer::setIna228CurrentOffset(float offset_mA) {
   return false;
 }
 
-/// @brief Get current INA228 offset correction (v0.2)
+/// @brief Get current INA228 offset correction
 /// @return Current offset in mA (0.0 = no correction)
 float BoardConfigContainer::getIna228CurrentOffset() const {
   if (ina228DriverInstance) {
@@ -2615,7 +2595,7 @@ float BoardConfigContainer::getIna228CurrentOffset() const {
   return 0.0f;
 }
 
-/// @brief Perform INA228 current offset calibration and store result (v0.2)
+/// @brief Perform INA228 current offset calibration and store result
 /// @param actual_current_ma Actual battery current in mA (from reference meter, signed)
 /// @return Calculated offset in mA, or 0.0 on error
 /// @note Best performed at LOW current where offset error dominates (e.g., idle/sleep current)
@@ -2884,7 +2864,7 @@ uint16_t BoardConfigContainer::getLowVoltageWakeThreshold(BatteryType type) {
   return props ? props->lowv_wake_mv : 2200;
 }
 
-/// @brief Update battery SOC from INA228 Hardware Coulomb Counter (v0.2)
+/// @brief Update battery SOC from INA228 Hardware Coulomb Counter
 /// @details Uses INA228 CHARGE register (mAh) for accurate charge tracking
 void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
