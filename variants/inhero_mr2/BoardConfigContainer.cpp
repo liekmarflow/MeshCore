@@ -149,8 +149,8 @@ BqDriver* BoardConfigContainer::bqDriverInstance = nullptr;
 Ina228Driver* BoardConfigContainer::ina228DriverInstance = nullptr;
 TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
-TaskHandle_t BoardConfigContainer::voltageMonitorTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::socUpdateTaskHandle = NULL;
+volatile bool BoardConfigContainer::lowVoltageAlertFired = false;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
@@ -166,146 +166,10 @@ uint32_t BoardConfigContainer::chargeBaselineTime = 0;
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
 // Battery voltage thresholds moved to BatteryProperties structure (see .h file)
-// SAFETY FEATURE: INA228 UVLO Alert provides latched hardware protection
-// - Latched alert CANNOT be cleared by software (INA228 powered by battery)
-// - Recovery requires PHYSICAL battery disconnect to reset INA228 registers
-// - Or complete battery voltage collapse (INA loses power)
-// This is intentional: Forces battery replacement/external charging for extreme deep discharge
-// UVLO enable/disable is controlled via "set board.uvlo 0|1" → loadUvloEnabled() / applyUvloSetting()
+// Rev 1.0: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
+// No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
 
-void BoardConfigContainer::runVoltageMonitor() {
-  static bool init_done = false;
-  static uint16_t critical_mv = 0;
-  static uint32_t next_check_ms = 0;
-  static uint32_t next_rtc_check_ms = 0;
-
-  uint32_t now_ms = millis();
-
-  if (!init_done) {
-    BoardConfigContainer temp;
-    float capacity_mah = 0.0f;
-    bool capacity_loaded = false;
-    if (bqDriverInstance) {
-      capacity_loaded = temp.loadBatteryCapacity(capacity_mah);
-    } else {
-      capacity_mah = 2000.0f;
-    }
-
-    BatteryType battType = DEFAULT_BATTERY_TYPE;
-    SimplePreferences prefs_bat;
-    if (prefs_bat.begin("inheromr2")) {
-      char buffer[10];
-      if (prefs_bat.getString("batType", buffer, sizeof(buffer), "") > 0) {
-        battType = getBatteryTypeFromCommandString(buffer);
-        if (battType == BAT_UNKNOWN) {
-          battType = DEFAULT_BATTERY_TYPE;
-        }
-      }
-      prefs_bat.end();
-    }
-
-    socStats.capacity_mah = capacity_mah;
-    socStats.nominal_voltage = getNominalVoltage(battType);
-    socStats.current_soc_percent = 50.0f;
-    socStats.lastHourUpdateTime = getRTCTime();
-
-    MESH_DEBUG_PRINTLN("Battery capacity: %.0f mAh @ %.1fV %s",
-                       capacity_mah, socStats.nominal_voltage,
-                       capacity_loaded ? "manual" : "default");
-
-    // Get danger zone threshold from battery properties
-    const BatteryProperties* props = getBatteryProperties(battType);
-    critical_mv = props ? props->danger_threshold : 2000;  // Fallback to 2000mV if lookup fails
-
-    // BAT_UNKNOWN: No battery type configured (fresh flash / factory state).
-    // Danger zone is meaningless without known chemistry — disable monitoring.
-    if (battType == DEFAULT_BATTERY_TYPE && DEFAULT_BATTERY_TYPE == BAT_UNKNOWN) {
-      critical_mv = 0;  // 0 = disabled, no voltage will trigger danger zone
-      MESH_DEBUG_PRINTLN("Voltage Monitor: DISABLED (BAT_UNKNOWN - configure battery type first)");
-    } else {
-      MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
-    }
-
-    MESH_DEBUG_PRINTLN("PWRMGT: Waiting 2s for system stabilization before initial check");
-    next_check_ms = now_ms + 2000;
-    next_rtc_check_ms = now_ms + (60UL * 1000UL);
-    init_done = true;
-    return;
-  }
-
-  if (now_ms < next_check_ms) {
-    if (now_ms >= next_rtc_check_ms) {
-      if (!isRtcPeriodicWakeConfigured(DANGER_ZONE_SLEEP_MINUTES)) {
-        MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %u min", DANGER_ZONE_SLEEP_MINUTES);
-        configureRtcPeriodicWake(DANGER_ZONE_SLEEP_MINUTES);
-      }
-      next_rtc_check_ms = now_ms + (60UL * 1000UL);
-    }
-    return;
-  }
-
-  if (now_ms >= next_rtc_check_ms) {
-    if (!isRtcPeriodicWakeConfigured(DANGER_ZONE_SLEEP_MINUTES)) {
-      MESH_DEBUG_PRINTLN("RTC: Periodic wake config missing - restoring %u min", DANGER_ZONE_SLEEP_MINUTES);
-      configureRtcPeriodicWake(DANGER_ZONE_SLEEP_MINUTES);
-    }
-    next_rtc_check_ms = now_ms + (60UL * 1000UL);
-  }
-
-  uint16_t vbat_mv = 0;
-  if (ina228DriverInstance) {
-    vbat_mv = ina228DriverInstance->readVoltage_mV();
-  }
-
-  // critical_mv == 0 means danger zone is disabled (BAT_UNKNOWN)
-  if (critical_mv == 0) {
-    // Clear any stale danger zone flags
-    if (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) {
-      NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-    }
-    next_check_ms = now_ms + VOLTAGE_CHECK_INTERVAL_MS;
-    return;
-  }
-
-  bool in_danger_zone = (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) != 0;
-
-  MESH_DEBUG_PRINTLN("PWRMGT: Voltage check - VBAT=%dmV, Critical=%dmV, DangerZone=%d, GPREGRET2=0x%02X",
-                     vbat_mv, critical_mv, in_danger_zone, NRF_POWER->GPREGRET2);
-
-  blinkRed(3, 100, 100, leds_enabled);
-
-  if (vbat_mv > 0) {
-    if (vbat_mv < critical_mv) {
-      MESH_DEBUG_PRINTLN("PWRMGT: Danger Zone breach - voltage %dmV < %dmV - shutting down", vbat_mv, critical_mv);
-
-      blinkRed(1, 100, 100, leds_enabled);
-      blinkRed(3, 300, 300, leds_enabled);
-
-      if (!in_danger_zone) {
-        NRF_POWER->GPREGRET2 |= GPREGRET2_IN_DANGER_ZONE;
-      }
-
-      // Delegate to InheroMr2Board::initiateShutdown() which uses System ON Idle
-      // to keep GPIO latches active (CE pin stays LOW → solar charging continues)
-      board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
-      // Never returns
-
-    } else {
-      blinkRed(3, 100, 100, leds_enabled);
-
-      if (in_danger_zone) {
-        MESH_DEBUG_PRINTLN("PWRMGT: Voltage recovered to %dmV (Critical=%dmV)", vbat_mv, critical_mv);
-        MESH_DEBUG_PRINTLN("PWRMGT: Exiting Danger Zone - initiating system reset to re-enable SX1262");
-
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-        delay(100);
-        NVIC_SystemReset();
-      }
-    }
-  }
-
-  next_check_ms = now_ms + VOLTAGE_CHECK_INTERVAL_MS;
-}
+// runVoltageMonitor() removed in Rev 1.0 — replaced by INA228 ALERT ISR + task notification
 
 // Watchdog state
 static bool wdt_enabled = false;
@@ -943,17 +807,13 @@ void BoardConfigContainer::stopBackgroundTasks() {
     MESH_DEBUG_PRINTLN("Heartbeat task stopped");
   }
   
-  // Delete voltage monitor task if running (v0.2)
-  if (voltageMonitorTaskHandle != NULL) {
-    vTaskDelete(voltageMonitorTaskHandle);
-    voltageMonitorTaskHandle = NULL;
-    MESH_DEBUG_PRINTLN("Voltage monitor task stopped");
-  }
+  // Disarm INA228 low-voltage alert (Rev 1.0)
+  disarmLowVoltageAlert();
   
   // Delete SOC update task if running
-  // CRITICAL: socUpdateTask calls runVoltageMonitor() → initiateShutdown() → stopBackgroundTasks().
+  // CRITICAL: socUpdateTask handles low-voltage shutdown via task notification.
   // If we delete the calling task here, vTaskDelete() terminates execution immediately and
-  // initiateShutdown() never reaches the sleep loop — the board stays alive!
+  // initiateShutdown() never reaches System-Off — the board stays alive!
   if (socUpdateTaskHandle != NULL) {
     if (socUpdateTaskHandle == xTaskGetCurrentTaskHandle()) {
       MESH_DEBUG_PRINTLN("SOC task is calling task - skipping self-delete (shutdown will take over)");
@@ -1535,7 +1395,7 @@ bool BoardConfigContainer::begin() {
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
   
-  // === MR2 Hardware (v0.2): INA228 Power Monitor with UVLO ===
+  // === MR2 Hardware (Rev 1.0): INA228 Power Monitor with ALERT-based low-voltage sleep ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
   MESH_DEBUG_PRINTLN("=== INA228 Detection @ 0x40 ===");
   delay(10);  // Let serial output flush
@@ -1612,25 +1472,17 @@ bool BoardConfigContainer::begin() {
       }
       delay(10);
       
-      // Load battery type to set chemistry-specific UVLO threshold
-      BatteryType bat;
-      if (!loadBatType(bat)) {
-        bat = DEFAULT_BATTERY_TYPE;
-      }
-      
-      // INA228 UVLO Alert: Load from preferences
-      // Purpose: Catastrophic battery protection - permanent shutdown if battery critically low
-      // Latch mode: Alert stays LOW permanently (INA228 powered by battery, not 3.3V rail)
-      // Recovery: Requires PHYSICAL battery disconnect to reset INA228 registers
-      // Note: applyUvloSetting() will load from preferences and set chemistry-specific threshold
-      applyUvloSetting();
+      // Arm INA228 low-voltage alert for this battery chemistry
+      // Rev 1.0: Always active when battery type is configured (no CLI toggle)
+      // ISR on ALERT pin → task notification → System-Off with latched CE
+      armLowVoltageAlert();
 
-      // After danger zone recovery, set SOC to 0% — battery was critically low,
+      // After low-voltage recovery, set SOC to 0% — battery was critically low,
       // solar just charged it past the threshold. Coulomb counting starts from 0%
       // and auto-corrects to 100% when BQ25798 signals "Charging Done".
-      if (dangerZoneRecovery) {
+      if (lowVoltageRecovery) {
         setSOCManually(0.0f);
-        MESH_DEBUG_PRINTLN("SOC: Set to 0%% (danger zone recovery)");
+        MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
       }
     } else {
       MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
@@ -1791,7 +1643,7 @@ bool BoardConfigContainer::begin() {
   }
   
   // CRITICAL: Verify and fix ADC_CONFIG after all tasks are created
-  // The voltageMonitorTask may have preempted and overwritten ADC_CONFIG
+  // A preempting task may have overwritten ADC_CONFIG
   if (INA228_INITIALIZED) {
     delay(50);  // Let tasks settle
     
@@ -2074,7 +1926,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setPFMForwardDisable(true);
 
   // Flush stale ADC registers by running one discard conversion.
-  // After reboot (e.g. danger zone recovery), BQ25798 retains old ADC values
+  // After reboot (e.g. low-voltage recovery), BQ25798 retains old ADC values
   // from before shutdown. A fresh one-shot ensures registers reflect actual state.
   bq.getTelemetryData(0);  // VBAT unknown at this point, assume sufficient
 
@@ -2099,12 +1951,13 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   // Apply charge enable/disable based on battery type
   bq.setChargeEnable(props->charge_enable);
 
-  // CE-Pin hardware safety: Only pull CE LOW (enable charging) when chemistry is known
-  // External pull-up ensures CE stays HIGH (charging disabled) when RAK is off or unbooted
+  // CE-Pin hardware safety: Only pull CE HIGH (enable charging via FET) when chemistry is known
+  // Rev 1.0: DMN2004TK-7 N-FET inverts CE logic — HIGH=enable, LOW=disable
+  // External pull-down ensures CE stays LOW (charging disabled) when RAK is off or unbooted
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
-  digitalWrite(BQ_CE_PIN, props->charge_enable ? LOW : HIGH);
-  MESH_DEBUG_PRINTLN("BQ CE pin %s (charge_enable=%d)", props->charge_enable ? "LOW (enabled)" : "HIGH (disabled)", props->charge_enable);
+  digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);
+  MESH_DEBUG_PRINTLN("BQ CE pin %s (charge_enable=%d)", props->charge_enable ? "HIGH (enabled via FET)" : "LOW (disabled via FET)", props->charge_enable);
 #endif
 
   if (!props->charge_enable) {
@@ -2222,11 +2075,9 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
   bool bqBaseConfigured = this->configureBaseBQ();
   bool bqConfigured = this->configureChemistry(type);
   
-  // === CRITICAL: Update INA228 UVLO threshold when battery type changes ===
+  // === CRITICAL: Update INA228 low-voltage alert threshold when battery type changes ===
   if (ina228DriverInstance) {
-    // INA228 UVLO Alert: Update threshold for new battery chemistry
-    // Threshold is read from battery properties in applyUvloSetting()
-    applyUvloSetting();
+    armLowVoltageAlert();
     delay(10);
   }
   
@@ -2960,100 +2811,77 @@ float BoardConfigContainer::readBmeTemperature() {
 #endif
 }
 
-/// @brief Load UVLO enabled setting from preferences
-/// @param enabled Reference to store loaded setting
-/// @return true if preference found, false if default used
-bool BoardConfigContainer::loadUvloEnabled(bool& enabled) const {
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  
-  char buffer[10];
-  if (prefs.getString(UVLO_ENABLE_KEY, buffer, sizeof(buffer), "") > 0) {
-    if (buffer[0] != '\0') {
-      enabled = buffer[0] == '1' ? true : false;
-      return true;
-    } else {
-      enabled = false;  // Default: disabled
-      return false;
-    }
-  }
-  
-  // No preference found - use default
-  enabled = false;  // Default: UVLO disabled for field testing
-  return false;
-}
-
-/// @brief Enable or disable INA228 UVLO alert
-/// @param enabled true = enable UVLO, false = disable UVLO
-/// @return true if successful
-bool BoardConfigContainer::setUvloEnabled(bool enabled) {
-  // Save to preferences
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  bool success = prefs.putString(UVLO_ENABLE_KEY, enabled ? "1" : "0");
-  prefs.end();
-  
-  if (success) {
-    // Apply immediately to hardware
-    applyUvloSetting();
-    MESH_DEBUG_PRINTLN("INA228 UVLO: %s (persistent)", enabled ? "ENABLED" : "DISABLED");
-    return true;
-  }
-  return false;
-}
-
-/// @brief Get current UVLO enable state
-/// @return true if UVLO is enabled
-bool BoardConfigContainer::getUvloEnabled() const {
-  bool enabled = false;
-  loadUvloEnabled(enabled);
-  return enabled;
-}
-
-/// @brief Apply current UVLO setting to INA228 hardware
-void BoardConfigContainer::applyUvloSetting() {
+/// @brief Arm INA228 low-voltage alert for current battery chemistry
+/// @details Programs INA228 BUVL register with lowv_sleep_mv threshold.
+///          Alert fires when VBAT drops below this level → ISR → task notification → System-Off.
+///          Always active when battery type is configured (no CLI toggle).
+///          BAT_UNKNOWN: alert disabled (threshold = 0).
+void BoardConfigContainer::armLowVoltageAlert() {
   if (!ina228DriverInstance) {
-    return;  // INA228 not initialized
+    return;
   }
   
-  bool uvlo_enabled = false;
-  loadUvloEnabled(uvlo_enabled);
+  BatteryType bat_type = getBatteryType();
+  const BatteryProperties* props = getBatteryProperties(bat_type);
+  uint16_t sleep_mv = props ? props->lowv_sleep_mv : 0;
   
-  // INA228 BUVL register controls the under-voltage alert:
-  // - Non-zero BUVL = INA228 compares bus voltage and sets BUSUL flag → ALERT pin fires
-  // - BUVL = 0x0000 = no comparison → alert disabled (datasheet default)
-  // Note: DIAG_ALRT BUSUL (bit 3) is a READ-ONLY hardware flag, cannot be disabled by software.
-  // The ONLY way to prevent UVLO alerts is to clear the BUVL threshold register.
-  if (uvlo_enabled) {
-    BatteryType bat_type = getBatteryType();
-    const BatteryProperties* props = getBatteryProperties(bat_type);
-    uint16_t uvlo_mv = props ? props->uvlo_threshold : 2000;
-    bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(uvlo_mv);
-    ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
-    MESH_DEBUG_PRINTLN("INA228 UVLO: ENABLED @ %dmV (Latched, BUVL write %s)", uvlo_mv, buvl_ok ? "OK" : "FAILED");
-  } else {
-    bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(0);  // Clear threshold → disables comparison
-    ina228DriverInstance->enableAlert(false, false, false);  // Clear all DIAG_ALRT config
-    MESH_DEBUG_PRINTLN("INA228 UVLO: DISABLED (BUVL=0, BUVL write %s)", buvl_ok ? "OK" : "FAILED");
+  if (bat_type == BAT_UNKNOWN || sleep_mv == 0) {
+    // No battery configured — disarm alert
+    ina228DriverInstance->setUnderVoltageAlert(0);
+    ina228DriverInstance->enableAlert(false, false, false);
+    MESH_DEBUG_PRINTLN("INA228 Low-V Alert: DISABLED (BAT_UNKNOWN)");
+    return;
+  }
+  
+  bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(sleep_mv);
+  ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
+  
+  // Attach ISR on ALERT pin (active-LOW, falling edge)
+  pinMode(INA_ALERT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN), lowVoltageAlertISR, FALLING);
+  
+  MESH_DEBUG_PRINTLN("INA228 Low-V Alert: ARMED @ %dmV (BUVL write %s)", sleep_mv, buvl_ok ? "OK" : "FAILED");
+}
+
+/// @brief Disarm INA228 low-voltage alert and detach ISR
+void BoardConfigContainer::disarmLowVoltageAlert() {
+  if (!ina228DriverInstance) {
+    return;
+  }
+  
+  detachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN));
+  ina228DriverInstance->setUnderVoltageAlert(0);
+  ina228DriverInstance->enableAlert(false, false, false);
+  lowVoltageAlertFired = false;
+  MESH_DEBUG_PRINTLN("INA228 Low-V Alert: DISARMED");
+}
+
+/// @brief ISR for INA228 ALERT pin — sends task notification to socUpdateTask
+/// @details Called on falling edge of INA228 ALERT (active-LOW, latched).
+///          Sets volatile flag and notifies socUpdateTask to execute shutdown sequence.
+void BoardConfigContainer::lowVoltageAlertISR() {
+  lowVoltageAlertFired = true;
+  if (socUpdateTaskHandle != NULL) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xTaskNotifyFromISR(socUpdateTaskHandle, 1, eSetBits, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
   }
 }
 
-/// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
-/// @details This is the danger zone boundary and 0% SOC point. Below this: danger zone (no TX, RTC wake).
-///          Above this: normal operation. Hysteresis above UVLO prevents motorboating.
+/// @brief Get low-voltage sleep threshold (INA228 ALERT fires at this level)
 /// @param type Battery chemistry type
-/// @return Threshold in millivolts - Danger zone boundary (100-200mV above hardware UVLO)
-uint16_t BoardConfigContainer::getVoltageCriticalThreshold(BatteryType type) {
+/// @return Threshold in millivolts
+uint16_t BoardConfigContainer::getLowVoltageSleepThreshold(BatteryType type) {
   const BatteryProperties* props = getBatteryProperties(type);
-  return props ? props->danger_threshold : 2000;  // Fallback to 2000mV
+  return props ? props->lowv_sleep_mv : 2000;
 }
 
-/// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
+/// @brief Get low-voltage wake threshold (RTC wake boots if VBAT >= this, 0% SOC marker)
 /// @param type Battery chemistry type
-/// @return Hardware cutoff voltage in millivolts (INA228 Alert threshold)
-uint16_t BoardConfigContainer::getVoltageHardwareCutoff(BatteryType type) {
+/// @return Threshold in millivolts
+uint16_t BoardConfigContainer::getLowVoltageWakeThreshold(BatteryType type) {
   const BatteryProperties* props = getBatteryProperties(type);
-  return props ? props->uvlo_threshold : 2000;  // Fallback to 2000mV
+  return props ? props->lowv_wake_mv : 2200;
 }
 
 /// @brief Update battery SOC from INA228 Hardware Coulomb Counter (v0.2)
@@ -3390,38 +3218,36 @@ float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryT
 
 /// @brief SOC Update Task - runs every minute to update battery statistics
 /// @details Updates SOC from INA228 Coulomb Counter and daily balance statistics.
-///          Separated from voltageMonitorTask to allow frequent SOC updates (1 minute)
-///          while voltageMonitorTask handles voltage checks at longer intervals (1 hour).
+///          Also handles low-voltage alert via xTaskNotifyWait — INA228 ALERT ISR
+///          sends notification here, which triggers immediate shutdown.
 /// @param pvParameters Task parameters (unused)
 void BoardConfigContainer::socUpdateTask(void* pvParameters) {
   (void)pvParameters;
   
-  MESH_DEBUG_PRINTLN("SOC Update Task started - running every minute");
+  MESH_DEBUG_PRINTLN("SOC Update Task started - running every minute (low-V alert armed)");
   
   const uint32_t UPDATE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
-  static uint8_t minute_counter = 0;  // Count minutes until hourly update
-  static bool first_loop = true;
+  static uint8_t minute_counter = 0;
   
   while (true) {
-    // Run an immediate voltage/RTC check on task start to avoid 60s wait in Danger Zone.
-    runVoltageMonitor();
-    if (first_loop) {
-      // Allow the short stabilization window to pass, then re-check before the 60s cadence.
-      vTaskDelay(pdMS_TO_TICKS(2000));
-      runVoltageMonitor();
-      first_loop = false;
+    // Wait for 1 minute OR immediate wake on low-voltage alert notification
+    uint32_t notifyValue = 0;
+    BaseType_t notified = xTaskNotifyWait(0, 0xFFFFFFFF, &notifyValue, pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
+    
+    // Check for low-voltage alert (ISR notification or flag)
+    if (notified == pdTRUE || lowVoltageAlertFired) {
+      MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System-Off shutdown");
+      blinkRed(1, 100, 100, leds_enabled);
+      blinkRed(3, 300, 300, leds_enabled);
+      
+      NRF_POWER->GPREGRET2 |= GPREGRET2_LOW_VOLTAGE_SLEEP;
+      board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
+      // Never returns
     }
-
-    // Wait for 1 minute
-    vTaskDelay(pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
     
-    // Update SOC from Coulomb Counter (runs every minute)
+    // Normal cadence: Update SOC from Coulomb Counter
     updateBatterySOC();
-
-    // Run periodic undervoltage/RTC checks on the same cadence
-    runVoltageMonitor();
     
-    // Increment minute counter
     minute_counter++;
     
     // Every 60 minutes: Update hourly statistics
@@ -3431,15 +3257,6 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
       minute_counter = 0;
     }
   }
-}
-
-/// @brief Voltage Monitor Task with SOC tracking (v0.2)
-/// @param pvParameters Task parameters (unused)
-void BoardConfigContainer::voltageMonitorTask(void* pvParameters) {
-  (void)pvParameters;
-  MESH_DEBUG_PRINTLN("Voltage Monitor Task disabled (SOC task handles UV checks)");
-  voltageMonitorTaskHandle = NULL;  // Clear handle BEFORE self-delete to prevent double-free in stopBackgroundTasks()
-  vTaskDelete(NULL);
 }
 
 // ===== Helper Functions =====

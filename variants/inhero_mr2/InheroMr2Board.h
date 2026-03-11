@@ -54,7 +54,8 @@
 #define RTC_INT_PIN                  17   // GPIO17 (WB_IO1) - RTC Interrupt from RV-3028
 #define RTC_I2C_ADDR                 0x52 // RV-3028-C7 I2C address
 #define INA228_I2C_ADDR              0x40 // INA228 I2C address (A0=GND, A1=GND)
-// Note: INA228 ALERT pin controls TPS62840 EN directly (hardware UVLO), not connected to RAK4630
+// Note: INA228 ALERT pin (P1.02) triggers low-voltage sleep via interrupt
+// TPS62840 EN tied to VDD (always on) — no hardware UVLO cutoff
 
 // RV-3028-C7 RTC Register Addresses (Per Application Manual Section 3.2)
 #define RV3028_REG_STATUS            0x0E // Status register (TF flag at bit 3)
@@ -70,14 +71,11 @@
 #define SHUTDOWN_REASON_THERMAL      0x03
 
 // Power management state flags (stored in GPREGRET2 bits [7:2])
-#define GPREGRET2_IN_DANGER_ZONE     0x04 // Bit 2: In Danger Zone (SX1262 disabled)
+#define GPREGRET2_LOW_VOLTAGE_SLEEP  0x04 // Bit 2: In low-voltage sleep (RTC wake cycle)
 
-// Danger Zone sleep duration (used by Early Boot and voltageMonitorTask)
-//#define DANGER_ZONE_SLEEP_MINUTES    (1) // 1 minute — testing value
-#define DANGER_ZONE_SLEEP_MINUTES    (60) // 1 hour — low cost at ~0.6mA idle
-
-// Voltage monitor check interval during normal operation
-#define VOLTAGE_CHECK_INTERVAL_MS    (60UL * 1000UL) // 60 seconds
+// Low-voltage sleep duration (used by Early Boot and socUpdateTask)
+//#define LOW_VOLTAGE_SLEEP_MINUTES    (1) // 1 minute — testing value
+#define LOW_VOLTAGE_SLEEP_MINUTES    (60) // 1 hour — low cost at ~15µA System-Off
 
 class InheroMr2Board : public NRF52BoardDCDC {
 public:
@@ -96,13 +94,13 @@ public:
   /// @param minutes Wake-up interval in minutes
   void configureRTCWake(uint32_t minutes);
 
-  /// @brief Get voltage threshold for critical shutdown (chemistry-specific)
-  /// @return Threshold in millivolts - Danger zone boundary and 0% SOC point
-  uint16_t getVoltageCriticalThreshold();
+  /// @brief Get voltage threshold for low-voltage sleep (chemistry-specific)
+  /// @return Sleep threshold in millivolts (INA228 ALERT fires here)
+  uint16_t getLowVoltageSleepThreshold();
 
-  /// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
-  /// @return Hardware cutoff voltage in millivolts
-  uint16_t getVoltageHardwareCutoff();
+  /// @brief Get voltage threshold for low-voltage wake / 0% SOC (chemistry-specific)
+  /// @return Wake threshold in millivolts
+  uint16_t getLowVoltageWakeThreshold();
 
   /// @brief RTC interrupt handler (called by hardware interrupt)
   static void rtcInterruptHandler();

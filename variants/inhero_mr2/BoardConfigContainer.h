@@ -134,19 +134,19 @@ public:
     BatteryType type;
     float charge_voltage;       // Max charge voltage in V
     float nominal_voltage;      // Nominal voltage for energy calculations
-    uint16_t uvlo_threshold;    // Hardware UVLO cutoff (INA228 Alert) in mV
-    uint16_t danger_threshold;  // Software danger zone boundary (0% SOC) in mV
+    uint16_t lowv_sleep_mv;     // Low-voltage sleep threshold (INA228 ALERT triggers System-Off) in mV
+    uint16_t lowv_wake_mv;      // Low-voltage wake threshold (0% SOC marker, RTC wake decision) in mV
     bool charge_enable;         // Enable/disable charging (false for BAT_UNKNOWN)
   } BatteryProperties;
 
   // Battery properties lookup table
   // All battery-specific thresholds in one central location
   static inline constexpr BatteryProperties battery_properties[] = {
-    // Type         ChgV  NomV  UVLO  Danger  ChgEn
-    { BAT_UNKNOWN,  0.0f, 0.0f, 2000, 2000,  false }, // SAFETY: Safe low thresholds, no charging
-    { LTO_2S,       5.4f, 5.0f, 3900, 4200,  true  }, // LTO 2S: 2.7V/cell (300mV UVLO margin)
-    { LIFEPO4_1S,   3.5f, 3.2f, 2700, 2900,  true  }, // LiFePO4: 200mV UVLO margin
-    { LIION_1S,     4.1f, 3.7f, 3100, 3400,  true  }  // Li-Ion: 300mV UVLO margin
+    // Type         ChgV  NomV  SleepMv WakeMv  ChgEn
+    { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false }, // SAFETY: Safe low thresholds, no charging
+    { LTO_2S,       5.4f, 5.0f, 3900,  4100,   true  }, // LTO 2S: 200mV hysteresis
+    { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true  }, // LiFePO4: 200mV hysteresis
+    { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true  }  // Li-Ion: 200mV hysteresis
   };
 
   // Legacy constants for backward compatibility
@@ -287,11 +287,10 @@ public:
   static bool setSOCManually(float soc_percent); ///< Manually set SOC to specific value (e.g. after reboot)
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   const MpptStatistics* getMpptStats() const { return &mpptStats; } ///< Get MPPT stats for CLI
-  static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
 
   static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
-  void setDangerZoneRecovery() { dangerZoneRecovery = true; } ///< Mark as danger zone recovery boot
+  void setLowVoltageRecovery() { lowVoltageRecovery = true; } ///< Mark as low-voltage recovery boot
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance (v0.2)
   
   // INA228 Calibration methods (v0.2)
@@ -311,14 +310,14 @@ public:
   float performTcCalibration(float* bme_temp_out = nullptr); ///< Calibrate NTC using BME280 as auto-reference
   static float readBmeTemperature();               ///< Read BME280 temperature directly via I2C
   
-  // INA228 UVLO methods (v0.2)
-  bool setUvloEnabled(bool enabled);  ///< Enable/disable INA228 UVLO alert (persistent)
-  bool getUvloEnabled() const;        ///< Get current UVLO enable state
-  void applyUvloSetting();            ///< Apply UVLO setting to INA228 hardware
+  // Low-voltage alert methods (Rev 1.0 — INA228 ALERT on P1.02)
+  void armLowVoltageAlert();    ///< Arm INA228 BUVL alert at lowv_sleep_mv (called on battery config)
+  static void disarmLowVoltageAlert(); ///< Disarm INA228 BUVL alert and detach ISR
+  static void lowVoltageAlertISR(); ///< ISR for INA228 ALERT pin — notifies socUpdateTask
   
   // Voltage threshold helpers (chemistry-specific)
-  static uint16_t getVoltageCriticalThreshold(BatteryType type);  ///< Get danger zone threshold (0% SOC)
-  static uint16_t getVoltageHardwareCutoff(BatteryType type);     ///< Get hardware UVLO threshold (INA228 Alert)
+  static uint16_t getLowVoltageSleepThreshold(BatteryType type);   ///< Get sleep threshold (INA228 ALERT)
+  static uint16_t getLowVoltageWakeThreshold(BatteryType type);    ///< Get wake threshold (0% SOC marker)
   
   // Watchdog methods
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
@@ -331,19 +330,18 @@ public:
   void getRegisterDump(char* buffer, uint32_t bufferSize); ///< Raw BQ25798 register dump for debugging
 
 private:
-  static void runVoltageMonitor();
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
   static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228 (v0.2 hardware) (v0.2)
   static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
-  static TaskHandle_t voltageMonitorTaskHandle; ///< Handle for voltage monitor task (v0.2)
   static TaskHandle_t socUpdateTaskHandle; ///< Handle for SOC update task (runs every minute)
+  static volatile bool lowVoltageAlertFired; ///< ISR flag: INA228 ALERT fired
   static MpptStatistics mpptStats; ///< MPPT statistics data
   static BatterySOCStats socStats; ///< Battery SOC statistics (v0.2)
   
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;  // v0.2 only (MR2)
-  bool dangerZoneRecovery = false;  ///< Set in begin() if booting from danger zone (GPREGRET2)
+  bool lowVoltageRecovery = false;  ///< Set in begin() if booting from low-voltage sleep (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
 
@@ -359,7 +357,6 @@ private:
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";  // v0.2: Battery capacity in mAh
   static constexpr const char* INA228_CALIB_KEY = "ina228Cal";   // v0.2: INA228 current calibration factor
   static constexpr const char* INA228_OFFSET_KEY = "ina228Off";   // v0.2: INA228 current offset in mA
-  static constexpr const char* UVLO_ENABLE_KEY = "uvloEn";       // v0.2: INA228 UVLO alert enabled
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
   bool loadBatType(BatteryType& type) const;
@@ -368,7 +365,6 @@ private:
   bool loadBatteryCapacity(float& capacity_mah) const; // v0.2
   bool loadIna228CalibrationFactor(float& factor) const; // v0.2
   bool loadIna228CurrentOffset(float& offset) const; // v0.2: current offset
-  bool loadUvloEnabled(bool& enabled) const; // v0.2
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
   
   // MPPT Statistics helper

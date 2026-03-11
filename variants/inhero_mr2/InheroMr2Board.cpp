@@ -42,13 +42,12 @@ volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 void InheroMr2Board::begin() {
   pinMode(PIN_VBAT_READ, INPUT);
 
-  // BQ25798 CE pin: Explicitly drive HIGH (charging disabled) on every boot.
-  // External pull-up already holds CE HIGH when RAK is unpowered, but we
-  // make the safe state explicit here. configureChemistry() will pull it
-  // LOW only after successful I2C configuration with a known battery type.
+  // BQ25798 CE pin: Drive LOW (charging disabled) on every boot.
+  // Rev 1.0: DMN2004TK-7 FET inverts logic — LOW on GPIO = FET off = CE pulled HIGH by ext. pull-up = charge disabled.
+  // configureChemistry() will drive HIGH only after successful I2C configuration with a known battery type.
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
-  digitalWrite(BQ_CE_PIN, HIGH);
+  digitalWrite(BQ_CE_PIN, LOW);
 #endif
 
   // PE4259 RF switch power enable (VDD pin 6 on PE4259)
@@ -75,10 +74,9 @@ void InheroMr2Board::begin() {
   delay(50); // Give I2C bus time to stabilize
 
   // MR2 is v0.2 hardware only - no detection needed
-  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware v0.2 (INA228 + RTC)");
+  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.0 (INA228 ALERT + RTC + CE-FET)");
 
   // Initialize board configuration (BQ25798, INA228, etc.)
-  // Note: voltageMonitorTask will check Danger Zone within 10s after boot
   boardConfig.begin();
 
   // === v0.2 hardware initialization ===
@@ -101,9 +99,8 @@ void InheroMr2Board::begin() {
   attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
 
   // === CRITICAL: Early Boot Voltage Check ===
-  // Prevents motorboating after Hardware-UVLO or Software-SHUTDOWN
-  // When INA228 Alert cuts power via TPS62840 EN, RAK loses all RAM (GPREGRET2=0x00)
-  // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN
+  // Prevents motorboating after low-voltage sleep or unexpected power loss.
+  // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN.
 
   uint8_t shutdown_reason = NRF_POWER->GPREGRET2; // Read full register for Early Boot check
 
@@ -131,32 +128,40 @@ void InheroMr2Board::begin() {
     // Continue boot if we can't read voltage (better than blocking)
   } else {
     BoardConfigContainer::BatteryType bootBatType = boardConfig.getBatteryType();
-    uint16_t critical_threshold = getVoltageCriticalThreshold();
-    uint16_t uvlo_threshold = getVoltageHardwareCutoff();
+    uint16_t wake_threshold = getLowVoltageWakeThreshold();
+    uint16_t sleep_threshold = getLowVoltageSleepThreshold();
 
-    MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Critical=%dmV (0%% SOC), UVLO=%dmV, Reason=0x%02X",
-                       vbat_mv, critical_threshold, uvlo_threshold, shutdown_reason);
+    MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Wake=%dmV (0%% SOC), Sleep=%dmV, Reason=0x%02X",
+                       vbat_mv, wake_threshold, sleep_threshold, shutdown_reason);
 
     // BAT_UNKNOWN: No battery type configured yet (fresh flash / factory state).
-    // Danger zone thresholds are meaningless without known chemistry.
-    // Charging is already disabled for BAT_UNKNOWN, so skip all danger zone logic
+    // Low-voltage thresholds are meaningless without known chemistry.
+    // Charging is already disabled for BAT_UNKNOWN, so skip all low-voltage logic
     // and let the user configure the battery type first.
     if (bootBatType == BoardConfigContainer::BAT_UNKNOWN) {
-      MESH_DEBUG_PRINTLN("Early Boot: BAT_UNKNOWN - skipping Danger Zone check (configure battery type first)");
-      // Clear any stale danger zone flags from previous firmware/session
+      MESH_DEBUG_PRINTLN("Early Boot: BAT_UNKNOWN - skipping low-voltage check (configure battery type first)");
+      // Clear any stale flags from previous firmware/session
       if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE ||
-          (shutdown_reason & GPREGRET2_IN_DANGER_ZONE)) {
+          (shutdown_reason & GPREGRET2_LOW_VOLTAGE_SLEEP)) {
         NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
         MESH_DEBUG_PRINTLN("Early Boot: Cleared stale GPREGRET2 flags (was 0x%02X)", shutdown_reason);
       }
     }
-    // Case 1: Waking from danger zone (System ON Idle → NVIC_SystemReset)
-    // The idle loop already verified voltage >= critical before triggering reset,
-    // so we should always have recovered voltage here.
+    // Case 1: Waking from low-voltage sleep (RTC wake → System-Off → reboot)
+    // Voltage must be >= wake_threshold to allow full boot, otherwise go back to sleep.
     else if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
-      MESH_DEBUG_PRINTLN("Danger zone recovery: voltage=%dmV (threshold=%dmV)", vbat_mv, critical_threshold);
+      MESH_DEBUG_PRINTLN("Low-voltage recovery: voltage=%dmV (wake=%dmV)", vbat_mv, wake_threshold);
 
-      // Visual indication: 3x fast blue blink to show RTC wake-up
+      if (vbat_mv < wake_threshold) {
+        // Still too low — go back to sleep
+        MESH_DEBUG_PRINTLN("Voltage still below wake threshold - sleeping again for %d min", LOW_VOLTAGE_SLEEP_MINUTES);
+        configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
+        NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
+        sd_power_system_off();
+        // Never returns
+      }
+
+      // Voltage recovered — allow full boot with SOC = 0%
       if (boardConfig.getLEDsEnabled()) {
         for (int i = 0; i < 3; i++) {
           digitalWrite(LED_BLUE, HIGH);
@@ -166,34 +171,23 @@ void InheroMr2Board::begin() {
         }
       }
 
-      // Clear ALL flags including Danger Zone - we're exiting!
       NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-      boardConfig.setDangerZoneRecovery();
+      boardConfig.setLowVoltageRecovery();
     }
-    // Case 2: ColdBoot after Hardware-UVLO (GPREGRET2 may have Danger Zone flag from previous session)
-    // This is the critical case to prevent motorboating!
-    else if (vbat_mv < critical_threshold) {
-      MESH_DEBUG_PRINTLN("ColdBoot in danger zone detected (%dmV < %dmV)", vbat_mv, critical_threshold);
-      MESH_DEBUG_PRINTLN("Likely Hardware-UVLO recovery at %dmV - voltage not stable yet", uvlo_threshold);
-      MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", DANGER_ZONE_SLEEP_MINUTES);
+    // Case 2: ColdBoot with voltage below sleep threshold — immediate sleep
+    else if (vbat_mv < sleep_threshold) {
+      MESH_DEBUG_PRINTLN("ColdBoot below sleep threshold (%dmV < %dmV)", vbat_mv, sleep_threshold);
+      MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", LOW_VOLTAGE_SLEEP_MINUTES);
 
       delay(100);
-
-      // Do NOT send sleep command here - would cause race condition with bootup
-      // voltageMonitorTask will handle sleep after full system initialization
-
-      // Configure RTC wake-up before shutdown
-      configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
-
-      // Store reason AND set Danger Zone flag (this was ColdBoot, no flag set yet)
-      NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | SHUTDOWN_REASON_LOW_VOLTAGE;
-
+      configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
+      NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
       sd_power_system_off();
       // Never returns
     }
     // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
     else {
-      MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, critical_threshold);
+      MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, sleep_threshold);
     }
   }
 
@@ -204,9 +198,6 @@ void InheroMr2Board::begin() {
   // LEDs already initialized in boardConfig.begin()
   // Blue LED was used for boot sequence visualization
   // Red LED indicates missing components (if blinking)
-
-  // Danger Zone status was already checked earlier in begin()
-  // SX1262 sleep state is now managed synchronously on boot before RadioLib init
 
   // Start hardware watchdog (600s timeout)
   // Must be last - after all initializations are complete
@@ -546,7 +537,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
           BoardConfigContainer::getFrostChargeBehaviourCommandString(boardConfig.getFrostChargeBehaviour());
     }
     float chargeVoltage = boardConfig.getMaxChargeVoltage();
-    float voltage0Soc = getVoltageCriticalThreshold() / 1000.0f;
+    float voltage0Soc = getLowVoltageWakeThreshold() / 1000.0f;
     const char* imax = boardConfig.getChargeCurrentAsStr();
     bool mpptEnabled = boardConfig.getMPPTEnabled();
 
@@ -567,21 +558,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     // Get current NTC temperature calibration offset
     float offset = boardConfig.getTcCalOffset();
     snprintf(reply, maxlen, "TC offset: %+.2f C (0.00=default)", offset);
-    return true;
-  } else if (strcmp(cmd, "uvlo") == 0) {
-    // Get INA228 UVLO enable state with register readback for diagnostics
-    bool enabled = boardConfig.getUvloEnabled();
-    Ina228Driver* ina = boardConfig.getIna228Driver();
-    if (ina != nullptr) {
-      uint16_t buvl_raw = ina->readBuvlRegister();
-      uint16_t buvl_mv = (uint16_t)(buvl_raw * 3.125f);
-      uint16_t diag = ina->getDiagnosticFlags();
-      snprintf(reply, maxlen, "UVLO:%s BUVL=0x%04X(%dmV) DIAG=0x%04X AL%d",
-               enabled ? "ON" : "OFF", buvl_raw, buvl_mv,
-               diag, (diag >> 15) & 1);
-    } else {
-      snprintf(reply, maxlen, "UVLO: %s (INA228 N/A)", enabled ? "ENABLED" : "DISABLED");
-    }
     return true;
   } else if (strcmp(cmd, "leds") == 0) {
     // Get LED enable state (heartbeat + BQ stat LED)
@@ -638,7 +614,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|uvlo|leds|batcap|panel");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|ibcal|iboffset|tccal|leds|batcap|panel");
   return true;
 }
 
@@ -857,23 +833,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Use 'on/1' or 'off/0'");
       return ret;
     }
-  } else if (strncmp(setCommand, "uvlo ", 5) == 0) {
-    // Enable/disable INA228 UVLO alert
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
-    bool enabled = (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0);
-    bool disabled = (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "FALSE") == 0);
-
-    if (enabled || disabled) {
-      if (boardConfig.setUvloEnabled(enabled)) {
-        snprintf(ret, sizeof(ret), "UVLO %s (persistent)", enabled ? "ENABLED" : "DISABLED");
-      } else {
-        snprintf(ret, sizeof(ret), "Err: Failed to save UVLO setting");
-      }
-      return ret;
-    } else {
-      snprintf(ret, sizeof(ret), "Err: Use 'true/1', 'false/0'");
-      return ret;
-    }
   } else if (strncmp(setCommand, "soc ", 4) == 0) {
     // Manually set SOC percentage (e.g. after reboot with known SOC)
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[4]));
@@ -908,63 +867,53 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|uvlo|soc|panel");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|ibcal|iboffset|tccal|bqreset|leds|soc|panel");
   return ret;
 }
 
 // ===== Power Management Methods (v0.2) =====
 
-/// @brief Get voltage threshold for critical software shutdown (chemistry-specific)
-/// @return Threshold in millivolts - Danger zone boundary and 0% SOC point
-uint16_t InheroMr2Board::getVoltageCriticalThreshold() {
+/// @brief Get low-voltage sleep threshold (chemistry-specific)
+/// @return Sleep threshold in millivolts (INA228 ALERT fires here)
+uint16_t InheroMr2Board::getLowVoltageSleepThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  return BoardConfigContainer::getVoltageCriticalThreshold(chemType);
+  return BoardConfigContainer::getLowVoltageSleepThreshold(chemType);
 }
 
-/// @brief Get hardware UVLO voltage cutoff (chemistry-specific)
-/// @return Hardware cutoff voltage in millivolts (INA228 Alert threshold)
-uint16_t InheroMr2Board::getVoltageHardwareCutoff() {
+/// @brief Get low-voltage wake threshold (chemistry-specific)
+/// @return Wake threshold in millivolts (0% SOC marker, RTC wake decision)
+uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
-  return BoardConfigContainer::getVoltageHardwareCutoff(chemType);
+  return BoardConfigContainer::getLowVoltageWakeThreshold(chemType);
 }
 
-/// @brief Initiate controlled shutdown with filesystem protection (v0.2)
+/// @brief Initiate controlled shutdown with filesystem protection (Rev 1.0)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
 ///
-/// For low-voltage shutdowns: Uses System ON Idle instead of System OFF.
-/// This keeps GPIO output latches active so BQ_CE_PIN stays LOW, allowing
-/// the BQ25798 to continue solar charging autonomously while the nRF52 sleeps.
-/// SysTick, SoftDevice (BLE), and SX1262 are disabled to minimize consumption.
-/// BQ interrupt is detached to prevent spurious wake-ups from solar events.
-/// Only the RTC countdown timer wakes the CPU (via GPIOTE + __WFI) for periodic voltage checks.
-/// Measured power: ~0.6 mA (System ON Idle, SoftDevice off) vs ~2 µA (System OFF).
+/// Rev 1.0 low-voltage shutdown uses true System-Off (~15µA total):
+/// - INA228 enters shutdown mode (~3.5µA)
+/// - BQ CE pin latched HIGH via FET (solar charging continues autonomously)
+/// - RTC countdown timer configured for periodic wake
+/// - nRF52 enters System-Off (~1.5µA) — GPIO latches preserved
+/// - RTC wake triggers reboot; Early Boot checks voltage for boot vs sleep-again
 void InheroMr2Board::initiateShutdown(uint8_t reason) {
   MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
 
   // 1. Stop background tasks to prevent filesystem corruption
   BoardConfigContainer::stopBackgroundTasks();
 
-  // 2. INA228 power management in danger zone depends on UVLO setting:
-  //   - UVLO=1: INA228 MUST stay in continuous mode so BUVL comparator fires ALERT.
-  //     Shutdown (MODE=0x0) disables ALL conversions AND comparisons → UVLO breaks!
-  //     Coulomb Counter is not needed in danger zone (SOC is reset to 0% on recovery).
-  //   - UVLO=0: INA228 can be shut down to save power (~1µA vs ~1mA continuous).
-  //     No BUVL monitoring needed. Coulomb counting not needed in danger zone.
-  bool uvlo_active = boardConfig.getUvloEnabled();
-  if (uvlo_active) {
-    MESH_DEBUG_PRINTLN("PWRMGT: INA228 stays active (UVLO alert requires continuous mode)");
-  } else {
-    Ina228Driver* ina = boardConfig.getIna228Driver();
-    if (ina) {
-      ina->shutdown();
-    }
-    MESH_DEBUG_PRINTLN("PWRMGT: INA228 shut down (UVLO disabled, saving power)");
+  // 2. INA228: Shutdown mode to minimize sleep current (~3.5µA vs ~300µA continuous)
+  //    No BUVL monitoring needed in sleep — RTC wakes us for voltage check.
+  Ina228Driver* ina = boardConfig.getIna228Driver();
+  if (ina) {
+    ina->shutdown();
+    MESH_DEBUG_PRINTLN("PWRMGT: INA228 shutdown (saving power)");
   }
 
-  // 3. Put SX1262 into sleep mode via SPI (~0.16 µA vs ~5 mA active RX)
+  // 3. Put SX1262 into sleep mode via SPI (~0.16µA vs ~5mA active RX)
   // MUST happen BEFORE PE4259 power-off — SPI communication still needs stable power
   MESH_DEBUG_PRINTLN("PWRMGT: Putting SX1262 to sleep");
-  radio_driver.powerOff();  // calls radio.sleep(false) — cold sleep, lowest power
+  radio_driver.powerOff();
   delay(10);
 
   // 4. Power off PE4259 RF switch (cut VDD to antenna switch)
@@ -972,112 +921,39 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   delay(10);
 
   // 5. Turn off LEDs
-  // Note: BQ25798 and INA228 are on VSYS, not affected
   digitalWrite(PIN_LED1, LOW);
   digitalWrite(PIN_LED2, LOW);
 
   if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - syncing filesystem");
+    MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - entering System-Off with CE latched");
 
-    // TODO: Explicit filesystem sync when LittleFS is integrated
-    // For now, stopBackgroundTasks() should flush pending writes
     delay(100); // Allow I/O to complete
 
-    // 6. Configure RTC to wake us up periodically for voltage check
-    configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
+    // 6. Latch BQ CE pin HIGH (FET ON = CE LOW = charge enabled)
+    // GPIO output latch survives System-Off as long as VDD is present
+#ifdef BQ_CE_PIN
+    digitalWrite(BQ_CE_PIN, HIGH);
+    MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
+#endif
 
-    // 7. Store shutdown reason for next boot (in case of unexpected reset)
-    NRF_POWER->GPREGRET2 = GPREGRET2_IN_DANGER_ZONE | reason;
+    // 7. Configure RTC to wake us up periodically for voltage check
+    configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
 
-    // BQ_INT_PIN no longer used — no interrupt to detach
-    // BQ25798 MPPT/CC/CV runs autonomously in hardware — no CPU needed
+    // 8. Store shutdown reason for Early Boot decision
+    NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason;
 
-    // 9. System ON Idle with in-loop voltage checking
-    // GPIO outputs remain latched (CE stays LOW → solar charges)
-    // Measured: ~0.6 mA total (SoftDevice off, SysTick off, SX1262 sleeping)
-    //
-    // CRITICAL: Voltage is checked HERE in the loop, NOT via NVIC_SystemReset().
-    // This avoids unnecessary full reboots while voltage is still low, and
-    // prevents the CE-Pin bug: a reboot → begin() → sd_power_system_off()
-    // would release GPIO latches → CE HIGH → solar charging blocked!
-    MESH_DEBUG_PRINTLN("PWRMGT: Entering System ON Idle (CE pin preserved for solar charging)");
-    Serial.flush();  // Ensure all debug output is sent before we disable SoftDevice
+    MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEM-OFF (~15uA)");
+    delay(50);
 
-    // CRITICAL: Disable FreeRTOS SysTick BEFORE entering idle loop.
-    // Without this, SysTick fires every 1ms, waking the CPU, and FreeRTOS
-    // keeps scheduling loopTask (mesh, radio, BLE) — the board never sleeps!
-    SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
-    __DSB();
-
-    // CRITICAL: Disable SoftDevice (BLE stack) entirely.
-    // SoftDevice keeps BLE radio active (~2-3 mA advertising/scanning) even
-    // with SysTick disabled. We don't need BLE in danger zone sleep.
-    // NVIC_SystemReset() on voltage recovery reinitializes everything.
-    // After sd_softdevice_disable():
-    //   - sd_app_evt_wait() is no longer available → use __WFI() directly
-    //   - GPIOTE is fully under our control → attachInterrupt() works reliably
-    //   - Wire/I2C (TWIM peripheral) still works — no SoftDevice dependency
-    //   - GPIO output latches are preserved (CE pin stays LOW)
-    sd_softdevice_disable();
-
-    // Re-attach GPIOTE interrupt for RTC_INT_PIN now that SoftDevice is disabled.
-    // GPIOTE is fully ours — no SoftDevice interference.
-    attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
-
-    uint16_t critical_threshold = getVoltageCriticalThreshold();
-
-    // Idle loop: sleep → GPIOTE wake → check voltage → sleep again or reboot
-    while (true) {
-      rtc_irq_pending = false;
-
-      // __WFI: CPU enters System ON Idle until any enabled NVIC interrupt fires.
-      // __WFE would NOT work here — WFE waits for SEV events, not interrupts!
-      // __WFI wakes on GPIOTE interrupt from RTC_INT_PIN FALLING edge.
-      // With SoftDevice disabled and SysTick off, only GPIOTE can wake us.
-      while (!rtc_irq_pending) {
-        __WFI();
-      }
-
-      // Clear RTC Timer Flag (TF) to release INT pin back HIGH via pull-up
-      Wire.beginTransmission(RTC_I2C_ADDR);
-      Wire.write(RV3028_REG_STATUS);
-      Wire.write(0x00);  // Clear TF (bit 3) and all other status flags
-      Wire.endTransmission();
-
-      // RTC fired — read battery voltage via INA228 One-Shot (I2C works without SoftDevice)
-      // NOTE: readVBATDirect() sets ADC_CONFIG to single-shot (MODE=0x1) which auto-completes
-      //       to shutdown (MODE=0x0). If UVLO is active, we MUST restore continuous mode
-      //       afterwards so the BUVL comparator keeps monitoring battery voltage.
-      uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
-
-      if (uvlo_active) {
-        // Restore INA228 to continuous mode for UVLO comparator
-        // Use raw I2C (same pattern as Early Boot) since driver instance may not be usable
-        Wire.beginTransmission(0x40);
-        Wire.write(0x01); // ADC_CONFIG register
-        Wire.write(0xF0); // MSB: MODE=0xF (Continuous all channels)
-        Wire.write(0x03); // LSB: AVG=64 (low power, sufficient for UVLO comparison)
-        Wire.endTransmission();
-      }
-
-      if (vbat_mv > 0 && vbat_mv >= critical_threshold) {
-        // Voltage recovered — reboot to resume normal operation
-        NVIC_SystemReset();
-        // Never returns
-      }
-
-      // Still too low — reconfigure RTC and go back to sleep
-      // CE-Pin stays LOW, solar charging continues autonomously
-      configureRTCWake(DANGER_ZONE_SLEEP_MINUTES);
-    }
-    // Never reaches here
+    sd_power_system_off();
+    // Never returns — RTC wake triggers full reboot; Early Boot checks voltage
   }
 
   // Non-low-voltage shutdown (user request, thermal): use System OFF
   NRF_POWER->GPREGRET2 = reason;
 
   MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEMOFF");
-  delay(50); // Let debug output complete
+  delay(50);
 
   sd_power_system_off();
   // Never returns
@@ -1089,7 +965,7 @@ void InheroMr2Board::configureRTCWake(uint32_t minutes) {
 #if defined(INHERO_MR2)
   rtc_clock.setLocked(true);
 #endif
-  uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? DANGER_ZONE_SLEEP_MINUTES : minutes);
+  uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? LOW_VOLTAGE_SLEEP_MINUTES : minutes);
   if (countdown_ticks == 0) {
     countdown_ticks = 1;
   }

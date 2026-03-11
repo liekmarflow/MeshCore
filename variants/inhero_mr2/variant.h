@@ -68,7 +68,8 @@ static const uint8_t WB_SPI_MOSI = 30; // IO_SLOT
 #define PIN_LED1           (35)
 #define PIN_LED2           (36)
 #define BQ_INT_PIN         (21)
-#define BQ_CE_PIN          (4)   // P0.04 (WB_IO4) - BQ25798 Charge Enable (active LOW, ext. pull-up to VSYS)
+#define BQ_CE_PIN          (4)   // P0.04 (WB_IO4) - BQ25798 CE via DMN2004TK-7 FET (inverted: HIGH=charge enable, LOW=charge disable)
+#define INA_ALERT_PIN      (34)  // P1.02 (WB_IO2) - INA228 ALERT (active-low, open-drain) for low-voltage sleep trigger
 
 #define LED_BUILTIN        PIN_LED1
 #define LED_CONN           PIN_LED2
