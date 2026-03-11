@@ -930,12 +930,22 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   // 1. Stop background tasks to prevent filesystem corruption
   BoardConfigContainer::stopBackgroundTasks();
 
-  // 2. INA228 stays RUNNING in danger zone (v0.2 hardware)
-  // Reasons:
-  //   a) Coulomb Counter must keep tracking solar charge recovery (SOC)
-  //   b) UVLO alert (BUVL comparison) only works when ADC is in continuous mode
-  //      — shutdown (MODE=0x0) disables ALL conversions and comparisons
-  MESH_DEBUG_PRINTLN("PWRMGT: INA228 stays active (Coulomb Counter + UVLO alert)");
+  // 2. INA228 power management in danger zone depends on UVLO setting:
+  //   - UVLO=1: INA228 MUST stay in continuous mode so BUVL comparator fires ALERT.
+  //     Shutdown (MODE=0x0) disables ALL conversions AND comparisons → UVLO breaks!
+  //     Coulomb Counter is not needed in danger zone (SOC is reset to 0% on recovery).
+  //   - UVLO=0: INA228 can be shut down to save power (~1µA vs ~1mA continuous).
+  //     No BUVL monitoring needed. Coulomb counting not needed in danger zone.
+  bool uvlo_active = boardConfig.getUvloEnabled();
+  if (uvlo_active) {
+    MESH_DEBUG_PRINTLN("PWRMGT: INA228 stays active (UVLO alert requires continuous mode)");
+  } else {
+    Ina228Driver* ina = boardConfig.getIna228Driver();
+    if (ina) {
+      ina->shutdown();
+    }
+    MESH_DEBUG_PRINTLN("PWRMGT: INA228 shut down (UVLO disabled, saving power)");
+  }
 
   // 3. Put SX1262 into sleep mode via SPI (~0.16 µA vs ~5 mA active RX)
   // MUST happen BEFORE PE4259 power-off — SPI communication still needs stable power
@@ -1021,7 +1031,20 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
       Wire.endTransmission();
 
       // RTC fired — read battery voltage via INA228 One-Shot (I2C works without SoftDevice)
+      // NOTE: readVBATDirect() sets ADC_CONFIG to single-shot (MODE=0x1) which auto-completes
+      //       to shutdown (MODE=0x0). If UVLO is active, we MUST restore continuous mode
+      //       afterwards so the BUVL comparator keeps monitoring battery voltage.
       uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+
+      if (uvlo_active) {
+        // Restore INA228 to continuous mode for UVLO comparator
+        // Use raw I2C (same pattern as Early Boot) since driver instance may not be usable
+        Wire.beginTransmission(0x40);
+        Wire.write(0x01); // ADC_CONFIG register
+        Wire.write(0xF0); // MSB: MODE=0xF (Continuous all channels)
+        Wire.write(0x03); // LSB: AVG=64 (low power, sufficient for UVLO comparison)
+        Wire.endTransmission();
+      }
 
       if (vbat_mv > 0 && vbat_mv >= critical_threshold) {
         // Voltage recovered — reboot to resume normal operation

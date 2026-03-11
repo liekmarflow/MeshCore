@@ -171,9 +171,7 @@ static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid so
 // - Recovery requires PHYSICAL battery disconnect to reset INA228 registers
 // - Or complete battery voltage collapse (INA loses power)
 // This is intentional: Forces battery replacement/external charging for extreme deep discharge
-
-// Temporary: disable INA228 UVLO alert during lab testing.
-static const bool INA228_UVLO_ENABLED = false;
+// UVLO enable/disable is controlled via "set board.uvlo 0|1" → loadUvloEnabled() / applyUvloSetting()
 
 void BoardConfigContainer::runVoltageMonitor() {
   static bool init_done = false;

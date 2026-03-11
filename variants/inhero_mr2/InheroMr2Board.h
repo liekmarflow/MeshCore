@@ -36,7 +36,7 @@
 #define P_LORA_SCLK                  43
 #define P_LORA_MISO                  45
 #define P_LORA_MOSI                  44
-#define SX126X_POWER_EN              37  // P1.05 — PE4259 RF switch VDD (power enable)
+#define SX126X_POWER_EN              37 // P1.05 — PE4259 RF switch VDD (power enable)
 
 // GPS module support (future expansion)
 // Note: GPS pins not yet configured in MR2 hardware
@@ -73,6 +73,7 @@
 #define GPREGRET2_IN_DANGER_ZONE     0x04 // Bit 2: In Danger Zone (SX1262 disabled)
 
 // Danger Zone sleep duration (used by Early Boot and voltageMonitorTask)
+//#define DANGER_ZONE_SLEEP_MINUTES    (1) // 1 minute — testing value
 #define DANGER_ZONE_SLEEP_MINUTES    (60) // 1 hour — low cost at ~0.6mA idle
 
 // Voltage monitor check interval during normal operation
@@ -106,18 +107,18 @@ public:
   /// @brief RTC interrupt handler (called by hardware interrupt)
   static void rtcInterruptHandler();
 
-  const char* getManufacturerName() const override { return "Inhero MR2"; }
+  const char *getManufacturerName() const override { return "Inhero MR2"; }
 
   void reboot() override { NVIC_SystemReset(); }
 
-  bool startOTAUpdate(const char* id, char reply[]) override;
+  bool startOTAUpdate(const char *id, char reply[]) override;
 
-  bool getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) override;
-  const char* setCustomSetter(const char* setCommand) override;
-  bool queryBoardTelemetry(CayenneLPP& telemetry) override;
+  bool getCustomGetter(const char *getCommand, char *reply, uint32_t maxlen) override;
+  const char *setCustomSetter(const char *setCommand) override;
+  bool queryBoardTelemetry(CayenneLPP &telemetry) override;
 
 private:
-  uint8_t findNextFreeChannel(CayenneLPP& lpp);
+  uint8_t findNextFreeChannel(CayenneLPP &lpp);
   static uint16_t socToLiIonMilliVolts(float soc_percent);
   static volatile bool rtc_irq_pending;
   static volatile uint32_t ota_dfu_reset_at; ///< millis() timestamp for deferred DFU reset (0 = inactive)
