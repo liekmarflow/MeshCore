@@ -217,7 +217,14 @@ void BoardConfigContainer::runVoltageMonitor() {
     const BatteryProperties* props = getBatteryProperties(battType);
     critical_mv = props ? props->danger_threshold : 2000;  // Fallback to 2000mV if lookup fails
 
-    MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
+    // BAT_UNKNOWN: No battery type configured (fresh flash / factory state).
+    // Danger zone is meaningless without known chemistry — disable monitoring.
+    if (battType == DEFAULT_BATTERY_TYPE && DEFAULT_BATTERY_TYPE == BAT_UNKNOWN) {
+      critical_mv = 0;  // 0 = disabled, no voltage will trigger danger zone
+      MESH_DEBUG_PRINTLN("Voltage Monitor: DISABLED (BAT_UNKNOWN - configure battery type first)");
+    } else {
+      MESH_DEBUG_PRINTLN("Voltage Monitor: Critical=%dmV (Danger Zone boundary)", critical_mv);
+    }
 
     MESH_DEBUG_PRINTLN("PWRMGT: Waiting 2s for system stabilization before initial check");
     next_check_ms = now_ms + 2000;
@@ -248,6 +255,16 @@ void BoardConfigContainer::runVoltageMonitor() {
   uint16_t vbat_mv = 0;
   if (ina228DriverInstance) {
     vbat_mv = ina228DriverInstance->readVoltage_mV();
+  }
+
+  // critical_mv == 0 means danger zone is disabled (BAT_UNKNOWN)
+  if (critical_mv == 0) {
+    // Clear any stale danger zone flags
+    if (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) {
+      NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+    }
+    next_check_ms = now_ms + VOLTAGE_CHECK_INTERVAL_MS;
+    return;
   }
 
   bool in_danger_zone = (NRF_POWER->GPREGRET2 & GPREGRET2_IN_DANGER_ZONE) != 0;

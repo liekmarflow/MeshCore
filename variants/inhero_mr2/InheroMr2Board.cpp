@@ -130,16 +130,30 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
     // Continue boot if we can't read voltage (better than blocking)
   } else {
+    BoardConfigContainer::BatteryType bootBatType = boardConfig.getBatteryType();
     uint16_t critical_threshold = getVoltageCriticalThreshold();
     uint16_t uvlo_threshold = getVoltageHardwareCutoff();
 
     MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Critical=%dmV (0%% SOC), UVLO=%dmV, Reason=0x%02X",
                        vbat_mv, critical_threshold, uvlo_threshold, shutdown_reason);
 
+    // BAT_UNKNOWN: No battery type configured yet (fresh flash / factory state).
+    // Danger zone thresholds are meaningless without known chemistry.
+    // Charging is already disabled for BAT_UNKNOWN, so skip all danger zone logic
+    // and let the user configure the battery type first.
+    if (bootBatType == BoardConfigContainer::BAT_UNKNOWN) {
+      MESH_DEBUG_PRINTLN("Early Boot: BAT_UNKNOWN - skipping Danger Zone check (configure battery type first)");
+      // Clear any stale danger zone flags from previous firmware/session
+      if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE ||
+          (shutdown_reason & GPREGRET2_IN_DANGER_ZONE)) {
+        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+        MESH_DEBUG_PRINTLN("Early Boot: Cleared stale GPREGRET2 flags (was 0x%02X)", shutdown_reason);
+      }
+    }
     // Case 1: Waking from danger zone (System ON Idle → NVIC_SystemReset)
     // The idle loop already verified voltage >= critical before triggering reset,
     // so we should always have recovered voltage here.
-    if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
+    else if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
       MESH_DEBUG_PRINTLN("Danger zone recovery: voltage=%dmV (threshold=%dmV)", vbat_mv, critical_threshold);
 
       // Visual indication: 3x fast blue blink to show RTC wake-up
