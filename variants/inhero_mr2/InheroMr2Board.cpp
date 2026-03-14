@@ -27,6 +27,7 @@
 
 #include "BoardConfigContainer.h"
 #include "target.h"
+#include "lib/I2CMutex.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -214,10 +215,6 @@ void InheroMr2Board::begin() {
 }
 
 void InheroMr2Board::tick() {
-  // Feed watchdog to prevent system reset
-  // This ensures the main loop is running properly
-  BoardConfigContainer::feedWatchdog();
-
   // Deferred OTA DFU reset: wait for CLI reply to be sent, then enter bootloader
   if (ota_dfu_reset_at != 0 && millis() >= ota_dfu_reset_at) {
     enterOTADfu();  // disables SoftDevice & interrupts, sets GPREGRET, resets — does not return
@@ -227,6 +224,7 @@ void InheroMr2Board::tick() {
     rtc_irq_pending = false;
 
     // Clear TF here (not in ISR) to avoid I2C bus collisions with core RTC access.
+    I2C_MUTEX_TAKE();
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_STATUS);
     Wire.endTransmission(false);
@@ -241,7 +239,21 @@ void InheroMr2Board::tick() {
       Wire.write(status);
       Wire.endTransmission();
     }
+    I2C_MUTEX_GIVE();
   }
+
+  // Check background task health before feeding the watchdog.
+  // If a task is stuck (likely in a Wire busy-wait), attempt bus recovery.
+  // If recovery fails, we stop feeding the WDT → hardware reset after 600s.
+  if (!BoardConfigContainer::areBackgroundTasksAlive()) {
+    BoardConfigContainer::recoverI2CBus();
+    // Don't feed watchdog this tick — let the stuck task prove it recovered
+    // on the next tick via an updated liveness timestamp.
+    return;
+  }
+
+  // All healthy — feed watchdog at the END (after I2C operations completed successfully)
+  BoardConfigContainer::feedWatchdog();
 }
 
 uint16_t InheroMr2Board::getBattMilliVolts() {

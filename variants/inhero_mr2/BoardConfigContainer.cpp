@@ -29,6 +29,7 @@
 #include "lib/BqDriver.h"
 #include "lib/Ina228Driver.h"
 #include "lib/SimplePreferences.h"
+#include "lib/I2CMutex.h"
 
 #include <ArduinoJson.h>
 #include <FreeRTOS.h>
@@ -47,31 +48,36 @@ extern GuardedRTCClock rtc_clock;
 // Helper function to get RTC time safely
 namespace {
   inline uint32_t getRTCTime() {
-    return ((mesh::RTCClock&)rtc_clock).getCurrentTime();
+    I2C_MUTEX_TAKE();
+    uint32_t t = ((mesh::RTCClock&)rtc_clock).getCurrentTime();
+    I2C_MUTEX_GIVE();
+    return t;
   }
 
   bool isRtcPeriodicWakeConfigured(uint16_t expected_minutes);
   void configureRtcPeriodicWake(uint16_t minutes);
 
   bool isRtcPeriodicWakeConfigured(uint16_t expected_minutes) {
+    I2C_MUTEX_TAKE();
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL1);
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) return false;
+    if (Wire.endTransmission(false) != 0) { I2C_MUTEX_GIVE(); return false; }
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) { I2C_MUTEX_GIVE(); return false; }
     uint8_t ctrl1 = Wire.read();
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL2);
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) return false;
+    if (Wire.endTransmission(false) != 0) { I2C_MUTEX_GIVE(); return false; }
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1) != 1) { I2C_MUTEX_GIVE(); return false; }
     uint8_t ctrl2 = Wire.read();
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_TIMER_VALUE_0);
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)2) != 2) return false;
+    if (Wire.endTransmission(false) != 0) { I2C_MUTEX_GIVE(); return false; }
+    if (Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)2) != 2) { I2C_MUTEX_GIVE(); return false; }
     uint8_t val0 = Wire.read();
     uint8_t val1 = Wire.read();
+    I2C_MUTEX_GIVE();
 
     uint16_t countdown = (uint16_t)val0 | ((uint16_t)(val1 & 0x0F) << 8);
 
@@ -86,6 +92,7 @@ namespace {
 
   void configureRtcPeriodicWake(uint16_t minutes) {
     rtc_clock.setLocked(true);
+    I2C_MUTEX_TAKE();
 
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL1);
@@ -119,6 +126,7 @@ namespace {
     Wire.write(0x10);  // TIE=1
     Wire.endTransmission();
 
+    I2C_MUTEX_GIVE();
     rtc_clock.setLocked(false);
   }
 
@@ -141,6 +149,15 @@ static Ina228Driver ina228(0x40);  // A0=GND, A1=GND
 
 static SimplePreferences prefs;
 
+// Global I2C bus mutex (shared between main loop, solarMpptTask, socUpdateTask)
+SemaphoreHandle_t g_i2c_mutex = NULL;
+
+void i2c_mutex_init() {
+  if (g_i2c_mutex == NULL) {
+    g_i2c_mutex = xSemaphoreCreateRecursiveMutex();
+  }
+}
+
 // Forward declare board instance
 extern InheroMr2Board board;
 
@@ -161,6 +178,8 @@ SolarPanelClass BoardConfigContainer::detectedPanelClass = PANEL_UNKNOWN;
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
 uint32_t BoardConfigContainer::chargeBaselineTime = 0;
+volatile uint32_t BoardConfigContainer::mpptTaskLastAlive = 0;
+volatile uint32_t BoardConfigContainer::socTaskLastAlive = 0;
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -407,6 +426,82 @@ void BoardConfigContainer::disableWatchdog() {
   #ifndef DEBUG_MODE
     wdt_enabled = false;  // Stop feeding the watchdog
   #endif
+}
+
+/// @brief Attempt I2C bus recovery via SCL clock toggling
+/// @details If a slave holds SDA low (stuck bus), toggling SCL up to 9 times as GPIO
+///          gives the slave clock edges to release SDA. After recovery, the Wire peripheral
+///          is re-initialized. This is the standard I2C bus recovery procedure (NXP AN10216).
+/// @return true if SDA is high (bus free) after recovery attempt
+bool BoardConfigContainer::recoverI2CBus() {
+  MESH_DEBUG_PRINTLN("I2C: Bus recovery starting (SCL toggle)");
+
+  // 1. Shut down TWIM peripheral so we can bit-bang the pins
+  Wire.end();
+
+  const uint8_t pinSDA = PIN_BOARD_SDA;
+  const uint8_t pinSCL = PIN_BOARD_SCL;
+
+  // 2. Configure SCL as push-pull output, SDA as input with pull-up
+  pinMode(pinSCL, OUTPUT);
+  pinMode(pinSDA, INPUT_PULLUP);
+  delayMicroseconds(10);
+
+  // 3. Toggle SCL up to 9 times (one full byte + ACK) to free a stuck slave
+  bool sdaFreed = false;
+  for (int i = 0; i < 9; i++) {
+    if (digitalRead(pinSDA) == HIGH) {
+      sdaFreed = true;
+      break;
+    }
+    digitalWrite(pinSCL, LOW);
+    delayMicroseconds(5);
+    digitalWrite(pinSCL, HIGH);
+    delayMicroseconds(5);
+  }
+
+  // 4. Generate STOP condition: SDA low -> SCL high -> SDA high
+  pinMode(pinSDA, OUTPUT);
+  digitalWrite(pinSDA, LOW);
+  delayMicroseconds(5);
+  digitalWrite(pinSCL, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(pinSDA, HIGH);
+  delayMicroseconds(10);
+
+  // 5. Check final SDA state
+  pinMode(pinSDA, INPUT_PULLUP);
+  delayMicroseconds(10);
+  sdaFreed = (digitalRead(pinSDA) == HIGH);
+
+  // 6. Re-initialize Wire peripheral
+  Wire.setPins(pinSDA, pinSCL);
+  Wire.begin();
+
+  MESH_DEBUG_PRINTLN("I2C: Bus recovery %s (SDA=%s)", sdaFreed ? "OK" : "FAILED",
+                     sdaFreed ? "HIGH" : "LOW");
+  return sdaFreed;
+}
+
+/// @brief Check if background I2C tasks are still alive
+/// @details Compares each task's last-alive timestamp against a generous timeout
+///          (3× the task interval = 180s). Returns false if any task appears hung.
+///          Only checks tasks that have started (lastAlive > 0).
+/// @return true if all background tasks are responsive
+bool BoardConfigContainer::areBackgroundTasksAlive() {
+  uint32_t now = millis();
+  const uint32_t TASK_TIMEOUT_MS = 180000;  // 3× the 60s task interval
+
+  // Only check tasks that have actually started (lastAlive != 0)
+  if (mpptTaskLastAlive != 0 && (now - mpptTaskLastAlive) > TASK_TIMEOUT_MS) {
+    MESH_DEBUG_PRINTLN("WDT: solarMpptTask stuck! Last alive %lu ms ago", now - mpptTaskLastAlive);
+    return false;
+  }
+  if (socTaskLastAlive != 0 && (now - socTaskLastAlive) > TASK_TIMEOUT_MS) {
+    MESH_DEBUG_PRINTLN("WDT: socUpdateTask stuck! Last alive %lu ms ago", now - socTaskLastAlive);
+    return false;
+  }
+  return true;
 }
 
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
@@ -742,6 +837,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
   while (true) {
     vTaskDelay(xBlockTime);
+    mpptTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
 
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     if (bqDriverInstance) {
@@ -1516,6 +1612,9 @@ void BoardConfigContainer::getRegisterDump(char* buffer, uint32_t bufferSize) {
 /// @brief Initializes battery manager, potentiometer, preferences, and MPPT task
 /// @return true if both BQ25798 and MCP4652 initialized successfully
 bool BoardConfigContainer::begin() {
+  // Initialize I2C bus mutex FIRST — before any Wire access or task creation
+  i2c_mutex_init();
+
   // Initialize LEDs early for boot sequence visualization
   pinMode(LED_BLUE, OUTPUT);  // Blue LED (P1.03)
   pinMode(LED_RED, OUTPUT);   // Red LED (P1.04)
@@ -3403,6 +3502,8 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
   static bool first_loop = true;
   
   while (true) {
+    socTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
+
     // Run an immediate voltage/RTC check on task start to avoid 60s wait in Danger Zone.
     runVoltageMonitor();
     if (first_loop) {
