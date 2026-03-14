@@ -33,6 +33,7 @@
 #include <Adafruit_BQ25798.h>
 #include <Wire.h>
 #include <math.h>
+#include "I2CMutex.h"
 
 #define R_PULLUP    5600.0f  ///< Upper resistor RT1 in Ohms
 #define R_PARALLEL  27000.0f ///< Lower parallel resistor RT2 in Ohms
@@ -163,6 +164,16 @@ public:
   ~BqDriver();
 
   bool begin(uint8_t i2c_addr = BQ25798_DEFAULT_ADDR, TwoWire* wire = &Wire);
+
+  // Thread-safe wrappers for parent Adafruit_BQ25798 methods (called from FreeRTOS tasks)
+  bool setHIZMode(bool enable)        { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::setHIZMode(enable); I2C_MUTEX_GIVE(); return r; }
+  bool getHIZMode()                   { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::getHIZMode(); I2C_MUTEX_GIVE(); return r; }
+  bool setChargeEnable(bool enable)   { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::setChargeEnable(enable); I2C_MUTEX_GIVE(); return r; }
+  bool getChargeEnable()              { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::getChargeEnable(); I2C_MUTEX_GIVE(); return r; }
+  bool getMPPTenable()                { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::getMPPTenable(); I2C_MUTEX_GIVE(); return r; }
+  bool setMPPTenable(bool enable)     { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::setMPPTenable(enable); I2C_MUTEX_GIVE(); return r; }
+  bool setStatPinEnable(bool enable)  { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::setStatPinEnable(enable); I2C_MUTEX_GIVE(); return r; }
+  bool getStatPinEnable()             { I2C_MUTEX_TAKE(); bool r = Adafruit_BQ25798::getStatPinEnable(); I2C_MUTEX_GIVE(); return r; }
 
   // In der Klasse Adafruit_BQ25798 (unter den bestehenden Funktionsprototypen):
   bq25798_jeita_vset_t getJeitaVSet();

@@ -299,6 +299,12 @@ public:
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
+
+  // I2C bus health monitoring and recovery
+  static volatile uint32_t mpptTaskLastAlive;     ///< millis() timestamp of last solarMpptTask loop completion
+  static volatile uint32_t socTaskLastAlive;       ///< millis() timestamp of last socUpdateTask loop completion
+  static bool recoverI2CBus();                     ///< Attempt I2C bus recovery (SCL toggle + Wire reset)
+  static bool areBackgroundTasksAlive();            ///< Check if background tasks are responsive
   
   // LED control methods
   bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)

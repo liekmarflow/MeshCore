@@ -28,6 +28,7 @@
 
 #include "lib/BqDriver.h"
 #include "lib/Ina228Driver.h"
+#include "lib/I2CMutex.h"
 #include "lib/SimplePreferences.h"
 
 #include <ArduinoJson.h>
@@ -159,6 +160,16 @@ SolarPanelClass BoardConfigContainer::detectedPanelClass = PANEL_UNKNOWN;
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
 uint32_t BoardConfigContainer::chargeBaselineTime = 0;
+volatile uint32_t BoardConfigContainer::mpptTaskLastAlive = 0;
+volatile uint32_t BoardConfigContainer::socTaskLastAlive = 0;
+
+// I2C bus mutex instance
+SemaphoreHandle_t g_i2c_mutex = NULL;
+void i2c_mutex_init() {
+  if (g_i2c_mutex == NULL) {
+    g_i2c_mutex = xSemaphoreCreateRecursiveMutex();
+  }
+}
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -249,6 +260,82 @@ void BoardConfigContainer::disableWatchdog() {
   #ifndef DEBUG_MODE
     wdt_enabled = false;  // Stop feeding the watchdog
   #endif
+}
+
+/// @brief Attempt I2C bus recovery via SCL clock toggling
+/// @details If a slave holds SDA low (stuck bus), toggling SCL up to 9 times as GPIO
+///          gives the slave clock edges to release SDA. After recovery, the Wire peripheral
+///          is re-initialized. This is the standard I2C bus recovery procedure (NXP AN10216).
+/// @return true if SDA is high (bus free) after recovery attempt
+bool BoardConfigContainer::recoverI2CBus() {
+  MESH_DEBUG_PRINTLN("I2C: Bus recovery starting (SCL toggle)");
+
+  // 1. Shut down TWIM peripheral so we can bit-bang the pins
+  Wire.end();
+
+  const uint8_t pinSDA = PIN_BOARD_SDA;
+  const uint8_t pinSCL = PIN_BOARD_SCL;
+
+  // 2. Configure SCL as push-pull output, SDA as input with pull-up
+  pinMode(pinSCL, OUTPUT);
+  pinMode(pinSDA, INPUT_PULLUP);
+  delayMicroseconds(10);
+
+  // 3. Toggle SCL up to 9 times (one full byte + ACK) to free a stuck slave
+  bool sdaFreed = false;
+  for (int i = 0; i < 9; i++) {
+    if (digitalRead(pinSDA) == HIGH) {
+      sdaFreed = true;
+      break;
+    }
+    digitalWrite(pinSCL, LOW);
+    delayMicroseconds(5);
+    digitalWrite(pinSCL, HIGH);
+    delayMicroseconds(5);
+  }
+
+  // 4. Generate STOP condition: SDA low -> SCL high -> SDA high
+  pinMode(pinSDA, OUTPUT);
+  digitalWrite(pinSDA, LOW);
+  delayMicroseconds(5);
+  digitalWrite(pinSCL, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(pinSDA, HIGH);
+  delayMicroseconds(10);
+
+  // 5. Check final SDA state
+  pinMode(pinSDA, INPUT_PULLUP);
+  delayMicroseconds(10);
+  sdaFreed = (digitalRead(pinSDA) == HIGH);
+
+  // 6. Re-initialize Wire peripheral
+  Wire.setPins(pinSDA, pinSCL);
+  Wire.begin();
+
+  MESH_DEBUG_PRINTLN("I2C: Bus recovery %s (SDA=%s)", sdaFreed ? "OK" : "FAILED",
+                     sdaFreed ? "HIGH" : "LOW");
+  return sdaFreed;
+}
+
+/// @brief Check if background I2C tasks are still alive
+/// @details Compares each task's last-alive timestamp against a generous timeout
+///          (3x the task interval = 180s). Returns false if any task appears hung.
+///          Only checks tasks that have started (lastAlive > 0).
+/// @return true if all background tasks are responsive
+bool BoardConfigContainer::areBackgroundTasksAlive() {
+  uint32_t now = millis();
+  const uint32_t TASK_TIMEOUT_MS = 180000;  // 3x the 60s task interval
+
+  // Only check tasks that have actually started (lastAlive != 0)
+  if (mpptTaskLastAlive != 0 && (now - mpptTaskLastAlive) > TASK_TIMEOUT_MS) {
+    MESH_DEBUG_PRINTLN("WDT: solarMpptTask stuck! Last alive %lu ms ago", now - mpptTaskLastAlive);
+    return false;
+  }
+  if (socTaskLastAlive != 0 && (now - socTaskLastAlive) > TASK_TIMEOUT_MS) {
+    MESH_DEBUG_PRINTLN("WDT: socUpdateTask stuck! Last alive %lu ms ago", now - socTaskLastAlive);
+    return false;
+  }
+  return true;
 }
 
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
@@ -501,6 +588,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
 
   while (true) {
     vTaskDelay(xBlockTime);
+    mpptTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
 
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     if (bqDriverInstance) {
@@ -1214,6 +1302,9 @@ bool BoardConfigContainer::begin() {
   }
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
+
+  // Initialize I2C bus mutex before any background tasks start
+  i2c_mutex_init();
   
   // === MR2 Hardware (Rev 1.0): INA228 Power Monitor with ALERT-based low-voltage sleep ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
@@ -2888,6 +2979,8 @@ void BoardConfigContainer::socUpdateTask(void* pvParameters) {
   static uint8_t minute_counter = 0;
   
   while (true) {
+    socTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
+
     // Wait for 1 minute OR immediate wake on low-voltage alert notification
     uint32_t notifyValue = 0;
     BaseType_t notified = xTaskNotifyWait(0, 0xFFFFFFFF, &notifyValue, pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
