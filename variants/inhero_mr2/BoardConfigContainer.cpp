@@ -28,7 +28,6 @@
 
 #include "lib/BqDriver.h"
 #include "lib/Ina228Driver.h"
-#include "lib/I2CMutex.h"
 #include "lib/SimplePreferences.h"
 
 #include <ArduinoJson.h>
@@ -148,9 +147,7 @@ extern InheroMr2Board board;
 // Initialize singleton pointer
 BqDriver* BoardConfigContainer::bqDriverInstance = nullptr;
 Ina228Driver* BoardConfigContainer::ina228DriverInstance = nullptr;
-TaskHandle_t BoardConfigContainer::mpptTaskHandle = NULL;
 TaskHandle_t BoardConfigContainer::heartbeatTaskHandle = NULL;
-TaskHandle_t BoardConfigContainer::socUpdateTaskHandle = NULL;
 volatile bool BoardConfigContainer::lowVoltageAlertFired = false;
 MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
@@ -160,16 +157,6 @@ SolarPanelClass BoardConfigContainer::detectedPanelClass = PANEL_UNKNOWN;
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
 uint32_t BoardConfigContainer::chargeBaselineTime = 0;
-volatile uint32_t BoardConfigContainer::mpptTaskLastAlive = 0;
-volatile uint32_t BoardConfigContainer::socTaskLastAlive = 0;
-
-// I2C bus mutex instance
-SemaphoreHandle_t g_i2c_mutex = NULL;
-void i2c_mutex_init() {
-  if (g_i2c_mutex == NULL) {
-    g_i2c_mutex = xSemaphoreCreateRecursiveMutex();
-  }
-}
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -260,82 +247,6 @@ void BoardConfigContainer::disableWatchdog() {
   #ifndef DEBUG_MODE
     wdt_enabled = false;  // Stop feeding the watchdog
   #endif
-}
-
-/// @brief Attempt I2C bus recovery via SCL clock toggling
-/// @details If a slave holds SDA low (stuck bus), toggling SCL up to 9 times as GPIO
-///          gives the slave clock edges to release SDA. After recovery, the Wire peripheral
-///          is re-initialized. This is the standard I2C bus recovery procedure (NXP AN10216).
-/// @return true if SDA is high (bus free) after recovery attempt
-bool BoardConfigContainer::recoverI2CBus() {
-  MESH_DEBUG_PRINTLN("I2C: Bus recovery starting (SCL toggle)");
-
-  // 1. Shut down TWIM peripheral so we can bit-bang the pins
-  Wire.end();
-
-  const uint8_t pinSDA = PIN_BOARD_SDA;
-  const uint8_t pinSCL = PIN_BOARD_SCL;
-
-  // 2. Configure SCL as push-pull output, SDA as input with pull-up
-  pinMode(pinSCL, OUTPUT);
-  pinMode(pinSDA, INPUT_PULLUP);
-  delayMicroseconds(10);
-
-  // 3. Toggle SCL up to 9 times (one full byte + ACK) to free a stuck slave
-  bool sdaFreed = false;
-  for (int i = 0; i < 9; i++) {
-    if (digitalRead(pinSDA) == HIGH) {
-      sdaFreed = true;
-      break;
-    }
-    digitalWrite(pinSCL, LOW);
-    delayMicroseconds(5);
-    digitalWrite(pinSCL, HIGH);
-    delayMicroseconds(5);
-  }
-
-  // 4. Generate STOP condition: SDA low -> SCL high -> SDA high
-  pinMode(pinSDA, OUTPUT);
-  digitalWrite(pinSDA, LOW);
-  delayMicroseconds(5);
-  digitalWrite(pinSCL, HIGH);
-  delayMicroseconds(5);
-  digitalWrite(pinSDA, HIGH);
-  delayMicroseconds(10);
-
-  // 5. Check final SDA state
-  pinMode(pinSDA, INPUT_PULLUP);
-  delayMicroseconds(10);
-  sdaFreed = (digitalRead(pinSDA) == HIGH);
-
-  // 6. Re-initialize Wire peripheral
-  Wire.setPins(pinSDA, pinSCL);
-  Wire.begin();
-
-  MESH_DEBUG_PRINTLN("I2C: Bus recovery %s (SDA=%s)", sdaFreed ? "OK" : "FAILED",
-                     sdaFreed ? "HIGH" : "LOW");
-  return sdaFreed;
-}
-
-/// @brief Check if background I2C tasks are still alive
-/// @details Compares each task's last-alive timestamp against a generous timeout
-///          (3x the task interval = 180s). Returns false if any task appears hung.
-///          Only checks tasks that have started (lastAlive > 0).
-/// @return true if all background tasks are responsive
-bool BoardConfigContainer::areBackgroundTasksAlive() {
-  uint32_t now = millis();
-  const uint32_t TASK_TIMEOUT_MS = 180000;  // 3x the 60s task interval
-
-  // Only check tasks that have actually started (lastAlive != 0)
-  if (mpptTaskLastAlive != 0 && (now - mpptTaskLastAlive) > TASK_TIMEOUT_MS) {
-    MESH_DEBUG_PRINTLN("WDT: solarMpptTask stuck! Last alive %lu ms ago", now - mpptTaskLastAlive);
-    return false;
-  }
-  if (socTaskLastAlive != 0 && (now - socTaskLastAlive) > TASK_TIMEOUT_MS) {
-    MESH_DEBUG_PRINTLN("WDT: socUpdateTask stuck! Last alive %lu ms ago", now - socTaskLastAlive);
-    return false;
-  }
-  return true;
 }
 
 /// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
@@ -573,23 +484,10 @@ void BoardConfigContainer::setPanelOverride(SolarPanelClass cls) {
   }
 }
 
-void BoardConfigContainer::solarMpptTask(void* pvParameters) {
-  (void)pvParameters;
-
-  delay(2000);
-  
-  // Initialize MPPT statistics
-  // Start with millis() as RTC might not be initialized yet
-  memset(&mpptStats, 0, sizeof(MpptStatistics));
-  mpptStats.lastUpdateTime = millis() / 1000; // Convert to seconds
-  mpptStats.usingRTC = false;
-
-  const TickType_t xBlockTime = pdMS_TO_TICKS(SOLAR_MPPT_TASK_INTERVAL_MS);
-
-  while (true) {
-    vTaskDelay(xBlockTime);
-    mpptTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
-
+/// @brief Single MPPT cycle — called from tickPeriodic() every 60s
+/// @details Extracted from the old solarMpptTask while-loop body.
+///          Runs in tick() context — no concurrent I2C access possible.
+void BoardConfigContainer::runMpptCycle() {
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     if (bqDriverInstance) {
       bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
@@ -603,7 +501,7 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
     if (detectedPanelClass == PANEL_UNKNOWN) {
       classifySolarPanel();
       // If still UNKNOWN after measurement, skip to next cycle
-      if (detectedPanelClass == PANEL_UNKNOWN) continue;
+      if (detectedPanelClass == PANEL_UNKNOWN) return;
       // Otherwise fall through with newly detected class
     }
 
@@ -760,20 +658,13 @@ void BoardConfigContainer::solarMpptTask(void* pvParameters) {
         }
       }
     }
-  }
 }
 
-/// @brief Stops all background FreeRTOS tasks
-/// @details This must be called before OTA update to prevent task interference
+/// @brief Stops heartbeat task and disarms alerts before OTA
+/// @details MPPT and SOC work are tick-based (no tasks to stop).
+///          Only the heartbeat LED task and INA228 alert need cleanup.
 void BoardConfigContainer::stopBackgroundTasks() {
   MESH_DEBUG_PRINTLN("Stopping background tasks for OTA...");
-  
-  // Delete MPPT task if running
-  if (mpptTaskHandle != NULL) {
-    vTaskDelete(mpptTaskHandle);
-    mpptTaskHandle = NULL;
-    MESH_DEBUG_PRINTLN("MPPT task stopped");
-  }
   
   // Delete heartbeat task if running
   if (heartbeatTaskHandle != NULL) {
@@ -785,26 +676,7 @@ void BoardConfigContainer::stopBackgroundTasks() {
   // Disarm INA228 low-voltage alert (Rev 1.0)
   disarmLowVoltageAlert();
   
-  // Delete SOC update task if running
-  // CRITICAL: socUpdateTask handles low-voltage shutdown via task notification.
-  // If we delete the calling task here, vTaskDelete() terminates execution immediately and
-  // initiateShutdown() never reaches System-Off — the board stays alive!
-  if (socUpdateTaskHandle != NULL) {
-    if (socUpdateTaskHandle == xTaskGetCurrentTaskHandle()) {
-      MESH_DEBUG_PRINTLN("SOC task is calling task - skipping self-delete (shutdown will take over)");
-      socUpdateTaskHandle = NULL;  // Clear handle to prevent double-delete
-    } else {
-      vTaskDelete(socUpdateTaskHandle);
-      socUpdateTaskHandle = NULL;
-      MESH_DEBUG_PRINTLN("SOC update task stopped");
-    }
-  }
-  
-  // NOTE: Don't call Wire.end() here - it can interfere with SoftDevice/BLE
-  // The I2C peripheral will be reconfigured if needed after OTA
-  
-  // Longer delay to ensure all FreeRTOS resources are fully released
-  delay(500);
+  delay(200);
   MESH_DEBUG_PRINTLN("Background cleanup complete");
 }
 
@@ -1302,9 +1174,6 @@ bool BoardConfigContainer::begin() {
   }
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
-
-  // Initialize I2C bus mutex before any background tasks start
-  i2c_mutex_init();
   
   // === MR2 Hardware (Rev 1.0): INA228 Power Monitor with ALERT-based low-voltage sleep ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
@@ -1477,14 +1346,7 @@ bool BoardConfigContainer::begin() {
   bq.readReg(0x20); // FAULT_STATUS_0
   bq.readReg(0x21); // FAULT_STATUS_1
 
-  if (mpptTaskHandle == NULL) {
-    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::solarMpptTask, "SolarDaemon", 4096, NULL, 1, &mpptTaskHandle);
-    if (taskCreated != pdPASS) {
-      MESH_DEBUG_PRINTLN("Failed to create MPPT task!");
-      return false;
-    }
-  }
-
+  // Heartbeat LED task (GPIO only — no I2C, safe as FreeRTOS task)
   if (heartbeatTaskHandle == NULL && leds_enabled) {
     BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::heartbeatTask, "Heartbeat", 1024, NULL, 1, &heartbeatTaskHandle);
     if (taskCreated != pdPASS) {
@@ -1492,11 +1354,8 @@ bool BoardConfigContainer::begin() {
       return false;
     }
   }
-  
-  // NOTE: Voltage Monitor Task is started AFTER INA228 initialization (below)
-  // to avoid I2C bus conflicts during hardware setup
 
-  // BQ_INT_PIN no longer used — solar checks run via polling in solarMpptTask
+  // BQ_INT_PIN no longer used — solar checks run via polling in tickPeriodic()
   // Pull up to prevent floating trace on PCB
   pinMode(BQ_INT_PIN, INPUT_PULLUP);
 
@@ -1510,7 +1369,7 @@ bool BoardConfigContainer::begin() {
     if (!INA228_INITIALIZED) MESH_DEBUG_PRINTLN("  - INA228 missing");
     if (!rtc_initialized) MESH_DEBUG_PRINTLN("  - RV-3028 RTC missing");
     
-    // Create error LED blink task
+    // Create error LED blink task (GPIO only)
     if (leds_enabled) {
       xTaskCreate([](void* param) {
         while (1) {
@@ -1523,57 +1382,8 @@ bool BoardConfigContainer::begin() {
     }
   }
   
-  // Voltage monitoring is handled inside socUpdateTask (single periodic loop).
-  
-  // Start SOC Update Task (runs every minute)
-  if (socUpdateTaskHandle == NULL && INA228_INITIALIZED) {
-    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::socUpdateTask, "SOCUpdate", 2048, NULL, 2, &socUpdateTaskHandle);
-    if (taskCreated != pdPASS) {
-      MESH_DEBUG_PRINTLN("Failed to create SOC Update task!");
-      // Non-critical, continue
-    } else {
-      MESH_DEBUG_PRINTLN("SOC Update task started - running every minute");
-    }
-  }
-  
-  // CRITICAL: Verify and fix ADC_CONFIG after all tasks are created
-  // A preempting task may have overwritten ADC_CONFIG
-  if (INA228_INITIALIZED) {
-    delay(50);  // Let tasks settle
-    
-    Wire.beginTransmission(0x40);
-    Wire.write(0x01);  // ADC_CONFIG register
-    Wire.endTransmission(false);
-    Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-    uint16_t adc_cfg_check = 0;
-    if (Wire.available() >= 2) {
-      adc_cfg_check = (Wire.read() << 8) | Wire.read();
-    }
-    
-    if (adc_cfg_check != 0xFFCA) {
-      MESH_DEBUG_PRINTLN("⚠ INA228 ADC_CONFIG=0x%04X after task start - fixing...", adc_cfg_check);
-      
-      // Visual: Rapid red blinks = ADC_CONFIG corrupted by task race
-      if (leds_enabled) {
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_RED, HIGH);
-          delay(100);
-          digitalWrite(LED_RED, LOW);
-          delay(100);
-        }
-      }
-      
-      // Force-write ADC_CONFIG again
-      Wire.beginTransmission(0x40);
-      Wire.write(0x01);
-      Wire.write(0xFF);
-      Wire.write(0xCA);  // 0xFFCA: Long conv times + 16 avg
-      Wire.endTransmission();
-      delay(10);
-      
-      MESH_DEBUG_PRINTLN("INA228 ADC_CONFIG restored to 0xFFCA");
-    }
-  }
+  // MPPT, SOC updates, and voltage monitoring are handled in tickPeriodic()
+  // (called from InheroMr2Board::tick() — no FreeRTOS tasks doing I2C)
   
   // MR2 requires BQ25798 + INA228 (RTC is optional for basic operation)
   return BQ_INITIALIZED && INA228_INITIALIZED;
@@ -2605,16 +2415,11 @@ void BoardConfigContainer::disarmLowVoltageAlert() {
   MESH_DEBUG_PRINTLN("INA228 Low-V Alert: DISARMED");
 }
 
-/// @brief ISR for INA228 ALERT pin — sends task notification to socUpdateTask
+/// @brief ISR for INA228 ALERT pin — sets flag checked in tickPeriodic()
 /// @details Called on falling edge of INA228 ALERT (active-LOW, latched).
-///          Sets volatile flag and notifies socUpdateTask to execute shutdown sequence.
+///          Sets volatile flag; tickPeriodic() checks it and initiates shutdown.
 void BoardConfigContainer::lowVoltageAlertISR() {
   lowVoltageAlertFired = true;
-  if (socUpdateTaskHandle != NULL) {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xTaskNotifyFromISR(socUpdateTaskHandle, 1, eSetBits, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
 }
 
 /// @brief Get low-voltage sleep threshold (INA228 ALERT fires at this level)
@@ -2965,48 +2770,49 @@ float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryT
   return soc;
 }
 
-/// @brief SOC Update Task - runs every minute to update battery statistics
-/// @details Updates SOC from INA228 Coulomb Counter and daily balance statistics.
-///          Also handles low-voltage alert via xTaskNotifyWait — INA228 ALERT ISR
-///          sends notification here, which triggers immediate shutdown.
-/// @param pvParameters Task parameters (unused)
-void BoardConfigContainer::socUpdateTask(void* pvParameters) {
-  (void)pvParameters;
-  
-  MESH_DEBUG_PRINTLN("SOC Update Task started - running every minute (low-V alert armed)");
-  
-  const uint32_t UPDATE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
-  static uint8_t minute_counter = 0;
-  
-  while (true) {
-    socTaskLastAlive = millis();  // Liveness heartbeat for WDT guard
+// ===== Tick-based Periodic Dispatch =====
 
-    // Wait for 1 minute OR immediate wake on low-voltage alert notification
-    uint32_t notifyValue = 0;
-    BaseType_t notified = xTaskNotifyWait(0, 0xFFFFFFFF, &notifyValue, pdMS_TO_TICKS(UPDATE_INTERVAL_MS));
-    
-    // Check for low-voltage alert (ISR notification or flag)
-    if (notified == pdTRUE || lowVoltageAlertFired) {
-      MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System-Off shutdown");
-      blinkRed(1, 100, 100, leds_enabled);
-      blinkRed(3, 300, 300, leds_enabled);
-      
-      NRF_POWER->GPREGRET2 |= GPREGRET2_LOW_VOLTAGE_SLEEP;
-      board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
-      // Never returns
-    }
-    
-    // Normal cadence: Update SOC from Coulomb Counter
+/// @brief Called from InheroMr2Board::tick() — dispatches all periodic I2C work
+/// @details Replaces the old FreeRTOS solarMpptTask + socUpdateTask with
+///          millis()-based scheduling in the main loop context.
+///          Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
+void BoardConfigContainer::tickPeriodic() {
+  // First-call init: clear MPPT stats (was previously in solarMpptTask startup)
+  if (!tickInitialized) {
+    memset(&mpptStats, 0, sizeof(mpptStats));
+    tickInitialized = true;
+  }
+
+  // Check low-voltage alert flag (set by INA228 ALERT ISR)
+  if (lowVoltageAlertFired) {
+    MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System-Off shutdown");
+    blinkRed(1, 100, 100, leds_enabled);
+    blinkRed(3, 300, 300, leds_enabled);
+
+    NRF_POWER->GPREGRET2 |= GPREGRET2_LOW_VOLTAGE_SLEEP;
+    board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
+    // Never returns
+  }
+
+  uint32_t now = millis();
+
+  // Every ~60s: MPPT cycle (solar charging control)
+  if (now - lastMpptMs >= SOLAR_MPPT_TASK_INTERVAL_MS) {
+    lastMpptMs = now;
+    runMpptCycle();
+  }
+
+  // Every ~60s: SOC update from Coulomb Counter
+  if (now - lastSocMs >= 60000UL) {
+    lastSocMs = now;
     updateBatterySOC();
-    
-    minute_counter++;
-    
-    // Every 60 minutes: Update hourly statistics
-    if (minute_counter >= 60) {
-      MESH_DEBUG_PRINTLN("SOC: 60 minutes elapsed - updating hourly stats");
-      updateHourlyStats();
-      minute_counter = 0;
-    }
+  }
+
+  // Every ~60 min: hourly statistics
+  if (now - lastHourlyMs >= 3600000UL) {
+    lastHourlyMs = now;
+    MESH_DEBUG_PRINTLN("SOC: 60 minutes elapsed - updating hourly stats");
+    updateHourlyStats();
   }
 }
 

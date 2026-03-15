@@ -49,11 +49,11 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
 | GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
 
-### Low-Voltage-Handling (Rev 1.0)
+### Low-Voltage-Handling (Rev 1.0 — Flag/Tick-Architektur)
 
 1. **INA228 ALERT** feuert bei `lowv_sleep_mv` (Hardware-Interrupt auf P1.02)
-2. **ISR** setzt Flag + `xTaskNotifyFromISR()` → weckt socUpdateTask
-3. **socUpdateTask** prüft VBAT nochmals (Spike-Filter), bei Bestätigung:
+2. **ISR** setzt `lowVoltageAlertFired = true` (nur volatile Flag, kein FreeRTOS-Aufruf)
+3. **`tickPeriodic()`** (Main-Loop, nächster `tick()`) prüft Flag → Shutdown:
    - CE-Pin → HIGH (Laden an, da FET-invertiert — Solar-Laden bleibt möglich)
    - RTC-Wake konfiguriert (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
    - SOC auf 0% gesetzt
@@ -61,6 +61,9 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 4. **RTC-Wake** (stündlich) → System bootet, Early-Boot prüft VBAT:
    - Unter `lowv_wake_mv` → sofort wieder System-Off (CE bleibt gelatcht)
    - Über `lowv_wake_mv` → normaler Boot, SOC startet bei 0%
+
+> **Hinweis**: Alle I2C-Operationen (MPPT, SOC, Hourly Stats) laufen im Main-Loop-Kontext
+> über `tickPeriodic()` — keine FreeRTOS-Tasks für I2C, kein Mutex nötig.
 
 ### BQ CE-Pin (Rev 1.0 — FET-invertiert)
 - **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE an GND → Laden aktiv

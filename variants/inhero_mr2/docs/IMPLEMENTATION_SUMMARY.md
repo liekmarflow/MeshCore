@@ -79,10 +79,10 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 
 ## 1. Low-Voltage-Erkennung (INA228 ALERT ISR)
 
-### Implementierung (Rev 1.0)
+### Implementierung (Rev 1.0 — Flag/Tick-Architektur)
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT auf P1.02
-- **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt Flag + `xTaskNotifyFromISR()` → weckt socUpdateTask
-- **Verarbeitung**: `socUpdateTask()` prüft VBAT nochmals (Spike-Filter), bei Bestätigung → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
+- **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
+- **Verarbeitung**: `tickPeriodic()` prüft Flag im Main-Loop-Kontext → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
 - **Arming**: `armLowVoltageAlert()` wird bei Batterie-Konfiguration aufgerufen (setzt BUVL-Schwelle + aktiviert ISR)
 
 ### Low-Voltage-Flow
@@ -91,13 +91,11 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 INA228 BUVL Alert (P1.02, FALLING edge)
         │
         ▼
-lowVoltageAlertISR()
-        │ Sets lowVoltageAlertFired = true
-        │ xTaskNotifyFromISR(socUpdateTaskHandle)
+lowVoltageAlertISR()  [ISR-Kontext]
+        │ Sets lowVoltageAlertFired = true (volatile Flag)
         ▼
-socUpdateTask() wakes up
-        │ Reads VBAT via INA228 (fresh measurement, Spike-Filter)
-        │ If VBAT < lowv_sleep_mv → confirmed low voltage
+tickPeriodic()  [Main-Loop-Kontext, nächster tick()]
+        │ Prüft lowVoltageAlertFired == true
         ▼
 board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
         │ CE HIGH (FET-invertiert: Laden bleibt aktiv in System-Off)
@@ -138,7 +136,7 @@ sd_power_system_off() → System-Off (~15µA)
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, stündlich im Low-Voltage RTC-Wake)
+- **Update-Intervall**: tickPeriodic() ruft auf (60s normal, stündlich im Low-Voltage RTC-Wake)
 
 **Formel**:
 ```
@@ -194,7 +192,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 
 ### Tracking (7-Day Rolling Window)
 **Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp` Zeile 1420-1489
-- **Aufgerufen von**: socUpdateTask()
+- **Aufgerufen von**: tickPeriodic()
 - **Frequenz**: Bei Tag-Wechsel (RTC time % 86400 < 60)
 
 **Datenstruktur**: `BatterySOCStats.daily_stats[7]` (Zeile 74-89 in .h)
@@ -233,7 +231,7 @@ avg_deficit = (day0 + day1 + ... + day6).net_balance / 7
 - BQ25798 setzt MPPT=0 automatisch wenn PowerGood=0 (kein Solar)
 - `checkAndFixSolarLogic()` schreibt MPPT=1 zurück
 - **Schreiben auf MPPT-Register triggert BQ25798 Interrupt**
-- Interrupt weckt solarMpptTask() → ruft `checkAndFixSolarLogic()` → schreibt MPPT → neuer Interrupt → **Loop**
+- Interrupt-Flag triggert runMpptCycle() in tickPeriodic() → ruft `checkAndFixSolarLogic()` → schreibt MPPT → neuer Interrupt → **Loop**
 
 **Solution: Cooldown Timer (60 Sekunden)**
 
@@ -296,53 +294,39 @@ static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 5. Setze lastMpptWriteTime
 ```
 
-### Interrupt Handling
+### BQ25798 Interrupt Handling
 
-**Problem**: BQ25798 Interrupts müssen acknowledged werden, sonst Lockup.
+**BQ INT-Pin**: Nicht mehr als Interrupt genutzt — wird mit Pull-Up konfiguriert, BQ-Status wird via Polling in `runMpptCycle()` geprüft.
 
-**Solution: Always Clear Flags**
-
-**Implementierung**: `onBqInterrupt()` in `BoardConfigContainer.cpp` Zeile 404-420
-
-**KRITISCH**: **Immer** Register 0x1B lesen, auch wenn Event ignoriert wird.
-
-```cpp
-void BoardConfigContainer::onBqInterrupt() {
-  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
-  // The BQ25798 requires reading register 0x1B to acknowledge interrupts
-  if (bqDriverInstance) {
-    bqDriverInstance->readReg(0x1B); // Clear interrupt flags
-  }
-  
-  // Wake solarMpptTask for immediate processing
-  if (solarEventSem != NULL) {
-    xSemaphoreGiveFromISR(solarEventSem, NULL);
-  }
-}
-```
-
-**Flag Clearing auf Boot**: `BoardConfigContainer::configureBq()` Zeile 1075
+**Flag Clearing auf Boot**: `BoardConfigContainer::configureBq()`
 - Liest FAULT_STATUS Register (0x20, 0x21) nach Konfiguration
 - Vermeidet stale faults von vorherigem Power-Cycle
 
-### Task-Architektur
+### Flag/Tick-Architektur
 
-**solarMpptTask** (15-Minuten Intervall + Interrupt-getriggert):
-```
-Periodic Check (15min):
-  ├─ checkAndFixPgoodStuck()  ← 5-Min Cooldown
-  └─ checkAndFixSolarLogic()  ← 60s Cooldown + PG=1 Check
+Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgerufen von `InheroMr2Board::tick()`). Es gibt keine FreeRTOS-Tasks für I2C-Zugriffe — dadurch entfallen Mutex, Race Conditions und I2C-Bus-Recovery.
 
-Interrupt Event:
-  ├─ onBqInterrupt() clears 0x1B
-  └─ Task wacht auf → läuft sofort
+**tickPeriodic()** dispatcht periodische Arbeit via `millis()`-Timer:
 ```
+tickPeriodic()  [aufgerufen von tick(), Main-Loop]
+  ├─ Low-Voltage Alert Flag prüfen → initiateShutdown()
+  ├─ Alle 60s: runMpptCycle()
+  │   ├─ checkAndFixPgoodStuck()  ← 5-Min Cooldown
+  │   └─ checkAndFixSolarLogic()  ← 60s Cooldown + PG=1 Check
+  ├─ Alle 60s: updateBatterySOC()
+  └─ Alle 60min: updateHourlyStats()
+```
+
+**Verbleibende FreeRTOS-Tasks** (nur GPIO, kein I2C):
+- `heartbeatTask` — blaue LED Blink-Muster
+- `ErrorLED` Lambda — rote LED bei fehlenden Komponenten
 
 **Timing Summary**:
 - **MPPT Write Cooldown**: 60 Sekunden (verhindert Loop)
 - **HIZ Toggle Cooldown**: 5 Minuten (verhindert excessive toggling)
-- **Periodic Check**: 15 Minuten (normal task run)
-- **Interrupt Response**: Sofort (weckt task)
+- **MPPT Cycle**: 60 Sekunden (via tickPeriodic)
+- **SOC Update**: 60 Sekunden (via tickPeriodic)
+- **Hourly Stats**: 60 Minuten (via tickPeriodic)
 
 ### BQ25798 ADC bei niedrigen Batteriespannungen
 
@@ -526,12 +510,11 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 
 **Bei Low-Voltage → System-Off** (~15µA, CE-FET hält Zustand):
 
-**Ablauf:** INA228 ALERT ISR → socUpdateTask → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`:
+**Ablauf:** INA228 ALERT ISR → Flag → tickPeriodic() → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`:
 
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
-   - Stoppt MPPT task, Heartbeat task, SOC Update task
-   - **Self-Deletion Guard**: Wenn der aufrufende Task (`socUpdateTask`) sich selbst löschen würde, wird `vTaskDelete()` übersprungen
-   - Verhindert Filesystem-Korruption
+   - Stoppt Heartbeat task (einziger verbleibender FreeRTOS-Task mit GPIO)
+   - Disarmt INA228 Low-Voltage Alert
    
 2. **INA228 ALERT disarmen**: `BoardConfigContainer::disarmLowVoltageAlert()` → ISR detachen, BUVL deaktivieren
 
@@ -633,8 +616,8 @@ Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pi
 
 1. `armLowVoltageAlert()` konfiguriert INA228 BUVL (Bus Under-Voltage Limit) auf `lowv_sleep_mv`
 2. ALERT feuert als FALLING-Edge-Interrupt auf P1.02
-3. ISR (`lowVoltageAlertISR()`) setzt Flag + benachrichtigt socUpdateTask via `xTaskNotifyFromISR()`
-4. socUpdateTask bestätigt Low-Voltage und ruft `initiateShutdown()` → System-Off
+3. ISR (`lowVoltageAlertISR()`) setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
+4. `tickPeriodic()` prüft Flag im nächsten Main-Loop-Tick und ruft `initiateShutdown()` → System-Off
 
 **Kein Latch-Problem**: Da der ALERT nicht an TPS62840 EN geht, gibt es kein latched-off-Verhalten.
 Das System kann nach RTC-Wake normal booten und die Spannung in `begin()` prüfen.
@@ -876,7 +859,7 @@ set board.soc <percent>     # Manually set SOC percentage
 | Methode | Datei | Funktion |
 |---------|-------|----------|
 | `begin()` | InheroMr2Board.cpp | Board-Initialisierung, Wake-up-Check, Early-Boot Low-Voltage Check |
-| `initiateShutdown()` | InheroMr2Board.cpp | System-Off Shutdown (aufgerufen von socUpdateTask nach ALERT) |
+| `initiateShutdown()` | InheroMr2Board.cpp | System-Off Shutdown (aufgerufen von tickPeriodic nach ALERT) |
 | `configureRTCWake()` | InheroMr2Board.cpp | RTC Countdown Timer |
 | `rtcInterruptHandler()` | InheroMr2Board.cpp | RTC INT ISR (setzt Flag) |
 | `queryBoardTelemetry()` | InheroMr2Board.cpp | CayenneLPP Telemetry Collection |
@@ -884,8 +867,9 @@ set board.soc <percent>     # Manually set SOC percentage
 | `getLowVoltageWakeThreshold()` | InheroMr2Board.cpp | Chemistry-specific Wake Voltage (0% SOC) |
 | `armLowVoltageAlert()` | BoardConfigContainer.cpp | INA228 BUVL Alert armen + ISR registrieren |
 | `disarmLowVoltageAlert()` | BoardConfigContainer.cpp | INA228 Alert disarmen + ISR detachen |
-| `lowVoltageAlertISR()` | BoardConfigContainer.cpp | ISR: Flag + xTaskNotifyFromISR → socUpdateTask |
-| `socUpdateTask()` | BoardConfigContainer.cpp | SOC-Update (60s), verarbeitet ALERT-Notifications |
+| `lowVoltageAlertISR()` | BoardConfigContainer.cpp | ISR: setzt lowVoltageAlertFired Flag (geprüft in tickPeriodic) |
+| `tickPeriodic()` | BoardConfigContainer.cpp | Main-Loop Dispatch: MPPT (60s), SOC (60s), Hourly (60min), Low-V Check |
+| `runMpptCycle()` | BoardConfigContainer.cpp | Einzelner MPPT-Zyklus (Solar-Checks, HIZ-Gating) |
 | `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | 7-Day Energy Balance Tracking |
 | `calculateTTL()` | BoardConfigContainer.cpp | Time To Live Forecast |
@@ -964,8 +948,8 @@ t=+1h:    VBAT = 3.5V → Normal (INA228 ALERT nicht getriggert)
           SOC: 45%
           
 t=+2h:    VBAT = 3.15V → INA228 ALERT feuert (< 3100mV lowv_sleep_mv)
-          - lowVoltageAlertISR() → xTaskNotifyFromISR(socUpdateTask)
-          - socUpdateTask bestätigt Low-Voltage
+          - lowVoltageAlertISR() → setzt lowVoltageAlertFired Flag
+          - tickPeriodic() erkennt Flag im nächsten tick()
           - board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
           - CE HIGH (FET-invertiert → Laden bleibt aktiv)
           - RTC: Wake in 1h (LOW_VOLTAGE_SLEEP_MINUTES = 60)
@@ -994,7 +978,7 @@ In Rev 1.0 gibt es kein Hardware-UVLO (TPS62840 EN an VDD, immer an).
 Der INA228 ALERT auf P1.02 dient als Software-Interrupt für System-Off.
 
 t=0:      VBAT = 3.15V → INA228 ALERT feuert
-          - socUpdateTask → initiateShutdown()
+          - tickPeriodic() → initiateShutdown()
           - System-Off (~15µA), CE aktiv, RTC-Wake 1h
           
 t=+1h:    RTC-Wake → Early Boot → VBAT = 3.05V (noch unter 3300mV)
@@ -1186,6 +1170,17 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ---
 
 ## Changelog
+
+### v3.1 - 15. März 2026 (Flag/Tick-Architektur)
+- 🔧 **Flag/Tick-Pattern**: Alle I2C-Operationen aus FreeRTOS-Tasks in `tickPeriodic()` (Main-Loop) verlagert
+- ❌ **Entfernt**: `solarMpptTask()`, `socUpdateTask()` — ersetzt durch `tickPeriodic()` + `runMpptCycle()`
+- ❌ **Entfernt**: `I2CMutex.h`, `g_i2c_mutex`, `i2c_mutex_init()` — kein Mutex mehr nötig (single-threaded I2C)
+- ❌ **Entfernt**: `recoverI2CBus()`, `areBackgroundTasksAlive()` — I2C-Bus-Recovery überflüssig ohne Tasks
+- ❌ **Entfernt**: `xTaskNotifyFromISR()` aus `lowVoltageAlertISR()` — nur noch volatile Flag
+- ❌ **Entfernt**: ADC_CONFIG Race-Condition Check in `begin()` — keine konkurrierenden Tasks mehr
+- 🔧 **`stopBackgroundTasks()`**: Nur noch Heartbeat-Task + Alert-Disarm (keine MPPT/SOC-Tasks mehr)
+- 🔧 **`InheroMr2Board::tick()`**: Vereinfacht auf RTC-Clear + `tickPeriodic()` + `feedWatchdog()`
+- 📝 Dokumentation für Flag/Tick-Architektur aktualisiert
 
 ### v3.0 - 02. Juni 2026 (Rev 1.0 Architektur)
 - 🔧 **Architektur-Umstellung**: System ON Idle (v0.2) → System-Off (Rev 1.0) — 40× effizienter (~15µA vs. ~0.6mA)

@@ -31,7 +31,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <nrf_soc.h>
-#include "lib/I2CMutex.h"
 
 // Static declarations
 static BoardConfigContainer boardConfig;
@@ -222,7 +221,6 @@ void InheroMr2Board::tick() {
     rtc_irq_pending = false;
 
     // Clear TF here (not in ISR) to avoid I2C bus collisions with core RTC access.
-    I2C_MUTEX_TAKE();
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_STATUS);
     Wire.endTransmission(false);
@@ -237,18 +235,10 @@ void InheroMr2Board::tick() {
       Wire.write(status);
       Wire.endTransmission();
     }
-    I2C_MUTEX_GIVE();
   }
 
-  // Check background task health before feeding the watchdog.
-  // If a task is stuck (likely in a Wire busy-wait), attempt bus recovery.
-  // If recovery fails, we stop feeding the WDT → hardware reset after 600s.
-  if (!BoardConfigContainer::areBackgroundTasksAlive()) {
-    BoardConfigContainer::recoverI2CBus();
-    // Don't feed watchdog this tick — let the stuck task prove it recovered
-    // on the next tick via an updated liveness timestamp.
-    return;
-  }
+  // Dispatch all periodic I2C work (MPPT, SOC, hourly stats, low-V alert check)
+  boardConfig.tickPeriodic();
 
   // All healthy — feed watchdog at the END (after I2C operations completed successfully)
   BoardConfigContainer::feedWatchdog();

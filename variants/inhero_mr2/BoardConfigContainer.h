@@ -220,12 +220,11 @@ public:
   /// Force panel class override (for CLI: auto re-detects, 6v/12v forces)
   static void setPanelOverride(SolarPanelClass cls);
 
-  static void solarMpptTask(void* pvParameters);
   static void heartbeatTask(void* pvParameters);
-  static void socUpdateTask(void* pvParameters); ///< SOC update task (runs every minute)
   
   static bool loadMpptEnabled(bool& enabled);
-  static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
+  void tickPeriodic();              ///< Called from tick() — dispatches all periodic I2C work (MPPT, SOC, hourly stats)
+  static void stopBackgroundTasks(); ///< Stop heartbeat task and disarm alerts before OTA
 
   bool setBatteryType(BatteryType type);
 
@@ -289,7 +288,7 @@ public:
   // Low-voltage alert methods (Rev 1.0 — INA228 ALERT on P1.02)
   void armLowVoltageAlert();    ///< Arm INA228 BUVL alert at lowv_sleep_mv (called on battery config)
   static void disarmLowVoltageAlert(); ///< Disarm INA228 BUVL alert and detach ISR
-  static void lowVoltageAlertISR(); ///< ISR for INA228 ALERT pin — notifies socUpdateTask
+  static void lowVoltageAlertISR(); ///< ISR for INA228 ALERT pin — sets flag (checked in tickPeriodic)
   
   // Voltage threshold helpers (chemistry-specific)
   static uint16_t getLowVoltageSleepThreshold(BatteryType type);   ///< Get sleep threshold (INA228 ALERT)
@@ -299,12 +298,6 @@ public:
   static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
-
-  // I2C bus health monitoring and recovery
-  static volatile uint32_t mpptTaskLastAlive;     ///< millis() timestamp of last solarMpptTask loop completion
-  static volatile uint32_t socTaskLastAlive;       ///< millis() timestamp of last socUpdateTask loop completion
-  static bool recoverI2CBus();                     ///< Attempt I2C bus recovery (SCL toggle + Wire reset)
-  static bool areBackgroundTasksAlive();            ///< Check if background tasks are responsive
   
   // LED control methods
   bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)
@@ -313,10 +306,16 @@ public:
 private:
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
   static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228
-  static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
-  static TaskHandle_t socUpdateTaskHandle; ///< Handle for SOC update task (runs every minute)
-  static volatile bool lowVoltageAlertFired; ///< ISR flag: INA228 ALERT fired
+  static volatile bool lowVoltageAlertFired; ///< ISR flag: INA228 ALERT fired (checked in tickPeriodic)
+
+  // Tick-based scheduling state (millis()-based, overflow-safe)
+  uint32_t lastMpptMs = 0;         ///< Last runMpptCycle() execution
+  uint32_t lastSocMs = 0;          ///< Last updateBatterySOC() execution
+  uint32_t lastHourlyMs = 0;       ///< Last updateHourlyStats() execution
+  bool tickInitialized = false;    ///< First-call init flag for MPPT stats
+
+  void runMpptCycle();             ///< Single MPPT cycle (extracted from old solarMpptTask body)
   static MpptStatistics mpptStats; ///< MPPT statistics data
   static BatterySOCStats socStats; ///< Battery SOC statistics
   
