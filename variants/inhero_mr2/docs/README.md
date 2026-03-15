@@ -42,8 +42,11 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 
 ### Monitoring-Intervalle
 Die Firmware nutzt feste Intervalle:
-- **VBAT-Check**: 60s (im Normalbetrieb via socUpdateTask)
+- **VBAT-Check**: 60s (im Normalbetrieb via `tickPeriodic()` im Main-Loop)
 - **RTC-Wake**: `DANGER_ZONE_SLEEP_MINUTES` = 60 (stündlich)
+
+### I2C-Architektur (Flag/Tick-Pattern)
+Alle I2C-Zugriffe (BQ25798, INA228, RV-3028) erfolgen ausschließlich aus dem Main-Loop-Kontext (`tick()` → `tickPeriodic()`). Es gibt **keine FreeRTOS-Tasks mit I2C-Zugriff** mehr — damit ist Bus-Contention mit MeshCore's eigenem I2C-Zugriff architektonisch ausgeschlossen. Das Watchdog-Feeding erfolgt am Ende von `tick()` — bleibt `tickPeriodic()` in einem I2C-Hang hängen, wird der Watchdog nicht gefüttert und löst automatisch einen Hardware-Reset aus.
 
 ### 2-stufiges Schutzsystem
 1. **Software-Spannungsüberwachung** - feste Strategie:

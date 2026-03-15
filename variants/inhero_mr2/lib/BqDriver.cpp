@@ -71,12 +71,10 @@ bool BqDriver::begin(uint8_t i2c_addr, TwoWire* wire) {
 /// @brief Reads Power Good status from charger
 /// @return true if input power is good (sufficient for charging)
 bool BqDriver::getChargerStatusPowerGood() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register chrg_stat_0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
   Adafruit_BusIO_RegisterBits chrg_stat_0_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_0_reg, 1, 3);
 
   uint8_t reg_value = chrg_stat_0_bits.read();
-  I2C_MUTEX_GIVE();
 
   return (bool)reg_value;
 }
@@ -84,12 +82,10 @@ bool BqDriver::getChargerStatusPowerGood() {
 /// @brief Reads current charging state from charger
 /// @return Charging status enum (NOT_CHARGING, PRE_CHARGING, CC, CV, etc.)
 bq25798_charging_status BqDriver::getChargingStatus() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register chrg_stat_1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_1);
   Adafruit_BusIO_RegisterBits chrg_stat_1_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_1_reg, 3, 5);
 
   uint8_t reg_value = chrg_stat_1_bits.read();
-  I2C_MUTEX_GIVE();
 
   return (bq25798_charging_status)reg_value;
 }
@@ -97,26 +93,25 @@ bq25798_charging_status BqDriver::getChargingStatus() {
 /// @brief Configures interrupt masks to only trigger on Power Good changes (solar events)
 /// @return true if all mask registers configured successfully
 bool BqDriver::configureSolarOnlyInterrupts() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register mask0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_0);
-  if (!mask0.write(0xF7)) { I2C_MUTEX_GIVE(); return false; }
+  if (!mask0.write(0xF7)) return false;
 
   Adafruit_BusIO_Register mask1 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_1);
-  if (!mask1.write(0xFF)) { I2C_MUTEX_GIVE(); return false; }
+  if (!mask1.write(0xFF)) return false;
 
   Adafruit_BusIO_Register mask2 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_2);
-  if (!mask2.write(0xFF)) { I2C_MUTEX_GIVE(); return false; }
+  if (!mask2.write(0xFF)) return false;
 
   Adafruit_BusIO_Register mask3 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_3);
-  if (!mask3.write(0xFF)) { I2C_MUTEX_GIVE(); return false; }
+  if (!mask3.write(0xFF)) return false;
 
   // 5. Fault Mask 0 (0x2C) - Mask everything (0xFF)
   Adafruit_BusIO_Register fault0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_FAULT_MASK_0);
-  if (!fault0.write(0xFF)) { I2C_MUTEX_GIVE(); return false; }
+  if (!fault0.write(0xFF)) return false;
 
   // 6. Fault Mask 1 (0x2D) - Mask everything (0xFF)
   Adafruit_BusIO_Register fault1 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_FAULT_MASK_1);
-  if (!fault1.write(0xFF)) { I2C_MUTEX_GIVE(); return false; }
+  if (!fault1.write(0xFF)) return false;
 
   // 7. Clear existing interrupts ("Flush")
   // We read Charger Flag 0 (0x22) where PG_FLAG resides.
@@ -124,7 +119,6 @@ bool BqDriver::configureSolarOnlyInterrupts() {
   Adafruit_BusIO_Register flag0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_FLAG_0);
   uint8_t dummy;
   flag0.read(&dummy); // Dummy Read zum Clearen
-  I2C_MUTEX_GIVE();
 
   return true;
 }
@@ -132,11 +126,9 @@ bool BqDriver::configureSolarOnlyInterrupts() {
 /// @brief Checks and clears Power Good flag register
 /// @return true if PG_FLAG bit is set
 bool BqDriver::checkAndClearPgFlag() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register flag0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_FLAG_0);
   uint8_t val;
-  if (!flag0.read(&val)) { I2C_MUTEX_GIVE(); return false; }
-  I2C_MUTEX_GIVE();
+  if (!flag0.read(&val)) return false;
   return (val & 0x08);
 }
 
@@ -171,10 +163,6 @@ bool BqDriver::checkAndClearPgFlag() {
 /// @param vbat_mv Battery voltage in mV from INA228 (0 = unknown, assume sufficient)
 /// @return Pointer to internal Telemetry struct (valid until next call)
 const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
-  // Lock the I2C bus for the entire ADC sequence (one-shot → poll → read).
-  // This prevents another task from starting a competing ADC conversion or
-  // corrupting the Wire state during the polling loop's delay() yields.
-  I2C_MUTEX_TAKE();
   telemetryData = { 0 };
 
   // Determine if TS channel can be enabled based on VBAT
@@ -187,7 +175,6 @@ const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
   bool success = this->startADCOneShot(ts_enabled);
 
   if (!success) {
-    I2C_MUTEX_GIVE();
     return &telemetryData;
   }
 
@@ -229,7 +216,6 @@ const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
 
   telemetryData.solar.mppt = getMPPTenable();
 
-  I2C_MUTEX_GIVE();
   return &telemetryData;
 }
 
@@ -519,7 +505,6 @@ bool BqDriver::setTsIgnore(bool ignore) {
 /// @param ts_enabled true = enable TS channel (requires VBAT >= 3.2V per datasheet)
 /// @return true if I2C writes successful
 bool BqDriver::startADCOneShot(bool ts_enabled) {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register disable_reg_0 = Adafruit_BusIO_Register(ih_i2c_dev, 0x2F);
   Adafruit_BusIO_Register disable_reg_1 = Adafruit_BusIO_Register(ih_i2c_dev, 0x30);
 
@@ -529,34 +514,26 @@ bool BqDriver::startADCOneShot(bool ts_enabled) {
   if (!ts_enabled) {
     disable0 |= 0x04;       // Also disable TS(2) → 0x5E
   }
-  if (!disable_reg_0.write(disable0)) { I2C_MUTEX_GIVE(); return false; }
+  if (!disable_reg_0.write(disable0)) return false;
 
   // Reg 0x30: Disable all — D+(7), D-(6), VAC2(5), VAC1(4) not connected on MR2
-  if (!disable_reg_1.write(0xF0)) { I2C_MUTEX_GIVE(); return false; }
+  if (!disable_reg_1.write(0xF0)) return false;
 
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  bool ok = adc_ctrl_reg.write(0xC0);
-  I2C_MUTEX_GIVE();
-  return ok;
+  return adc_ctrl_reg.write(0xC0);
 }
 
 // Implementierungen für ADC Control (0x2E)
 bool BqDriver::getADCEnabled() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
   Adafruit_BusIO_RegisterBits adc_en_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 7);
-  bool r = (bool)adc_en_bits.read();
-  I2C_MUTEX_GIVE();
-  return r;
+  return (bool)adc_en_bits.read();
 }
 
 bool BqDriver::setADCEnabled(bool enabled) {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
   Adafruit_BusIO_RegisterBits adc_en_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 7);
-  bool r = adc_en_bits.write((uint8_t)enabled);
-  I2C_MUTEX_GIVE();
-  return r;
+  return adc_en_bits.write((uint8_t)enabled);
 }
 
 bool BqDriver::getADCRate() {
@@ -627,45 +604,35 @@ bool BqDriver::setIBUSADCDisable(bool disable) {
 
 // Implementierungen für ADC Readings (Beispiel für getIBUS() - signed float in A)
 int16_t BqDriver::getIBUS() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register ibus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
   uint16_t raw;
-  if (!ibus_reg.read(&raw)) { // MSB first
-    I2C_MUTEX_GIVE();
+  if (!ibus_reg.read(&raw)) {
     return 0;
   }
-  I2C_MUTEX_GIVE();
   int16_t val = (int16_t)raw; // 2's complement for signed
   return val;                 // in mA
 }
 
 uint16_t BqDriver::getVBUS() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register vbus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vbus_reg.read(&val)) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
-  I2C_MUTEX_GIVE();
   return val; // in mV
 }
 
 uint16_t BqDriver::getVSYS() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register vsys_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VSYS_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vsys_reg.read(&val)) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
-  I2C_MUTEX_GIVE();
   return val; // in mV
 }
 
 // Für getTS(): % of REGN
 float BqDriver::getTS() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register ts_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TS_ADC, 2, MSBFIRST);
   uint16_t val;
   
@@ -681,28 +648,22 @@ float BqDriver::getTS() {
         delay(50); // Wait a bit longer for ADC to settle
         continue;
       }
-      I2C_MUTEX_GIVE();
       return -2.0f; // ADC not ready / invalid value after retries
     }
     // Valid value
-    I2C_MUTEX_GIVE();
     return val * 0.09765625f; // 0.09765625 %/LSB (exact: 1/1024)
   }
   
-  I2C_MUTEX_GIVE();
   return -1.0f; // I2C read error after all retries
 }
 
 // Für getTDIE(): signed °C
 float BqDriver::getTDIE() {
-  I2C_MUTEX_TAKE();
   Adafruit_BusIO_Register tdie_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TDIE_ADC, 2, MSBFIRST);
   uint16_t raw;
   if (!tdie_reg.read(&raw)) {
-    I2C_MUTEX_GIVE();
     return 0.0f;
   }
-  I2C_MUTEX_GIVE();
   int16_t val = (int16_t)raw;
   return val * 0.5f; // 0.5 °C/LSB
 }
@@ -750,23 +711,17 @@ bool BqDriver::getForwardOOA() {
 bool BqDriver::writeReg(uint8_t reg, uint8_t val) {
   if (!ih_i2c_dev) return false;
   
-  I2C_MUTEX_TAKE();
   uint8_t buffer[2] = {reg, val};
-  bool ok = ih_i2c_dev->write(buffer, 2);
-  I2C_MUTEX_GIVE();
-  return ok;
+  return ih_i2c_dev->write(buffer, 2);
 }
 
 uint8_t BqDriver::readReg(uint8_t reg) {
   if (!ih_i2c_dev) return 0;
   
-  I2C_MUTEX_TAKE();
   uint8_t buffer[1] = {reg};
   if (!ih_i2c_dev->write_then_read(buffer, 1, buffer, 1)) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
-  I2C_MUTEX_GIVE();
   return buffer[0];
 }
 

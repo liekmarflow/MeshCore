@@ -7,7 +7,6 @@
  */
 
 #include "Ina228Driver.h"
-#include "I2CMutex.h"
 #include "../../../src/MeshCore.h"  // For MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
@@ -380,43 +379,35 @@ uint16_t Ina228Driver::readBuvlRegister() {
 // ===== Private Methods =====
 
 bool Ina228Driver::writeRegister16(uint8_t reg, uint16_t value) {
-  I2C_MUTEX_TAKE();
   Wire.beginTransmission(_i2c_addr);
   Wire.write(reg);
   Wire.write((value >> 8) & 0xFF);  // MSB
   Wire.write(value & 0xFF);         // LSB
-  bool ok = (Wire.endTransmission() == 0);
-  I2C_MUTEX_GIVE();
-  return ok;
+  return (Wire.endTransmission() == 0);
 }
 
 uint16_t Ina228Driver::readRegister16(uint8_t reg) {
-  I2C_MUTEX_TAKE();
   Wire.beginTransmission(_i2c_addr);
   Wire.write(reg);
   Wire.endTransmission(false);  // Repeated start
 
   Wire.requestFrom(_i2c_addr, (uint8_t)2);
   if (Wire.available() < 2) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
 
   uint16_t value = Wire.read() << 8;  // MSB
   value |= Wire.read();               // LSB
-  I2C_MUTEX_GIVE();
   return value;
 }
 
 int32_t Ina228Driver::readRegister24(uint8_t reg) {
-  I2C_MUTEX_TAKE();
   Wire.beginTransmission(_i2c_addr);
   Wire.write(reg);
   Wire.endTransmission(false);
 
   Wire.requestFrom(_i2c_addr, (uint8_t)3);
   if (Wire.available() < 3) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
 
@@ -429,19 +420,16 @@ int32_t Ina228Driver::readRegister24(uint8_t reg) {
     value |= 0xFF000000;
   }
 
-  I2C_MUTEX_GIVE();
   return value;
 }
 
 int64_t Ina228Driver::readRegister40(uint8_t reg) {
-  I2C_MUTEX_TAKE();
   Wire.beginTransmission(_i2c_addr);
   Wire.write(reg);
   Wire.endTransmission(false);
 
   Wire.requestFrom(_i2c_addr, (uint8_t)5);
   if (Wire.available() < 5) {
-    I2C_MUTEX_GIVE();
     return 0;
   }
 
@@ -455,8 +443,6 @@ int64_t Ina228Driver::readRegister40(uint8_t reg) {
   if (value & 0x8000000000LL) {
     value |= 0xFFFFFF0000000000LL;
   }
-
-  I2C_MUTEX_GIVE();
 
   return value;
 }

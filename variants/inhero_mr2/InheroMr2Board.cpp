@@ -27,7 +27,6 @@
 
 #include "BoardConfigContainer.h"
 #include "target.h"
-#include "lib/I2CMutex.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -223,8 +222,8 @@ void InheroMr2Board::tick() {
   if (rtc_irq_pending) {
     rtc_irq_pending = false;
 
-    // Clear TF here (not in ISR) to avoid I2C bus collisions with core RTC access.
-    I2C_MUTEX_TAKE();
+    // Clear TF here (not in ISR) — safe because tick() runs in main loop context,
+    // preventing I2C bus contention with MeshCore's own Wire usage.
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_STATUS);
     Wire.endTransmission(false);
@@ -239,20 +238,14 @@ void InheroMr2Board::tick() {
       Wire.write(status);
       Wire.endTransmission();
     }
-    I2C_MUTEX_GIVE();
   }
 
-  // Check background task health before feeding the watchdog.
-  // If a task is stuck (likely in a Wire busy-wait), attempt bus recovery.
-  // If recovery fails, we stop feeding the WDT → hardware reset after 600s.
-  if (!BoardConfigContainer::areBackgroundTasksAlive()) {
-    BoardConfigContainer::recoverI2CBus();
-    // Don't feed watchdog this tick — let the stuck task prove it recovered
-    // on the next tick via an updated liveness timestamp.
-    return;
-  }
+  // Run all periodic I2C work (MPPT, SOC, voltage monitor) from main loop context.
+  // This prevents bus contention — while tick() executes, the core can't make parallel I2C calls.
+  BoardConfigContainer::tickPeriodic();
 
-  // All healthy — feed watchdog at the END (after I2C operations completed successfully)
+  // Feed watchdog at the END — if tick() completes, the system is healthy.
+  // If I2C hangs in tickPeriodic(), we never reach here → WDT fires.
   BoardConfigContainer::feedWatchdog();
 }
 

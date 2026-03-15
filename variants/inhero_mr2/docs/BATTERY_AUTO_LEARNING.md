@@ -3,6 +3,9 @@
 > ⚠️ **Veraltet:** Auto-Learning ist im aktuellen Firmware-Stand nicht aktiv umgesetzt.
 > Dieses Dokument ist eine historische/konzeptionelle Referenz.
 > Je nach Firmware-Stand sind nicht alle hier genannten CLI-Kommandos direkt verfügbar.
+>
+> **Hinweis (v3.0):** Die referenzierten FreeRTOS-Tasks (`voltageMonitorTask`, `socUpdateTask`) existieren nicht mehr.
+> Alle I2C-Arbeit läuft jetzt über `tickPeriodic()` im Main-Loop (Flag/Tick-Pattern).
 
 ## Übersicht
 
@@ -39,7 +42,7 @@ Das MR-2 v0.2 Board enthielt ein Auto-Learning-Konzept zur automatischen Kalibri
 
 #### Implementierung
 ```cpp
-// Start-Bedingung (in voltageMonitorTask)
+// Start-Bedingung (ehemals voltageMonitorTask, jetzt tickPeriodic)
 if (charging_status == CHARGE_DONE && 
     !learning_active && 
     !reverse_learning_active && 
@@ -51,7 +54,7 @@ if (charging_status == CHARGE_DONE &&
   MESH_DEBUG_PRINTLN("Auto-learning Method 1 started");
 }
 
-// End-Bedingung (in voltageMonitorTask)
+// End-Bedingung (ehemals voltageMonitorTask, jetzt tickPeriodic)
 if (learning_active && vbat_mv <= danger_threshold) {
   float learned_capacity = accumulated_mah - socStats.learning_start_mah;
   setBatteryCapacity(learned_capacity);
@@ -97,7 +100,7 @@ void BoardConfigContainer::startReverseLearning() {
   }
 }
 
-// End-Bedingung (in voltageMonitorTask)
+// End-Bedingung (ehemals voltageMonitorTask, jetzt tickPeriodic)
 if (reverse_learning_active && charging_status == CHARGE_DONE) {
   float learned_capacity = accumulated_mah - socStats.reverse_learning_start_mah;
   setBatteryCapacity(learned_capacity);
@@ -123,7 +126,7 @@ prefs.putString("cap_learned", "0");  // Manual entry
 // Speichern (setCapacityLearned)
 prefs.putString("cap_learned", learned ? "1" : "0");
 
-// Laden (voltageMonitorTask)
+// Laden (ehemals voltageMonitorTask, jetzt tickPeriodic)
 SimplePreferences prefs;
 if (prefs.begin("inheromr2")) {
   char buffer[8];

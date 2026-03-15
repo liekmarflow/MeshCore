@@ -237,9 +237,8 @@ public:
   /// Force panel class override (for CLI: auto re-detects, 6v/12v forces)
   static void setPanelOverride(SolarPanelClass cls);
 
-  static void solarMpptTask(void* pvParameters);
+  static void tickPeriodic();  ///< Periodic tick handler — all I2C work from main loop context
   static void heartbeatTask(void* pvParameters);
-  static void socUpdateTask(void* pvParameters); ///< SOC update task (runs every minute)
   
   static bool loadMpptEnabled(bool& enabled);
   static void stopBackgroundTasks(); ///< Stop all background tasks before OTA
@@ -287,7 +286,6 @@ public:
   static bool setSOCManually(float soc_percent); ///< Manually set SOC to specific value (e.g. after reboot)
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   const MpptStatistics* getMpptStats() const { return &mpptStats; } ///< Get MPPT stats for CLI
-  static void voltageMonitorTask(void* pvParameters); ///< Voltage monitor with SOC tracking (v0.2)
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
 
   static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
@@ -325,12 +323,6 @@ public:
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
 
-  // I2C bus health monitoring and recovery
-  static volatile uint32_t mpptTaskLastAlive;     ///< millis() timestamp of last solarMpptTask loop completion
-  static volatile uint32_t socTaskLastAlive;       ///< millis() timestamp of last socUpdateTask loop completion
-  static bool recoverI2CBus();                     ///< Attempt I2C bus recovery (SCL toggle + Wire reset)
-  static bool areBackgroundTasksAlive();            ///< Check if background tasks are responsive
-  
   // LED control methods
   bool setLEDsEnabled(bool enabled); ///< Enable/disable heartbeat LED and BQ stat LED (persistent)
   bool getLEDsEnabled() const;       ///< Get current LED enable state
@@ -338,12 +330,10 @@ public:
 
 private:
   static void runVoltageMonitor();
+  static void runMpptCycle();    ///< One MPPT solar management cycle (called from tickPeriodic)
   static BqDriver* bqDriverInstance; ///< Singleton reference for static methods
   static Ina228Driver* ina228DriverInstance; ///< Singleton reference for INA228 (v0.2 hardware) (v0.2)
-  static TaskHandle_t mpptTaskHandle;  ///< Handle for MPPT task cleanup
   static TaskHandle_t heartbeatTaskHandle; ///< Handle for heartbeat task
-  static TaskHandle_t voltageMonitorTaskHandle; ///< Handle for voltage monitor task (v0.2)
-  static TaskHandle_t socUpdateTaskHandle; ///< Handle for SOC update task (runs every minute)
   static MpptStatistics mpptStats; ///< MPPT statistics data
   static BatterySOCStats socStats; ///< Battery SOC statistics (v0.2)
   

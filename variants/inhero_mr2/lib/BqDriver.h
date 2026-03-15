@@ -33,7 +33,6 @@
 #include <Adafruit_BQ25798.h>
 #include <Wire.h>
 #include <math.h>
-#include "I2CMutex.h"
 
 #define R_PULLUP    5600.0f  ///< Upper resistor RT1 in Ohms
 #define R_PARALLEL  27000.0f ///< Lower parallel resistor RT2 in Ohms
@@ -220,41 +219,6 @@ public:
   // ADC status/result accessors (needed by BoardConfigContainer::readVbusInHiz)
   bool getADCEnabled();
   uint16_t getVBUS();
-
-  // Thread-safe shadows of Adafruit_BQ25798 parent methods.
-  // The parent methods do I2C internally via Adafruit_BusIO without any locking.
-  // These shadows take the global I2C mutex to prevent bus corruption when called
-  // from FreeRTOS tasks (solarMpptTask, socUpdateTask) concurrently with the main loop.
-  bool setHIZMode(bool enable) {
-    I2C_MUTEX_TAKE();
-    bool r = Adafruit_BQ25798::setHIZMode(enable);
-    I2C_MUTEX_GIVE();
-    return r;
-  }
-  bool getHIZMode() {
-    I2C_MUTEX_TAKE();
-    bool r = Adafruit_BQ25798::getHIZMode();
-    I2C_MUTEX_GIVE();
-    return r;
-  }
-  bool getMPPTenable() {
-    I2C_MUTEX_TAKE();
-    bool r = Adafruit_BQ25798::getMPPTenable();
-    I2C_MUTEX_GIVE();
-    return r;
-  }
-  bool setMPPTenable(bool enable) {
-    I2C_MUTEX_TAKE();
-    bool r = Adafruit_BQ25798::setMPPTenable(enable);
-    I2C_MUTEX_GIVE();
-    return r;
-  }
-  bool setStatPinEnable(bool enable) {
-    I2C_MUTEX_TAKE();
-    bool r = Adafruit_BQ25798::setStatPinEnable(enable);
-    I2C_MUTEX_GIVE();
-    return r;
-  }
 
 protected:
   Adafruit_I2CDevice* ih_i2c_dev = nullptr; ///< Dedicated I2C device for NTC access

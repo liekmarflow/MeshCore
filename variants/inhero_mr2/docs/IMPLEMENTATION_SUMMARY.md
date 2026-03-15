@@ -20,8 +20,8 @@
 > Hardware mit INA228 Power Monitor und RV-3028-C7 RTC ist funktional implementiert.
 > Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
 > 
-> Datum: 25. Februar 2026
-> Version: 2.2 (Dokumentation an Code-Stand angepasst)
+> Datum: 15. März 2026
+> Version: 3.0 (Architektur-Refactoring: Flag/Tick-Pattern ersetzt I2C-Mutex + FreeRTOS-Tasks)
 > Hardware: INA228 + RTC
 
 ---
@@ -30,13 +30,37 @@
 
 Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin Hardware-Ladesicherung** für Energie-Effizienz und Batterie-Monitoring:
 
-1. **Software-Spannungsüberwachung** (in socUpdateTask) - Danger-Zone-Erkennung
+1. **Software-Spannungsüberwachung** (in `tickPeriodic()`) - Danger-Zone-Erkennung
 2. **RTC-Wakeup-Management** (RV-3028-C7) - periodische Recovery-Checks
 3. **Hardware-UVLO** (INA228 Alert → TPS62840 EN) - ultimative Schutzebene
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
 6. **INA228 Shutdown-Modus** - Stromsparen während Danger Zone (~1µA)
 7. **BQ CE-Pin** (P0.04) - Hardware-Ladesicherung (Dual-Layer: GPIO + I2C)
+
+### I2C-Architektur: Flag/Tick-Pattern
+
+Alle I2C-Zugriffe (BQ25798, INA228, RV-3028, BME280) erfolgen ausschließlich aus dem Main-Loop-Kontext:
+
+```
+InheroMr2Board::tick()
+  ├─ RTC TF-Flag clearen (bei rtc_irq_pending)
+  ├─ BoardConfigContainer::tickPeriodic()
+  │    ├─ Boot-Sequenz: sofortige Spannungsprüfung + 2s Recheck
+  │    ├─ runMpptCycle()        ─ alle 60s (MPPT-Solarverwaltung)
+  │    ├─ updateBatterySOC()    ─ alle 60s (Coulomb Counter)
+  │    ├─ runVoltageMonitor()   ─ alle 60s (Unterspannungsschutz)
+  │    └─ updateHourlyStats()   ─ alle 60min (Energiebilanz)
+  └─ feedWatchdog()  ─ nur wenn tick() vollständig abgeschlossen
+```
+
+Da `tick()` den MeshCore-Core blockiert, kann während unserer I2C-Operationen kein paralleler I2C-Zugriff von MeshCore stattfinden — Bus-Contention ist **architektonisch unmöglich**. Ein früherer Mutex-Ansatz (`I2CMutex.h`) wurde entfernt, da er nur unseren Code schützte, nicht aber MeshCore's eigene I2C-Zugriffe.
+
+**Watchdog-Strategie**: `feedWatchdog()` steht am Ende von `tick()`. Bleibt `tickPeriodic()` in einem I2C-Hang hängen, wird der WDT nicht gefüttert → automatischer Hardware-Reset.
+
+**Verbleibende FreeRTOS-Tasks** (kein I2C):
+- `heartbeatTask` — LED-Blinken (nur GPIO)
+- Error-LED Lambda — Fehleranzeige (nur GPIO)
 
 ### Aktuelle Feature-Matrix
 
@@ -69,10 +93,10 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 ## 1. Software-Monitoring (Adaptiv)
 
 ### Implementierung
-- **Task**: `socUpdateTask()` (ruft `runVoltageMonitor()` pro Minute)
+- **Scheduling**: `tickPeriodic()` im Main-Loop-Kontext (aufgerufen von `InheroMr2Board::tick()`)
 - **Messung**: INA228 via I²C (batterie.voltage)
-- **Frequenz**: 60s
-- **Hinweis**: `voltageMonitorTask()` existiert als Stub (löscht sich sofort), die eigentliche Spannungsüberwachung läuft in `socUpdateTask` via `runVoltageMonitor()`
+- **Frequenz**: 60s (millis()-basierter Timer)
+- **Boot-Sequenz**: Sofortige Spannungsprüfung beim ersten `tickPeriodic()`-Aufruf, 2s später Recheck, dann 60s-Kadenz
 
 ### Monitoring-Intervalle
 
@@ -91,7 +115,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 
 **Action at < 3.4V**: `runVoltageMonitor()` → `board.initiateShutdown(LOW_VOLTAGE)` → System ON Idle + RTC timer 1h + NVIC_SystemReset bei Erholung
 
-**Hinweis:** Die exakte Implementierung befindet sich in BoardConfigContainer.cpp im voltageMonitorTask().
+**Hinweis:** Die Implementierung befindet sich in `BoardConfigContainer::tickPeriodic()` → `runVoltageMonitor()` → `board.initiateShutdown()`.
 
 ### Chemie-spezifische Schwellen (2-Level System)
 
@@ -125,7 +149,7 @@ Das System kombiniert **3 Schutz-Schichten** + **Coulomb Counter** + **tägliche
 **Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
 - **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
-- **Update-Intervall**: socUpdateTask() ruft auf (60s normal, 1h Danger Zone RTC-Wake)
+- **Update-Intervall**: `tickPeriodic()` ruft `updateBatterySOC()` auf (60s, Main-Loop-Kontext)
 
 **Formel**:
 ```
@@ -181,7 +205,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 
 ### Tracking (7-Day Rolling Window)
 **Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp` Zeile 1420-1489
-- **Aufgerufen von**: voltageMonitorTask()
+- **Aufgerufen von**: `tickPeriodic()` → `updateHourlyStats()` (alle 60 Minuten)
 - **Frequenz**: Bei Tag-Wechsel (RTC time % 86400 < 60)
 
 **Datenstruktur**: `BatterySOCStats.daily_stats[7]` (Zeile 74-89 in .h)
@@ -220,7 +244,7 @@ avg_deficit = (day0 + day1 + ... + day6).net_balance / 7
 - BQ25798 setzt MPPT=0 automatisch wenn PowerGood=0 (kein Solar)
 - `checkAndFixSolarLogic()` schreibt MPPT=1 zurück
 - **Schreiben auf MPPT-Register triggert BQ25798 Interrupt**
-- Interrupt weckt solarMpptTask() → ruft `checkAndFixSolarLogic()` → schreibt MPPT → neuer Interrupt → **Loop**
+- Interrupt-basiertes Aufwachen des MPPT-Handlers → erneuter `checkAndFixSolarLogic()`-Aufruf → schreibt MPPT → neuer Interrupt → **Loop**
 
 **Solution: Cooldown Timer (60 Sekunden)**
 
@@ -294,42 +318,32 @@ static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 **KRITISCH**: **Immer** Register 0x1B lesen, auch wenn Event ignoriert wird.
 
 ```cpp
-void BoardConfigContainer::onBqInterrupt() {
-  // CRITICAL: Always clear interrupt flags by reading CHARGER_STATUS_0 register
-  // The BQ25798 requires reading register 0x1B to acknowledge interrupts
-  if (bqDriverInstance) {
-    bqDriverInstance->readReg(0x1B); // Clear interrupt flags
-  }
-  
-  // Wake solarMpptTask for immediate processing
-  if (solarEventSem != NULL) {
-    xSemaphoreGiveFromISR(solarEventSem, NULL);
-  }
-}
+// BQ25798 Interrupt-Flags werden in runMpptCycle() per Polling geclearet:
+// bqDriverInstance->readReg(0x1B); // Clear interrupt flags
+// Kein ISR-Handler oder Semaphore mehr nötig — polling-basiert im tick()-Kontext.
 ```
 
 **Flag Clearing auf Boot**: `BoardConfigContainer::configureBq()` Zeile 1075
 - Liest FAULT_STATUS Register (0x20, 0x21) nach Konfiguration
 - Vermeidet stale faults von vorherigem Power-Cycle
 
-### Task-Architektur
+### Tick-basierte Architektur
 
-**solarMpptTask** (15-Minuten Intervall + Interrupt-getriggert):
+`runMpptCycle()` wird alle 60s von `tickPeriodic()` aufgerufen (Main-Loop-Kontext):
 ```
-Periodic Check (15min):
-  ├─ checkAndFixPgoodStuck()  ← 5-Min Cooldown
-  └─ checkAndFixSolarLogic()  ← 60s Cooldown + PG=1 Check
-
-Interrupt Event:
-  ├─ onBqInterrupt() clears 0x1B
-  └─ Task wacht auf → läuft sofort
+tickPeriodic() — millis()-basierter Timer (60s)
+  └─ runMpptCycle()
+       ├─ Interrupt-Flags clearen (0x1B)
+       ├─ Panel-Klassifikation (UNKNOWN/LOW_V/HIGH_V)
+       ├─ LOW_V: checkParasiticDischarge() + checkAndFixPgoodStuck() + checkAndFixSolarLogic()
+       └─ HIGH_V: HIZ-Gated State Machine (HIZ_IDLE/CHARGE_ACTIVE)
 ```
 
 **Timing Summary**:
 - **MPPT Write Cooldown**: 60 Sekunden (verhindert Loop)
 - **HIZ Toggle Cooldown**: 5 Minuten (verhindert excessive toggling)
-- **Periodic Check**: 15 Minuten (normal task run)
-- **Interrupt Response**: Sofort (weckt task)
+- **Periodic Check**: 60 Sekunden (via `tickPeriodic()`)
+- **Interrupt Response**: N/A (kein Interrupt-Trigger mehr, rein polling-basiert)
 
 ### BQ25798 ADC bei niedrigen Batteriespannungen
 
@@ -502,7 +516,7 @@ Wire.endTransmission();
 ```
 
 **Warum nicht in der ISR?** I2C (Wire) darf nicht aus einem ISR-Kontext aufgerufen werden.
-Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
+Der ISR setzt nur das Flag `rtc_irq_pending`, `tick()` prüft es und cleart TF im Main-Loop-Kontext.
 
 ---
 
@@ -516,8 +530,8 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 **Ablauf:** `runVoltageMonitor()` (BoardConfigContainer.cpp) ruft `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)` auf (InheroMr2Board.cpp):
 
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
-   - Stoppt MPPT task, Heartbeat task, SOC Update task
-   - **Self-Deletion Guard**: Wenn der aufrufende Task (`socUpdateTask`) sich selbst löschen würde, wird `vTaskDelete()` übersprungen — sonst würde FreeRTOS den Task sofort terminieren und `initiateShutdown()` nie die Sleep-Schleife erreichen
+   - Stoppt Heartbeat task (einziger verbleibender FreeRTOS-Task mit I/O)
+   - MPPT und SOC-Arbeit laufen in `tickPeriodic()` und werden durch den Shutdown-Flow natürlich gestoppt
    - Verhindert Filesystem-Korruption
    
 2. **INA228 Shutdown**: `ina228.shutdown()` → MODE=0x0 (Power-down, ~1µA)
@@ -994,7 +1008,7 @@ set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
 | **InheroMr2Board.h** | 116 | Board-Klasse, Energieverwaltungsdefinitionen |
 | **InheroMr2Board.cpp** | 761 | Board-Init, Shutdown, RTC, CLI-Commands |
 | **BoardConfigContainer.h** | 276 | Battery Management, SOC, Daily Balance Structures |
-| **BoardConfigContainer.cpp** | ~2300 | BQ25798, INA228, MPPT, SOC, Daily Balance, Tasks |
+| **BoardConfigContainer.cpp** | ~2300 | BQ25798, INA228, MPPT, SOC, Daily Balance, tickPeriodic |
 | **lib/Ina228Driver.h** | ~180 | INA228 Register, Methods, BatteryData Struct |
 | **lib/Ina228Driver.cpp** | ~255 | INA228 I2C Communication, Calibration, Coulomb Counter |
 | **lib/BqDriver.h** | ~100 | BQ25798 Driver Interface |
@@ -1011,7 +1025,8 @@ set board.uvlo <0|1|true|false> # UVLO-Einstellung setzen 🆕
 | `getVoltageCriticalThreshold()` | InheroMr2Board.cpp | Chemistry-specific Critical Voltage (0% SOC) |
 | `getVoltageHardwareCutoff()` | InheroMr2Board.cpp | Chemistry-specific UVLO Voltage (INA228 Alert) |
 | `runVoltageMonitor()` | BoardConfigContainer.cpp | Spannungsüberwachung, delegiert an `board.initiateShutdown()` |
-| `socUpdateTask()` | BoardConfigContainer.cpp | SOC-Update (60s), ruft runVoltageMonitor() |
+| `tickPeriodic()` | BoardConfigContainer.cpp | Periodischer Tick-Handler — dispatcht alle I2C-Arbeit (MPPT, SOC, Voltage) |
+| `runMpptCycle()` | BoardConfigContainer.cpp | Ein MPPT-Solarverwaltungszyklus (aufgerufen von tickPeriodic) |
 | `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | 7-Day Energy Balance Tracking |
 | `calculateTTL()` | BoardConfigContainer.cpp | Time To Live Forecast |
@@ -1044,30 +1059,7 @@ void Ina228Driver::wakeup() {
 }
 ```
 
-### RTC Interrupt Handler Fix
-```cpp
-// InheroMr2Board.cpp Zeile 739-761
-void InheroMr2Board::rtcInterruptHandler() {
-  // Read current CTRL2 register
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL2);  // 0x01
-  Wire.endTransmission(false);
-  Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
-  
-  if (Wire.available()) {
-    uint8_t ctrl2 = Wire.read();
-    
-    // Clear TF bit (bit 3) by writing 0 to it
-    ctrl2 &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
-    
-    // Write back to clear the flag and release INT pin
-    Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(RV3028_REG_CTRL2);
-    Wire.write(ctrl2);
-    Wire.endTransmission();
-  }
-}
-```
+### RTC Interrupt Handler\n```cpp\n// InheroMr2Board.cpp — ISR setzt nur Flag\nvoid InheroMr2Board::rtcInterruptHandler() {\n  rtc_irq_pending = true;\n}\n\n// tick() — Main-Loop-Kontext cleart TF per I2C\nvoid InheroMr2Board::tick() {\n  if (rtc_irq_pending) {\n    rtc_irq_pending = false;\n    // Clear TF via I2C (safe — runs in main loop context)\n    Wire.beginTransmission(RTC_I2C_ADDR);\n    Wire.write(RV3028_REG_STATUS);\n    Wire.endTransmission(false);\n    Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);\n    if (Wire.available()) {\n      uint8_t status = Wire.read();\n      status &= ~(1 << 3); // Clear TF bit\n      Wire.beginTransmission(RTC_I2C_ADDR);\n      Wire.write(RV3028_REG_STATUS);\n      Wire.write(status);\n      Wire.endTransmission();\n    }\n  }\n  BoardConfigContainer::tickPeriodic();\n  BoardConfigContainer::feedWatchdog();\n}\n```
 
 ### INA228 Driver Zugriff
 ```cpp
@@ -1315,13 +1307,23 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ## Changelog
 
+### v3.0 - 15. März 2026 (Architektur-Refactoring: Flag/Tick-Pattern)
+- 🛠️ **Architektur**: I2C-Mutex (`I2CMutex.h`) komplett entfernt
+- 🛠️ **Architektur**: FreeRTOS-Tasks `solarMpptTask`, `socUpdateTask`, `voltageMonitorTask` eliminiert
+- 🛠️ **Architektur**: Neue `tickPeriodic()` — alle I2C-Arbeit im Main-Loop-Kontext (millis()-basiertes Scheduling)
+- 🛠️ **Architektur**: `runMpptCycle()` extrahiert aus solarMpptTask-Body
+- 🛠️ **Architektur**: `tick()` vereinfacht: RTC-Clear + `tickPeriodic()` + `feedWatchdog()`
+- 🛠️ **WDT**: Liveness-Tracking (`mpptTaskLastAlive`/`socTaskLastAlive`) und `recoverI2CBus()` entfernt — WDT feuert natürlich wenn `tick()` hängt
+- 🛠️ **Grund**: Mutex schützte nur eigenen Code, nicht MeshCore's I2C-Zugriffe. tick() blockiert den Core → Bus-Contention architektonisch unmöglich
+- 📝 Dokumentation vollständig aktualisiert (README.md + IMPLEMENTATION_SUMMARY.md)
+
 ### v2.2 - 25. Februar 2026 (Code-Fix + Dokumentation an Code-Stand angepasst)
 - 🐛 **Code-Fix**: `runVoltageMonitor()` delegiert jetzt an `board.initiateShutdown(LOW_VOLTAGE)` statt inline `sd_power_system_off()` — CE-Pin bleibt LOW, Solar-Laden in Danger Zone möglich
 - 📝 `.noinit Stats Preservation` entfernt — Feature existiert nicht im Code (kein Linker-Script, keine Structs/Funktionen)
 - 📝 Danger Zone korrekt als System ON Idle dokumentiert (CE-Pin LOW, GPIO-Latches aktiv)
 - 📝 `initiateShutdown()` als aktiver Code-Pfad dokumentiert (aufgerufen von `runVoltageMonitor()`)
 - 📝 RTC-Wake-Intervall von 12h auf 6h korrigiert, dann auf 1h reduziert (Code: `DANGER_ZONE_SLEEP_MINUTES = 60`)
-- 📝 `voltageMonitorTask` als Stub dokumentiert, Verweis auf `socUpdateTask` + `runVoltageMonitor()`
+- 📝 `voltageMonitorTask` und `socUpdateTask` als historisch dokumentiert, ersetzt durch `tickPeriodic()`
 - 📝 Statistik-Persistenz-Sektion neu geschrieben: keine Persistenz für 168h-Ringpuffer
 - 📝 Szenarien und Future Enhancements aktualisiert
 
