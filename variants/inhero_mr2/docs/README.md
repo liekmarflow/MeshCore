@@ -34,6 +34,8 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
+| HIZ-Gated Charging + Parasitic-Drain-Schutz | Aktiv | 2-State-Machine (HIZ_IDLE / CHARGE_ACTIVE) |
+| PFM Forward Mode | Konfigurierbar | `set board.pfm 0\|1` (persistent) |
 | Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
 
 ## Energieverwaltungsfunktionen (Rev 1.0)
@@ -139,10 +141,12 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
   - `~72mA` — 50–100mA mit Rundungszeichen `~` (eingeschränkte Genauigkeit)
   - `385mA` — >100mA ohne Rundungszeichen (hinreichend genau)
   - Immer ganzzahlig ohne Dezimalstellen (keine Pseudopräzision)
-- **Stuck-PGOOD-Erkennung:** Erkennt automatisch langsame Sonnenaufgänge mit hängendem PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown gegen übermäßiges Toggeln)
+- **HIZ-Gated Charging:** Default-Zustand = HIZ (charger aus, kein Batterie-Drain). BQ entscheidet via PG ob Eingang nutzbar. Bei PG=1 startet Coulomb-Counter-Monitoring (55s-Fenster). Erkennt parasitären Drain (ΔCharge < -0.05 mAh) → HIZ + 5 Minuten Cooldown.
+- **PFM Forward Mode:** Manuell steuerbar via `set board.pfm 0|1` (persistent). Verbessert Effizienz bei niedrigen Strömen. Default: aus.
+- **Stuck-PGOOD-Erkennung:** Erkennt automatisch hängendes PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown, nur No-Battery-Fallback)
 - **MPPT VOC_PCT 81.25%:** Der BQ25798-MPPT ist auf VOC_PCT=81.25% konfiguriert (statt Chip-Default 87.5% oder vormals 75%). Dieser Wert entspricht dem typischen Vmp/Voc-Verhältnis kristalliner Silizium-Solarzellen (~80-83%) und passt sowohl für 5-6V als auch 12V Panels.
-- **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 mit 60-Sekunden-Cooldown, um Interrupt-Loops zwischen Solarlogik und BQ25798-Interrupts zu vermeiden
-- **Interrupt-Clearing:** Löscht stets BQ25798-Interrupt-Flags (CHARGER_STATUS_0 Register 0x1B), damit der Betrieb stabil bleibt und kein Interrupt-Lockup entsteht
+- **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 (Readback-Check: nur bei tatsächlicher Änderung)
+- **BQ INT-Pin nicht genutzt:** Kein Interrupt — reines Polling alle 60s in `runMpptCycle()`
 - **Fehlerüberwachung:** Diagnosebefehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Analyse inkl. VBAT_OVP, VBUS_OVP und Temperaturbedingungen
 - **VREG-Anzeige:** Zeigt die tatsächlich konfigurierte Battery-Regulation-Spannung in der Diagnose zur Schwellenwert-Prüfung
 
@@ -258,6 +262,10 @@ get board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen (v0.2-Feature)
 get board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
                     # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
                     # Shows whether heartbeat LED and BQ25798 stat LED are enabled
+
+get board.pfm       # PFM Forward Mode Status + HIZ-Gate-State abfragen
+                    # Ausgabe: PFM: on [CHG] | PFM: off [HIZ]
+                    # States: [HIZ] = HIZ-Idle, [CHG] = Charge-Active
 ```
 
 ### Set-Befehle
@@ -309,6 +317,10 @@ set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
                                # on/1 = enable, off/0 = disable
                                # Boot-LEDs (3 blaue Blinks) immer aktiv
 
+set board.pfm <0|1|on|off>     # PFM Forward Mode ein-/ausschalten (persistent)
+                               # on/1 = PFM aktiv (besser für 5-6V Panels)
+                               # off/0 = PFM deaktiviert (sicher für 12V Panels)
+
 set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
                                # Bereich: 0-100
                                # Hinweis: INA228 muss initialisiert sein
@@ -329,10 +341,14 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 **Bekannte Probleme:**
 1. **Stuck PGOOD**: Langsamer Sonnenaufgang kann Input-Qualifikation verhindern
    - Symptom: VBUS >3.5V aber PG=0
-   - Lösung: `board.togglehiz` oder automatisch via `checkAndFixPgoodStuck()` (15min Intervall)
+   - Lösung: `board.togglehiz` oder automatisch via `checkAndFixPgoodStuck()` (nur No-Battery-Fallback)
    - Mechanismus: HIZ-Toggle triggert Input-Qualifikation (per BQ25798 Datasheet)
 2. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
-   - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1 (60s Cooldown)
+   - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1
+3. **Parasitärer Drain**: Panel liefert PG=1 aber Netto-Entladung (typisch für 12V Panels bei schwachem Licht)
+   - Erkennung: Coulomb-Counter ΔCharge < -0.05 mAh über 55s-Fenster
+   - Reaktion: HIZ + 5 Minuten Cooldown
+   - CLI: `get board.cinfo` zeigt `HIZ-COOL` während Cooldown
 
 ### INA228-Kalibrierung (v0.2)
 

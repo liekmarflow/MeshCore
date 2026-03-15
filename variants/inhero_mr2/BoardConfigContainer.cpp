@@ -153,10 +153,11 @@ MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
-SolarPanelClass BoardConfigContainer::detectedPanelClass = PANEL_UNKNOWN;
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
+bool BoardConfigContainer::pfmEnabled = false;  // Default: PFM disabled (safe for 12V panels)
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
 uint32_t BoardConfigContainer::chargeBaselineTime = 0;
+uint32_t BoardConfigContainer::hizCooldownUntil = 0;
 
 // Solar charging thresholds
 static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
@@ -172,15 +173,12 @@ static bool wdt_enabled = false;
 static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
 #define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
 
-// HIZ-Gated charging constants (HIGH_V panels only)
-#define PANEL_VOC_THRESHOLD_MV    9500   // Voc < 9.5V = LOW_V, >= 9.5V = HIGH_V
-#define HIZ_MIN_USEFUL_VOC_MV     12000  // Don't even try exiting HIZ below 12V Voc (~70% of 17V)
+// HIZ-Gated charging constants
 #define HIZ_PROBE_SETTLE_MS       500    // Time after HIZ exit for BQ input qualification
-#define HIZ_VOC_SETTLE_MS         3000   // Wait for BQ's MPPT VOC measurement window before sampling IBAT
-#define HIZ_PROBE_IBAT_SAMPLES    3      // Number of IBAT samples for median filter
-#define HIZ_PROBE_SAMPLE_INTERVAL 1000   // ms between IBAT samples during probe
 #define HIZ_CHARGE_MONITOR_WINDOW 55000  // ~55s Coulomb Counter measurement window (< 60s task interval)
-#define HIZ_CHARGE_DRAIN_THRESH   0.0f   // ΔCharge <= 0 mAh over window = parasitic drain
+#define HIZ_CHARGE_DRAIN_THRESH   (-0.05f) // ΔCharge < -0.05 mAh over window = parasitic drain
+                                             // 0 or slightly positive is OK (battery maintenance at SOC=100%)
+#define HIZ_DRAIN_COOLDOWN_MS     (5 * 60 * 1000)  // 5 minutes cooldown after parasitic drain detected
 
 // VSYS safety: minimum VBAT to safely enter HIZ mode.
 // Without battery (VBAT=0), the board runs on VSYS powered directly by solar.
@@ -396,268 +394,114 @@ uint16_t BoardConfigContainer::readVbusInHiz() {
   return bqDriverInstance->getVBUS();
 }
 
-/// @brief Classify the connected solar panel by measuring Voc
-/// @details Measures open-circuit voltage (Voc) via VBUS ADC in HIZ mode.
-///          - Voc < PANEL_VOC_THRESHOLD_MV → LOW_V (5-9V panel)
-///          - Voc >= PANEL_VOC_THRESHOLD_MV → HIGH_V (12V+ panel)
-///          - VBUS = 0 → UNKNOWN (no panel, treated conservatively as HIGH_V)
-///          Configures PFM and initial HIZ state based on classification.
-void BoardConfigContainer::classifySolarPanel() {
-  if (!bqDriverInstance) {
-    detectedPanelClass = PANEL_UNKNOWN;
-    return;
-  }
-
-  // Ensure HIZ mode for accurate Voc measurement (no load on panel).
-  // SAFETY: If no battery present (VBAT~0), VSYS is powered solely by solar.
-  // Entering HIZ would disconnect the only power source → instant crash.
-  // In that case, classify based on loaded VBUS instead of Voc.
-  if (!canSafelyEnterHiz()) {
-    // Can't enter HIZ — read loaded VBUS instead (always <= Voc)
-    uint16_t vbus_mv = readVbusInHiz();  // One-shot ADC, works without HIZ
-    if (vbus_mv >= PANEL_VOC_THRESHOLD_MV) {
-      detectedPanelClass = PANEL_LOW_V;  // Force LOW_V — cannot use HIZ-gated approach without battery
-      bq.setPFMForwardDisable(true);     // But still disable PFM (high VBUS = 12V panel)
-      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> forced LOW_V (no HIZ possible)", vbus_mv);
-    } else if (vbus_mv >= MIN_VBUS_FOR_CHARGING) {
-      detectedPanelClass = PANEL_LOW_V;
-      bq.setPFMForwardDisable(false);
-      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> LOW_V", vbus_mv);
-    } else {
-      detectedPanelClass = PANEL_UNKNOWN;
-      MESH_DEBUG_PRINTLN("Solar panel: no battery, VBUS=%dmV -> UNKNOWN", vbus_mv);
-    }
-    return;
-  }
-
-  bq.setHIZMode(true);
-  delay(100);  // Let VBUS settle to Voc
-
-  uint16_t voc_mv = readVbusInHiz();
-
-  SolarPanelClass previousClass = detectedPanelClass;
-
-  if (voc_mv == 0 || voc_mv < MIN_VBUS_FOR_CHARGING) {
-    detectedPanelClass = PANEL_UNKNOWN;
-    MESH_DEBUG_PRINTLN("Solar panel: UNKNOWN (Voc=%dmV, no panel?)", voc_mv);
-  } else if (voc_mv < PANEL_VOC_THRESHOLD_MV) {
-    detectedPanelClass = PANEL_LOW_V;
-    MESH_DEBUG_PRINTLN("Solar panel: LOW_V (Voc=%dmV < %dmV)", voc_mv, PANEL_VOC_THRESHOLD_MV);
-    // LOW_V: Exit HIZ — charger can run safely
-    bq.setHIZMode(false);
-  } else {
-    detectedPanelClass = PANEL_HIGH_V;
-    MESH_DEBUG_PRINTLN("Solar panel: HIGH_V (Voc=%dmV >= %dmV)", voc_mv, PANEL_VOC_THRESHOLD_MV);
-    // HIGH_V: Stay in HIZ — HIZ-Gated state machine will control exits
-    hizGateState = HIZ_IDLE;
-  }
-
-  // Configure PFM based on panel class
-  if (detectedPanelClass == PANEL_LOW_V) {
-    bq.setPFMForwardDisable(false);  // PFM enabled: good efficiency at 1.6:1 buck ratio
-    MESH_DEBUG_PRINTLN("PFM: enabled (LOW_V panel)");
-  } else {
-    bq.setPFMForwardDisable(true);   // PFM disabled: prevents 2A pulse VBUS oscillation
-    MESH_DEBUG_PRINTLN("PFM: disabled (HIGH_V/UNKNOWN panel)");
-  }
-
-  if (previousClass != detectedPanelClass) {
-    MESH_DEBUG_PRINTLN("Panel class changed: %d -> %d", previousClass, detectedPanelClass);
-  }
-}
-
-void BoardConfigContainer::setPanelOverride(SolarPanelClass cls) {
-  detectedPanelClass = cls;
-  if (cls == PANEL_LOW_V) {
-    bq.setHIZMode(false);
-    bq.setPFMForwardDisable(false);
-  } else if (cls == PANEL_HIGH_V) {
-    if (!canSafelyEnterHiz()) {
-      MESH_DEBUG_PRINTLN("setPanelOverride: HIGH_V blocked (no battery), staying LOW_V");
-      detectedPanelClass = PANEL_LOW_V;
-      bq.setPFMForwardDisable(true);  // Still disable PFM for 12V panel
-      return;
-    }
-    hizGateState = HIZ_IDLE;
-    bq.setHIZMode(true);
-    bq.setPFMForwardDisable(true);
-  }
-}
-
 /// @brief Single MPPT cycle — called from tickPeriodic() every 60s
-/// @details Extracted from the old solarMpptTask while-loop body.
+/// @details HIZ-Gated state machine always active when battery present.
 ///          Runs in tick() context — no concurrent I2C access possible.
+///          Falls back to charger-always-on when no battery (can't enter HIZ).
 void BoardConfigContainer::runMpptCycle() {
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     if (bqDriverInstance) {
       bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
     }
 
-    // === Panel classification ===
-    // If panel is still UNKNOWN (not connected at boot, or was disconnected),
-    // try to classify every cycle. classifySolarPanel() sets HIZ, reads Voc,
-    // and configures PFM + HIZ state based on result. Safe to call repeatedly
-    // when UNKNOWN since charger isn't actively charging anything useful.
-    if (detectedPanelClass == PANEL_UNKNOWN) {
-      classifySolarPanel();
-      // If still UNKNOWN after measurement, skip to next cycle
-      if (detectedPanelClass == PANEL_UNKNOWN) return;
-      // Otherwise fall through with newly detected class
-    }
-
-    // === Panel-class-dependent solar management ===
-    //
-    // LOW_V panels (5-9V): Charger always active, PGOOD recovery handles edge cases.
-    //
-    // HIGH_V panels (12V+): HIZ-Gated approach — charger off by default, prove panel delivers first.
-    //   - 75% buck efficiency + high Voc → parasitic drain at weak light is the norm
-    //   - Default state = HIZ (safe). Voc pre-filter avoids unnecessary HIZ exits.
-    //   - Coulomb Counter monitors net charge over 60s window (TX-burst immune)
-
-    if (detectedPanelClass == PANEL_HIGH_V) {
-      // ──────────────────────────────────────────────────────────
-      // HIGH_V: HIZ-Gated State Machine
-      // ──────────────────────────────────────────────────────────
-      switch (hizGateState) {
-
-      case HIZ_IDLE: {
-        // Default safe state: charger in HIZ, no battery drain from BQ.
-        // Measure Voc via ADC in HIZ (costless — no current draw).
-        uint16_t voc_mv = readVbusInHiz();
-
-        // Panel disconnected? Reset to UNKNOWN — reclassification happens next cycle.
-        if (voc_mv == 0 || voc_mv < MIN_VBUS_FOR_CHARGING) {
-          detectedPanelClass = PANEL_UNKNOWN;
-          MESH_DEBUG_PRINTLN("HIZ_IDLE: Voc=%dmV, panel gone -> UNKNOWN", voc_mv);
-          break;
-        }
-
-        if (voc_mv < HIZ_MIN_USEFUL_VOC_MV) {
-          // Panel too weak — stay in HIZ, check again next cycle
-          MESH_DEBUG_PRINTLN("HIZ_IDLE: Voc=%dmV < %dmV, staying in HIZ", voc_mv, HIZ_MIN_USEFUL_VOC_MV);
-          break;
-        }
-
-        // Voc looks promising — exit HIZ to probe
-        MESH_DEBUG_PRINTLN("HIZ_IDLE: Voc=%dmV, probing...", voc_mv);
-        bq.setHIZMode(false);
-        delay(HIZ_PROBE_SETTLE_MS);  // Allow BQ input qualification
-
-        bool pg = bqDriverInstance->getChargerStatusPowerGood();
-        if (!pg) {
-          // BQ couldn't qualify input — back to HIZ
-          if (canSafelyEnterHiz()) bq.setHIZMode(true);
-          MESH_DEBUG_PRINTLN("HIZ_IDLE: Probe failed (!PG), back to HIZ");
-          break;
-        }
-
-        // PG is up — take median of 3 IBAT samples to reject single TX bursts
-        // Wait 3s first to skip BQ's MPPT VOC measurement window
-        delay(HIZ_VOC_SETTLE_MS);
-
-        int16_t samples[HIZ_PROBE_IBAT_SAMPLES];
-        for (int i = 0; i < HIZ_PROBE_IBAT_SAMPLES; i++) {
-          samples[i] = ina228DriverInstance ? ina228DriverInstance->readCurrent_mA() : 0;
-          if (i < HIZ_PROBE_IBAT_SAMPLES - 1) delay(HIZ_PROBE_SAMPLE_INTERVAL);
-        }
-
-        // Simple sort for median of 3
-        for (int i = 0; i < HIZ_PROBE_IBAT_SAMPLES - 1; i++) {
-          for (int j = i + 1; j < HIZ_PROBE_IBAT_SAMPLES; j++) {
-            if (samples[j] < samples[i]) {
-              int16_t tmp = samples[i]; samples[i] = samples[j]; samples[j] = tmp;
-            }
-          }
-        }
-        int16_t ibat_median = samples[HIZ_PROBE_IBAT_SAMPLES / 2];
-
-        if (ibat_median < 0) {
-          // Net drain despite PG — panel can't overcome BQ quiescent losses
-          if (canSafelyEnterHiz()) bq.setHIZMode(true);
-          MESH_DEBUG_PRINTLN("HIZ_IDLE: Probe IBAT=%dmA (drain), back to HIZ", ibat_median);
-          break;
-        }
-
-        // Panel delivers! Transition to CHARGE_ACTIVE.
-        // Take Coulomb Counter baseline for ongoing monitoring.
-        chargeBaseline_mAh = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
-        chargeBaselineTime = millis();
-        hizGateState = CHARGE_ACTIVE;
-        checkAndFixSolarLogic();  // Re-enable MPPT if needed
-        MESH_DEBUG_PRINTLN("HIZ_IDLE -> CHARGE_ACTIVE (IBAT=%dmA)", ibat_median);
-        break;
-      }
-
-      case HIZ_PROBING:
-        // Not used in current flow (probe is synchronous in HIZ_IDLE).
-        // Reserved for future async probing if task blocking becomes an issue.
-        hizGateState = HIZ_IDLE;
-        break;
-
-      case CHARGE_ACTIVE: {
-        // Charger is active — monitor using Coulomb Counter delta (TX-immune).
-        bool pg = bqDriverInstance->getChargerStatusPowerGood();
-
-        if (!pg) {
-          // Panel gone (cloud, sunset) — back to safe HIZ
-          if (canSafelyEnterHiz()) bq.setHIZMode(true);
-          hizGateState = HIZ_IDLE;
-          MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (!PG)");
-          break;
-        }
-
-        // Check net charge over the last monitoring window
-        float charge_now = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
-        float delta_mAh = charge_now - chargeBaseline_mAh;
-        uint32_t elapsed_ms = millis() - chargeBaselineTime;
-
-        if (elapsed_ms >= HIZ_CHARGE_MONITOR_WINDOW) {
-          if (delta_mAh <= HIZ_CHARGE_DRAIN_THRESH) {
-            // Net drain or zero over full window — parasitic, back to HIZ
-            if (canSafelyEnterHiz()) bq.setHIZMode(true);
-            hizGateState = HIZ_IDLE;
-            MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (delta=%.2fmAh/%lums, drain)",
-                               delta_mAh, elapsed_ms);
-          } else {
-            MESH_DEBUG_PRINTLN("CHARGE_ACTIVE: OK (delta=+%.2fmAh/%lums)", delta_mAh, elapsed_ms);
-          }
-          // Reset baseline for next window
-          chargeBaseline_mAh = charge_now;
-          chargeBaselineTime = millis();
-        }
-
-        checkAndFixSolarLogic();  // Keep MPPT enabled
+    // === No-battery fallback ===
+    // If no battery present, HIZ-gated approach is impossible (VSYS would collapse).
+    // Run traditional charger-always-active path instead.
+    if (!canSafelyEnterHiz()) {
+      checkAndFixPgoodStuck();
+      checkAndFixSolarLogic();
+      bool mpptEnabled;
+      BoardConfigContainer::loadMpptEnabled(mpptEnabled);
+      if (mpptEnabled && bqDriverInstance) {
         updateMpptStats();
+      }
+      return;
+    }
+
+    // === HIZ-Gated State Machine (always active when battery present) ===
+    // Default state = HIZ (safe). BQ decides via PG whether input is usable.
+    // Coulomb Counter monitors net charge over 55s window (TX-burst immune).
+    // Parasitic drain triggers 5-minute cooldown in HIZ.
+    switch (hizGateState) {
+
+    case HIZ_IDLE: {
+      // Default safe state: charger in HIZ, no battery drain from BQ.
+
+      // Cooldown active? (parasitic drain was detected recently)
+      if (hizCooldownUntil != 0 && (millis() - hizCooldownUntil) < HIZ_DRAIN_COOLDOWN_MS) {
+        uint32_t remainSec = (HIZ_DRAIN_COOLDOWN_MS - (millis() - hizCooldownUntil)) / 1000;
+        MESH_DEBUG_PRINTLN("HIZ_IDLE: cooldown %ds remaining", remainSec);
         break;
       }
-      } // end switch
+      hizCooldownUntil = 0;  // Cooldown expired
 
-    } else {
-      // ──────────────────────────────────────────────────────────
-      // LOW_V / UNKNOWN: Traditional charger-always-active approach
-      // ──────────────────────────────────────────────────────────
-      checkAndFixPgoodStuck();  // Check for stuck PGOOD
+      // Quick check: is anything connected at all? (ADC read in HIZ = zero cost)
+      uint16_t voc_mv = readVbusInHiz();
+      if (voc_mv == 0) {
+        MESH_DEBUG_PRINTLN("HIZ_IDLE: VBUS=0, nothing connected");
+        break;
+      }
+
+      // Something on VBUS — exit HIZ and let BQ qualify the input via PG.
+      MESH_DEBUG_PRINTLN("HIZ_IDLE: VBUS=%dmV, exiting HIZ...", voc_mv);
+      bq.setHIZMode(false);
+      delay(HIZ_PROBE_SETTLE_MS);  // Allow BQ input qualification
+
+      bool pg = bqDriverInstance->getChargerStatusPowerGood();
+      if (!pg) {
+        // BQ couldn't qualify input — back to HIZ
+        bq.setHIZMode(true);
+        MESH_DEBUG_PRINTLN("HIZ_IDLE: !PG, back to HIZ");
+        break;
+      }
+
+      // PG=1 — BQ accepted input. Take Coulomb Counter baseline and start monitoring.
+      chargeBaseline_mAh = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
+      chargeBaselineTime = millis();
+      hizGateState = CHARGE_ACTIVE;
       checkAndFixSolarLogic();  // Re-enable MPPT if needed
-
-      // Update statistics - only if MPPT enabled in config
-      if (bqDriverInstance) {
-        bool mpptEnabled;
-        BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-        if (mpptEnabled) {
-          updateMpptStats();
-        }
-      }
-
-      // Reclassify during charging: if loaded VBUS >= threshold, panel is definitely HIGH_V
-      // (Voc is always higher than loaded voltage, so this is a sure detection)
-      if (detectedPanelClass == PANEL_LOW_V && bqDriverInstance) {
-        uint16_t vbus_mv = readVbusInHiz();  // one-shot ADC read (works in any mode, not just HIZ)
-        if (vbus_mv >= PANEL_VOC_THRESHOLD_MV) {
-          MESH_DEBUG_PRINTLN("LOW_V reclassify: VBUS=%dmV >= %dmV -> HIGH_V", vbus_mv, PANEL_VOC_THRESHOLD_MV);
-          setPanelOverride(PANEL_HIGH_V);
-        }
-      }
+      MESH_DEBUG_PRINTLN("HIZ_IDLE -> CHARGE_ACTIVE (PG=1)");
+      break;
     }
+
+    case CHARGE_ACTIVE: {
+      // Charger is active — monitor using Coulomb Counter delta (TX-immune).
+      bool pg = bqDriverInstance->getChargerStatusPowerGood();
+
+      if (!pg) {
+        // Panel gone (cloud, sunset) — back to safe HIZ
+        bq.setHIZMode(true);
+        hizGateState = HIZ_IDLE;
+        MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (!PG)");
+        break;
+      }
+
+      // Check net charge over the last monitoring window
+      float charge_now = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
+      float delta_mAh = charge_now - chargeBaseline_mAh;
+      uint32_t elapsed_ms = millis() - chargeBaselineTime;
+
+      if (elapsed_ms >= HIZ_CHARGE_MONITOR_WINDOW) {
+        if (delta_mAh < HIZ_CHARGE_DRAIN_THRESH) {
+          // Net drain over full window — parasitic source. HIZ + cooldown.
+          bq.setHIZMode(true);
+          hizGateState = HIZ_IDLE;
+          hizCooldownUntil = millis();  // Start cooldown timer
+          MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (delta=%.2fmAh/%lums, drain, cooldown %ds)",
+                             delta_mAh, elapsed_ms, HIZ_DRAIN_COOLDOWN_MS / 1000);
+        } else {
+          MESH_DEBUG_PRINTLN("CHARGE_ACTIVE: OK (delta=+%.2fmAh/%lums)", delta_mAh, elapsed_ms);
+        }
+        // Reset baseline for next window
+        chargeBaseline_mAh = charge_now;
+        chargeBaselineTime = millis();
+      }
+
+      checkAndFixSolarLogic();  // Keep MPPT enabled
+      updateMpptStats();
+      break;
+    }
+    } // end switch
 }
 
 /// @brief Stops heartbeat task and disarms alerts before OTA
@@ -913,14 +757,11 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  // Show solar management state tag (HIGH_V panels only: HIZ gate state)
+  // Show solar management state (HIZ gate state)
   const char* solarTag = "";
-  if (detectedPanelClass == PANEL_HIGH_V) {
-    switch (hizGateState) {
-      case HIZ_IDLE:      solarTag = " HIZ-GATE"; break;
-      case HIZ_PROBING:   solarTag = " PROBE";    break;
-      case CHARGE_ACTIVE: solarTag = " CHG-OK";   break;
-    }
+  switch (hizGateState) {
+    case HIZ_IDLE:      solarTag = (hizCooldownUntil != 0) ? " HIZ-COOL" : " HIZ-GATE"; break;
+    case CHARGE_ACTIVE: solarTag = " CHG-OK";   break;
   }
 
   if (lastHizToggleTime == 0) {
@@ -1332,11 +1173,27 @@ bool BoardConfigContainer::begin() {
   this->configureBaseBQ();
   this->configureChemistry(bat);
   
-  // Classify solar panel via Voc measurement in HIZ.
-  // Must be after configureBaseBQ() since it uses BQ ADC.
-  // Sets detectedPanelClass, configures PFM per panel type,
-  // and sets HIZ state (LOW_V: exits HIZ, HIGH_V: stays in HIZ).
-  classifySolarPanel();
+  // Load PFM preference and apply.
+  // PFM Forward: enabled improves light-load efficiency (good for 6V panels),
+  // disabled prevents 2A pulse VBUS oscillation (safe for 12V panels).
+  // Default: disabled (safe). User sets via 'set board.pfm 0|1'.
+  bool pfm = false;
+  if (loadPfmEnabled(pfm)) {
+    pfmEnabled = pfm;
+  }
+  bq.setPFMForwardDisable(!pfmEnabled);
+  MESH_DEBUG_PRINTLN("PFM: %s (from prefs)", pfmEnabled ? "enabled" : "disabled");
+
+  // Start in HIZ_IDLE (safe default) — state machine will exit HIZ when solar is proven useful.
+  // Without battery: can't use HIZ (VSYS collapse) → charger stays active, fallback path in runMpptCycle.
+  if (canSafelyEnterHiz()) {
+    bq.setHIZMode(true);
+    hizGateState = HIZ_IDLE;
+    MESH_DEBUG_PRINTLN("Solar: HIZ-Gated mode (battery present)");
+  } else {
+    bq.setHIZMode(false);
+    MESH_DEBUG_PRINTLN("Solar: Charger always-on (no battery, HIZ unsafe)");
+  }
   
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
@@ -1571,10 +1428,8 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
 
-  // PFM setting is handled by classifySolarPanel() based on detected panel type.
-  // HIGH_V (12V) panels: PFM disabled (2A pulse VBUS oscillation at weak light)
-  // LOW_V (6V) panels: PFM enabled (better light-load efficiency at 1.6:1 buck ratio)
-  // Default at boot before classification: PFM disabled (safe default)
+  // PFM setting is loaded from preferences and applied in begin() after configureBaseBQ().
+  // Default at boot: PFM disabled (safe for any panel type).
   bq.setPFMForwardDisable(true);
 
   // Flush stale ADC registers by running one discard conversion.
@@ -2250,6 +2105,53 @@ bool BoardConfigContainer::setTcCalOffset(float offset_c) {
 /// @return Current offset in °C (0.0 = no calibration)
 float BoardConfigContainer::getTcCalOffset() const {
   return tcCalOffset;
+}
+
+/// @brief Load PFM enabled state from preferences
+/// @param enabled Reference to store loaded state
+/// @return true if preference found and valid, false if default used
+bool BoardConfigContainer::loadPfmEnabled(bool& enabled) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+
+  char buffer[8];
+  if (prefs.getString(PFMKEY, buffer, sizeof(buffer), "") > 0) {
+    if (buffer[0] != '\0') {
+      enabled = (strcmp(buffer, "1") == 0);
+      return true;
+    }
+  }
+
+  // Default: PFM disabled (safe for any panel)
+  enabled = false;
+  return false;
+}
+
+/// @brief Set PFM Forward mode and save to preferences
+/// @param enabled true = PFM enabled (good for 6V panels), false = PFM disabled (safe for 12V panels)
+/// @return true if saved and applied successfully
+bool BoardConfigContainer::setPFMEnabled(bool enabled) {
+  pfmEnabled = enabled;
+
+  // Apply immediately
+  if (bqDriverInstance) {
+    bq.setPFMForwardDisable(!enabled);
+  }
+
+  // Persist
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  bool ok = prefs.putString(PFMKEY, enabled ? "1" : "0");
+  if (ok) {
+    MESH_DEBUG_PRINTLN("PFM %s (saved)", enabled ? "enabled" : "disabled");
+  }
+  return ok;
+}
+
+/// @brief Get current PFM enabled state
+/// @return true if PFM Forward is enabled
+bool BoardConfigContainer::getPFMEnabled() const {
+  return pfmEnabled;
 }
 
 /// @brief Perform NTC temperature calibration using a reference temperature

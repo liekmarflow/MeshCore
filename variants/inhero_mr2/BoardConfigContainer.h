@@ -30,22 +30,13 @@
 // Solar MPPT polling interval (no interrupt — pure polling)
 #define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute
 
-// Solar Panel Classification
-// Detected at boot via Voc measurement in HIZ mode (VBUS = open-circuit voltage).
-// Determines PFM setting and whether HIZ-Gated charging is used.
-enum SolarPanelClass : uint8_t {
-  PANEL_UNKNOWN = 0,  ///< No panel detected or not yet classified (treated as HIGH_V for safety)
-  PANEL_LOW_V   = 1,  ///< 5-9V panel (Voc < 9.5V) — PFM enabled, charger always active
-  PANEL_HIGH_V  = 2   ///< 12V+ panel (Voc >= 9.5V) — PFM disabled, HIZ-Gated charging
-};
-
-// HIZ-Gated Charging State Machine (for HIGH_V panels only)
+// HIZ-Gated Charging State Machine
 // Default state is HIZ (charger off) — fail-safe: no parasitic battery drain.
 // Charging is only enabled after proving the panel delivers net positive current.
+// Falls back to charger-always-on when no battery present (can't use HIZ without battery).
 enum HizGateState : uint8_t {
-  HIZ_IDLE       = 0,  ///< Charger in HIZ (safe default). Periodically checks Voc.
-  HIZ_PROBING    = 1,  ///< Exited HIZ, verifying panel delivers net positive IBAT
-  CHARGE_ACTIVE  = 2   ///< Panel proven good — charger active, monitored via Coulomb Counter
+  HIZ_IDLE       = 0,  ///< Charger in HIZ (safe default). Probes VBUS periodically.
+  CHARGE_ACTIVE  = 1   ///< BQ qualified input (PG=1) — charger active, monitored via Coulomb Counter
 };
 
 // MPPT Statistics tracking for 7-day moving average
@@ -199,11 +190,6 @@ public:
   /// Only writes to MPPT register if PowerGood is high to avoid false positives.
   static void checkAndFixSolarLogic();
 
-  /// Classify the connected solar panel by measuring Voc in HIZ mode.
-  /// Sets detectedPanelClass and configures PFM accordingly.
-  /// Called at boot and when panel type might have changed (e.g. PG transition after HIZ exit).
-  static void classifySolarPanel();
-
   /// Read VBUS voltage via BQ25798 ADC while in HIZ mode (= panel open-circuit voltage).
   /// @return VBUS in mV, or 0 on failure
   static uint16_t readVbusInHiz();
@@ -211,14 +197,13 @@ public:
   /// Check if HIZ mode can safely be activated (requires battery to sustain VSYS)
   static bool canSafelyEnterHiz();
 
-  /// Get the currently detected solar panel class
-  static SolarPanelClass getPanelClass() { return detectedPanelClass; }
-
-  /// Get the current HIZ gate state (meaningful only for HIGH_V panels)
+  /// Get the current HIZ gate state
   static HizGateState getHizGateState() { return hizGateState; }
 
-  /// Force panel class override (for CLI: auto re-detects, 6v/12v forces)
-  static void setPanelOverride(SolarPanelClass cls);
+  /// Set PFM Forward mode (persistent). true = PFM enabled (good for 6V panels), false = PFM disabled (safe for 12V panels)
+  bool setPFMEnabled(bool enabled);
+  /// Get current PFM enabled state
+  bool getPFMEnabled() const;
 
   static void heartbeatTask(void* pvParameters);
   
@@ -337,6 +322,7 @@ private:
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* INA228_OFFSET_KEY = "ina228Off";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
+  static constexpr const char* PFMKEY = "pfmEn";                 // PFM Forward mode enabled (0=disabled, 1=enabled)
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
@@ -344,15 +330,17 @@ private:
   bool loadBatteryCapacity(float& capacity_mah) const;
   bool loadIna228CurrentOffset(float& offset) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
+  bool loadPfmEnabled(bool& enabled) const;   // PFM Forward mode
   
   // MPPT Statistics helper
   static void updateMpptStats();
 
-  // HIZ-Gated charging state (HIGH_V panels)
-  static SolarPanelClass detectedPanelClass;  ///< Detected panel type (persists across task cycles)
+  // HIZ-Gated charging state
   static HizGateState    hizGateState;        ///< Current state of HIZ gate machine
+  static bool            pfmEnabled;          ///< PFM Forward enabled (persisted via preferences)
   static float           chargeBaseline_mAh;  ///< INA228 CHARGE reading at start of monitoring window
   static uint32_t        chargeBaselineTime;   ///< millis() when baseline was taken
+  static uint32_t        hizCooldownUntil;     ///< millis() timestamp: stay in HIZ until this time (drain cooldown)
   
   // Battery SOC helpers
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)

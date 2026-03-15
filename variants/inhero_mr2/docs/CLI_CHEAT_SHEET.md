@@ -86,6 +86,9 @@ get board.hiz                  # Manuelles Input-Qualify via HIZ-Toggle (Alias: 
 # Kalibrierung
 get board.iboffset             # INA228-Strom-Offset in mA (0.00 = default)
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
+
+# Solar / PFM
+get board.pfm                  # PFM Forward Mode Status + HIZ-Gate-State
 ```
 
 ---
@@ -108,6 +111,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.cinfo` | Ladegeraet-Status (Charger State + Flags) |
 | `get board.diag` | Detail-Diagnose BQ25798 (kompakt: PG, HZ, MP, CHG, VBUS, TS, VOC) |
 | `get board.hiz` | Manuelles Input-Qualify via HIZ-Toggle (Alias: `togglehiz`) |
+| `get board.pfm` | PFM Forward Mode Status + HIZ-Gate-State (`on`/`off` + `[HIZ]`/`[CHG]`) |
 | `get board.iboffset` | INA228-Strom-Offset in mA (`0.00` = default) |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
 
@@ -123,6 +127,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
+| `set board.pfm` | `0`/`1` · `on`/`off` | PFM Forward Mode (besser für 5-6V Panels) |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
 | `set board.iboffset` | `<mA>` · `reset` | INA228-Strom-Offset kalibrieren oder zuruecksetzen |
 | `set board.tccal` | `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zuruecksetzen |

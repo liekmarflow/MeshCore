@@ -592,27 +592,19 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "Err: INA228 not initialized");
     }
     return true;
-  } else if (strcmp(cmd, "panel") == 0) {
-    const char* classStr = "UNKNOWN";
-    switch (boardConfig.getPanelClass()) {
-      case PANEL_LOW_V:  classStr = "LOW_V (<9.5V)";  break;
-      case PANEL_HIGH_V: classStr = "HIGH_V (>=9.5V)"; break;
-      default: break;
+  } else if (strcmp(cmd, "pfm") == 0) {
+    const char* stateStr = boardConfig.getPFMEnabled() ? "on" : "off";
+    const char* hizStr = "";
+    switch (boardConfig.getHizGateState()) {
+      case HIZ_IDLE:      hizStr = " [HIZ]";   break;
+      case CHARGE_ACTIVE: hizStr = " [CHG]";   break;
     }
-    const char* stateStr = "";
-    if (boardConfig.getPanelClass() == PANEL_HIGH_V) {
-      switch (boardConfig.getHizGateState()) {
-        case HIZ_IDLE:      stateStr = " [HIZ]";   break;
-        case HIZ_PROBING:   stateStr = " [PROBE]"; break;
-        case CHARGE_ACTIVE: stateStr = " [CHG]";   break;
-      }
-    }
-    snprintf(reply, maxlen, "%s%s", classStr, stateStr);
+    snprintf(reply, maxlen, "PFM: %s%s", stateStr, hizStr);
     return true;
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|iboffset|tccal|leds|batcap|energy|panel");
+           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|iboffset|tccal|leds|batcap|energy|pfm");
   return true;
 }
 
@@ -781,30 +773,21 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid SOC (0-100) or INA228 not ready");
     }
     return ret;
-  } else if (strncmp(setCommand, "panel ", 6) == 0) {
-    const char* val = BoardConfigContainer::trim(const_cast<char*>(&setCommand[6]));
-    if (strcmp(val, "auto") == 0) {
-      boardConfig.classifySolarPanel();
-      const char* cls = "UNKNOWN";
-      switch (boardConfig.getPanelClass()) {
-        case PANEL_LOW_V:  cls = "LOW_V";  break;
-        case PANEL_HIGH_V: cls = "HIGH_V"; break;
-        default: break;
-      }
-      snprintf(ret, sizeof(ret), "Panel re-detected: %s", cls);
-    } else if (strcmp(val, "6v") == 0) {
-      BoardConfigContainer::setPanelOverride(PANEL_LOW_V);
-      snprintf(ret, sizeof(ret), "Panel forced: LOW_V, PFM enabled");
-    } else if (strcmp(val, "12v") == 0) {
-      BoardConfigContainer::setPanelOverride(PANEL_HIGH_V);
-      snprintf(ret, sizeof(ret), "Panel forced: HIGH_V, HIZ gated");
+  } else if (strncmp(setCommand, "pfm ", 4) == 0) {
+    const char* val = BoardConfigContainer::trim(const_cast<char*>(&setCommand[4]));
+    if (strcmp(val, "1") == 0 || strcmp(val, "on") == 0) {
+      boardConfig.setPFMEnabled(true);
+      snprintf(ret, sizeof(ret), "PFM enabled");
+    } else if (strcmp(val, "0") == 0 || strcmp(val, "off") == 0) {
+      boardConfig.setPFMEnabled(false);
+      snprintf(ret, sizeof(ret), "PFM disabled");
     } else {
-      snprintf(ret, sizeof(ret), "Err: panel auto|6v|12v");
+      snprintf(ret, sizeof(ret), "Err: pfm 0|1 or on|off");
     }
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|iboffset|tccal|leds|soc|panel");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|iboffset|tccal|leds|soc|pfm");
   return ret;
 }
 

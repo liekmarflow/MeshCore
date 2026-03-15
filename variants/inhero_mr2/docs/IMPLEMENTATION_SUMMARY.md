@@ -223,80 +223,71 @@ avg_deficit = (day0 + day1 + ... + day6).net_balance / 7
 
 ---
 
-## 4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung
+## 4. Solar-Energieverwaltung (HIZ-Gated Charging)
 
-### Problem: Interrupt Loop zwischen MPPT und BQ25798
+### Designprinzip
 
-**Root Cause**:
-- BQ25798 setzt MPPT=0 automatisch wenn PowerGood=0 (kein Solar)
-- `checkAndFixSolarLogic()` schreibt MPPT=1 zurück
-- **Schreiben auf MPPT-Register triggert BQ25798 Interrupt**
-- Interrupt-Flag triggert runMpptCycle() in tickPeriodic() → ruft `checkAndFixSolarLogic()` → schreibt MPPT → neuer Interrupt → **Loop**
+Der BQ25798 entscheidet **selbst** über PowerGood (PG), ob ein Eingang nutzbar ist.
+Die Firmware nutzt **HIZ als Default-Zustand** (fail-safe: kein parasitärer Batterie-Drain)
+und überwacht die Ladung nach BQ-Freigabe via INA228 Coulomb Counter.
 
-**Solution: Cooldown Timer (60 Sekunden)**
+Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s Intervall).
 
-**Implementierung**: `BoardConfigContainer.cpp` Zeile 69-73
-```cpp
-static uint32_t lastMpptWriteTime = 0;      // 60-second cooldown for MPPT register writes
-static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
-#define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
+### State Machine: 2 Zustände
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ HIZ_IDLE (Default, safe)                                │
+│  • Charger in HIZ → kein Batterie-Drain                 │
+│  • Cooldown aktiv? → warten (5 min nach Drain)          │
+│  • VBUS > 0? → Exit HIZ                                 │
+│  • PG=1? → Coulomb-Baseline → CHARGE_ACTIVE             │
+│  • PG=0? → zurück in HIZ                                │
+└──────────────────────────┬──────────────────────────────┘
+                           │ PG=1
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│ CHARGE_ACTIVE (monitored)                               │
+│  • PG=0? → zurück zu HIZ_IDLE                           │
+│  • Alle 55s: ΔCharge < -0.05 mAh?                      │
+│    → Parasitärer Drain erkannt                          │
+│    → HIZ + 5-Min-Cooldown → HIZ_IDLE                    │
+│  • ΔCharge ≥ -0.05 mAh → OK (auch 0 = Maintenance)     │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Stuck PGOOD Detection
+### Konstanten
 
-**Problem**: Bei langsamen Sonnenaufgang (slow sunrise) kann BQ25798 input source nicht erkennen.
+| Konstante | Wert | Beschreibung |
+|---|---|---|
+| `HIZ_PROBE_SETTLE_MS` | 500ms | Wartezeit nach HIZ-Exit für BQ Input-Qualifikation |
+| `HIZ_CHARGE_MONITOR_WINDOW` | 55s | Coulomb-Counter-Messfenster (< 60s Task-Intervall) |
+| `HIZ_CHARGE_DRAIN_THRESH` | -0.05 mAh | Schwelle: darunter = parasitärer Drain |
+| `HIZ_DRAIN_COOLDOWN_MS` | 5 min | HIZ bleibt aktiv nach erkanntem Drain |
+| `MIN_VBAT_FOR_HIZ_MV` | 2500 mV | Minimum VBAT für sicheren HIZ-Eintritt |
 
-**Symptom**: 
-- VBUS vorhanden (>3.5V)
-- PowerGood bleibt bei 0
-- PG_STAT flag nicht gesetzt (kein PGOOD-Wechsel erkannt)
+### No-Battery Fallback
 
-**Solution: HIZ Toggle**
+Ohne Batterie (VBAT < 2500mV) kann HIZ nicht aktiviert werden (VSYS würde einbrechen).
+In diesem Fall läuft der Charger im traditionellen Always-Active-Modus:
+- `checkAndFixPgoodStuck()` — Stuck-PGOOD-Erkennung via HIZ-Toggle (5-Min-Cooldown)
+- `checkAndFixSolarLogic()` — MPPT-Recovery bei PG=1
 
-**Implementierung**: `checkAndFixPgoodStuck()` in `BoardConfigContainer.cpp` Zeile 228-305
+### PFM Forward Mode
 
-**Trigger-Bedingungen** (alle müssen erfüllt sein):
-1. PowerGood = 0 (stuck low)
-2. VBUS > 3.5V (Solar vorhanden)
-3. PG_STAT flag = 0 (keine Änderung erkannt)
-4. Cooldown abgelaufen (>5 Minuten seit letztem Toggle)
-
-**Ablauf**:
-1. Toggle HIZ: `setHIZMode(true)` → `setHIZMode(false)`
-2. Zwingt BQ25798 zu input source qualification
-3. **Resettet MPPT-Cooldown** (`lastMpptWriteTime = 0`)
-4. Erlaubt sofortiges MPPT=1 schreiben wenn PG=1 wird
-5. Setzt HIZ-Cooldown-Timer (5 Minuten)
+- Manuell steuerbar via `set board.pfm 0|1` (persistent in LittleFS)
+- PFM verbessert Effizienz bei niedrigen Strömen (gut für 5-6V Panels)
+- Default: aus (sicher für 12V Panels)
 
 ### MPPT Recovery
 
-**Problem**: BQ25798 deaktiviert MPPT automatisch bei PG=0.
-
-**Solution: Conditional MPPT Re-enable**
-
-**Implementierung**: `checkAndFixSolarLogic()` in `BoardConfigContainer.cpp` Zeile 307-363
-
-**Kritische Bedingung**: **Nur wenn PowerGood=1**
-- Verhindert false positives
-- Verhindert Interrupt Loop bei instabilem Solar
-
-**Cooldown-Logik**:
-- 60 Sekunden zwischen MPPT-Writes
-- **Exception**: Cooldown wird resettet nach HIZ toggle
-- Nur schreiben wenn tatsächliche Änderung nötig (readback check)
-
-**Ablauf**:
-```
-1. PowerGood=1? → JA
-2. Cooldown abgelaufen? → JA
-3. MPPT aktuell=0? → JA
-4. Schreibe MPPT=1
-5. Setze lastMpptWriteTime
-```
+BQ25798 deaktiviert MPPT automatisch bei PG=0. `checkAndFixSolarLogic()` reaktiviert MPPT
+wenn PG=1 ist (Readback-Check: nur schreiben wenn tatsächliche Änderung nötig).
 
 ### BQ25798 Interrupt Handling
 
-**BQ INT-Pin**: Nicht mehr als Interrupt genutzt — wird mit Pull-Up konfiguriert, BQ-Status wird via Polling in `runMpptCycle()` geprüft.
+**BQ INT-Pin (GPIO 21)**: Nicht als Interrupt genutzt — `INPUT_PULLUP` gegen Floating.
+BQ-Status wird via Polling in `runMpptCycle()` alle 60s geprüft.
 
 **Flag Clearing auf Boot**: `BoardConfigContainer::configureBq()`
 - Liest FAULT_STATUS Register (0x20, 0x21) nach Konfiguration
@@ -311,8 +302,9 @@ Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgeru
 tickPeriodic()  [aufgerufen von tick(), Main-Loop]
   ├─ Low-Voltage Alert Flag prüfen → initiateShutdown()
   ├─ Alle 60s: runMpptCycle()
-  │   ├─ checkAndFixPgoodStuck()  ← 5-Min Cooldown
-  │   └─ checkAndFixSolarLogic()  ← 60s Cooldown + PG=1 Check
+  │   ├─ HIZ_IDLE: VBUS prüfen → Exit HIZ → PG? → CHARGE_ACTIVE
+  │   └─ CHARGE_ACTIVE: PG? → Coulomb-Delta → Drain? → HIZ + Cooldown
+  │   └─ (No-Battery Fallback: checkAndFixPgoodStuck + checkAndFixSolarLogic)
   ├─ Alle 60s: updateBatterySOC()
   └─ Alle 60min: updateHourlyStats()
 ```
@@ -322,9 +314,10 @@ tickPeriodic()  [aufgerufen von tick(), Main-Loop]
 - `ErrorLED` Lambda — rote LED bei fehlenden Komponenten
 
 **Timing Summary**:
-- **MPPT Write Cooldown**: 60 Sekunden (verhindert Loop)
-- **HIZ Toggle Cooldown**: 5 Minuten (verhindert excessive toggling)
-- **MPPT Cycle**: 60 Sekunden (via tickPeriodic)
+- **MPPT Cycle / HIZ Gate**: 60 Sekunden (via tickPeriodic)
+- **Coulomb Monitor Window**: 55 Sekunden (innerhalb CHARGE_ACTIVE)
+- **Drain Cooldown**: 5 Minuten (HIZ bleibt aktiv nach Parasitärerkennung)
+- **Stuck-PGOOD Toggle Cooldown**: 5 Minuten (nur No-Battery-Fallback)
 - **SOC Update**: 60 Sekunden (via tickPeriodic)
 - **Hourly Stats**: 60 Minuten (via tickPeriodic)
 
@@ -533,7 +526,7 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
    
 8. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason`
    
-9. **BQ Interrupt deaktivieren**: `detachInterrupt(BQ_INT_PIN)` — verhindert Spurious-Wakeups
+9. **BQ INT-Pin**: `detachInterrupt(BQ_INT_PIN)` — nicht als Interrupt genutzt (Polling), aber Safety-Detach vor System-Off
 
 10. **SOC auf 0% setzen**: `setSOCManually(0.0)` — SOC wird bei Recovery bei 0% starten
 
@@ -805,6 +798,11 @@ board.conf      # Gesamte Konfiguration
 board.leds      # LED enable status
                 # Output: "LEDs: ON (Heartbeat + BQ Stat)"
                 # Code: InheroMr2Board.cpp - getCustomGetter()
+
+board.pfm       # PFM Forward Mode Status + HIZ-Gate-State
+                # Output: "PFM: on [CHG]" | "PFM: off [HIZ]"
+                # States: [HIZ] = HIZ-Idle, [CHG] = Charge-Active
+                # Code: InheroMr2Board.cpp - getCustomGetter()
 ```
 
 ### Setter (Implemented)
@@ -831,6 +829,11 @@ set board.frost <mode>      # Set frost charge behavior
 
 set board.leds <on|off>     # Enable/disable heartbeat + BQ stat LED
                             # Options: on/1 | off/0
+                            # Code: InheroMr2Board.cpp - setCustomSetter()
+
+set board.pfm <0|1|on|off>  # Set PFM Forward Mode (persistent)
+                            # on/1 = PFM aktiv (besser für 5-6V Panels)
+                            # off/0 = PFM deaktiviert (sicher für 12V Panels)
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.soc <percent>     # Manually set SOC percentage
