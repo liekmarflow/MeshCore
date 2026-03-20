@@ -63,6 +63,12 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+### Send a zero-hop advert
+**Usage:**
+- `advert.zerohop`
+
+---
+
 ### Start an Over-The-Air (OTA) firmware update
 **Usage:**
 - `start ota`
@@ -431,13 +437,25 @@ set board.leds on     # Re-enable
 
 ---
 
+#### View this node's public key
+**Usage:** `get public.key`
+
+---
+
+#### View this node's configured role
+**Usage:** `get role`
+
+---
+
 #### View or change this node's power saving flag (Repeater Only)
 **Usage:**
-- `powersaving <state>`
 - `powersaving`
+- `powersaving on`
+- `powersaving off`
 
 **Parameters:** 
-- `state`: `on`|`off` 
+- `on`: enable power saving
+- `off`: disable power saving
 
 **Default:** `on`
 
@@ -541,7 +559,12 @@ set board.leds on     # Re-enable
 - `set af <value>`
 
 **Parameters:**
-- `value`: Airtime factor (0-9)
+- `value`: Airtime factor (0-9). After each transmission, the repeater enforces a silent period of approximately the on-air transmission time multiplied by the value. This results in a long-term duty cycle of roughly 1 divided by (1 plus the value). For example:
+  - `af = 1` → ~50% duty
+  - `af = 2` → ~33% duty
+  - `af = 3` → ~25% duty
+  - `af = 9` → ~10% duty  
+  Yyou are responsible for choosing a value that is appropriate for your jurisdiction and channel plan (for example EU 868 Mhz 10% duty cycle regulation).
 
 **Default:** `1.0`
 
@@ -920,6 +943,11 @@ region save
 
 ### Bridge (When bridge support is compiled in)
 
+#### View the compiled bridge type
+**Usage:** `get bridge.type`
+
+---
+
 #### View or change the bridge enabled flag
 **Usage:**
 - `get bridge.enabled`
@@ -929,12 +957,6 @@ region save
 - `state`: `on`|`off`
 
 **Default:** `off`
-
----
-
-#### View the bridge source
-**Usage:**
-- `get bridge.source`
 
 ---
 
@@ -957,10 +979,10 @@ region save
 
 **Parameters:**
 - `source`: 
-  - `rx`: bridges received packets
-  - `tx`: bridges transmitted packets
+  - `logRx`: bridges received packets
+  - `logTx`: bridges transmitted packets
 
-**Default:** `tx`
+**Default:** `logTx`
 
 ---
 
@@ -992,8 +1014,39 @@ region save
 - `set bridge.secret <secret>`
 
 **Parameters:**
-- `secret`: 16-character encryption secret
+- `secret`: ESP-NOW bridge secret, up to 15 characters
 
 **Default:** Varies by board
+
+---
+
+#### View the bootloader version (nRF52 only)
+**Usage:** `get bootloader.ver`
+
+---
+
+#### View power management support
+**Usage:** `get pwrmgt.support`
+
+---
+
+#### View the current power source
+**Usage:** `get pwrmgt.source`
+
+**Note:** Returns an error on boards without power management support.
+
+---
+
+#### View the boot reset and shutdown reasons
+**Usage:** `get pwrmgt.bootreason`
+
+**Note:** Returns an error on boards without power management support.
+
+---
+
+#### View the boot voltage
+**Usage:** `get pwrmgt.bootmv`
+
+**Note:** Returns an error on boards without power management support.
 
 ---
