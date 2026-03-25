@@ -40,6 +40,81 @@ volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 // ===== Public Methods =====
 
 void InheroMr2Board::begin() {
+  // === FAST PATH: RTC wake from low-voltage sleep ===
+  // Check GPREGRET2 FIRST — before ANY GPIO setup.
+  // On RTC wake from System-Off, all GPIO latches from the previous cycle are preserved:
+  //   CE = OUTPUT HIGH (charge enabled), NSS = OUTPUT HIGH (SX1262 cold sleep),
+  //   PE4259 = INPUT_DISCONNECT (off), SDA/SCL = INPUT_DISCONNECT, etc.
+  // BSP init() ran OUTSET=0xFFFFFFFF but that only affects OUTPUT pins (CE/NSS → already HIGH).
+  // Touch NOTHING except I2C for INA228 voltage read + RTC timer.
+  uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
+
+  if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
+    // Minimal I2C setup — only thing we need
+#if defined(PIN_BOARD_SDA) && defined(PIN_BOARD_SCL)
+    Wire.setPins(PIN_BOARD_SDA, PIN_BOARD_SCL);
+#endif
+    Wire.begin();
+    delay(10);
+
+    // RTC INT: must have SENSE_Low for System-Off wake-up
+    NRF_GPIO->PIN_CNF[RTC_INT_PIN] =
+        (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+        (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
+        (GPIO_PIN_CNF_PULL_Pullup << GPIO_PIN_CNF_PULL_Pos) |
+        (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+        (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);
+
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+    uint16_t wake_threshold = getLowVoltageWakeThreshold();
+
+    MESH_DEBUG_PRINTLN("LV-Wake: VBAT=%dmV, wake=%dmV", vbat_mv, wake_threshold);
+
+    if (vbat_mv == 0 || vbat_mv < wake_threshold) {
+      // Still too low or read failed — go back to sleep immediately.
+      // NO CE toggle, NO radio, NO BQ/BME/buttons — everything stays as latched.
+      // Only INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
+
+      Wire.beginTransmission(0x40);
+      Wire.write(0x01);  // ADC_CONFIG register
+      Wire.write(0x00);  // Shutdown mode
+      Wire.write(0x00);
+      Wire.endTransmission();
+
+      configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
+      NRF_P0->LATCH = (1UL << RTC_INT_PIN);
+      Wire.end();
+
+      // TESTING: Skip disconnectLeakyPullups — all GPIO already in correct state
+      // from previous System-Off cycle. Isolate whether GPIO manipulation causes
+      // the alternating current pattern.
+
+      NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
+      sd_power_system_off();
+      NRF_POWER->SYSTEMOFF = 1;
+      while (1) __WFE();
+    }
+
+    // Voltage recovered — close I2C and fall through to normal boot
+    Wire.end();
+
+    // Recovery LED flash
+    pinMode(LED_BLUE, OUTPUT);
+    for (int i = 0; i < 3; i++) {
+      digitalWrite(LED_BLUE, HIGH);
+      delay(150);
+      digitalWrite(LED_BLUE, LOW);
+      delay(150);
+    }
+
+    NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+    // setLowVoltageRecovery + setSOCManually deferred to after boardConfig.begin()
+    MESH_DEBUG_PRINTLN("LV-Wake: Voltage recovered (%dmV >= %dmV) — normal boot", vbat_mv, wake_threshold);
+  }
+
+  // === Standard boot path (ColdBoot, recovery, or non-LV wake) ===
+  bool isLowVoltageRecovery = ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
+
   pinMode(PIN_VBAT_READ, INPUT);
 
   // BQ25798 CE pin: Drive LOW (charging disabled) on every boot.
@@ -76,12 +151,6 @@ void InheroMr2Board::begin() {
   // MR2 Rev 1.0 hardware — no detection needed
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.0 (INA228 ALERT + RTC + CE-FET)");
 
-  // Initialize board configuration (BQ25798, INA228, etc.)
-  boardConfig.begin();
-
-  // === Rev 1.0 hardware initialization ===
-  MESH_DEBUG_PRINTLN("Initializing Rev 1.0 features (RTC, INA228 ALERT, CE-FET)");
-
   // === CRITICAL: Configure RTC INT pin for wake-up from SYSTEMOFF ===
   // attachInterrupt() alone is NOT sufficient for SYSTEMOFF wake-up!
   // We MUST configure the pin with SENSE for nRF52 SYSTEMOFF wake capability
@@ -98,104 +167,101 @@ void InheroMr2Board::begin() {
 
   attachInterrupt(digitalPinToInterrupt(RTC_INT_PIN), rtcInterruptHandler, FALLING);
 
-  // === CRITICAL: Early Boot Voltage Check ===
-  // Prevents motorboating after low-voltage sleep or unexpected power loss.
-  // We must check voltage on EVERY ColdBoot, not just after Software-SHUTDOWN.
+  // === Early Boot Voltage Check (ColdBoot only) ===
+  // LV-wake resleep is handled by the fast path above.
+  // This section handles ColdBoot below sleep threshold and normal ColdBoot.
 
-  uint8_t shutdown_reason = NRF_POWER->GPREGRET2; // Read full register for Early Boot check
+  if (!isLowVoltageRecovery) {
+    MESH_DEBUG_PRINTLN("Early Boot: Reading VBAT from INA228 @ 0x40...");
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+    MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
 
-  // === High-Precision INA228 voltage measurement (24-bit ADC, ±0.1% accuracy) ===
-  // RAK4630 cannot measure battery voltage - there's no voltage divider on GPIO!
-  // Use static INA228 method with One-Shot ADC for fresh, accurate measurement
-  // This is critical for wake/sleep decisions in danger zone
-  MESH_DEBUG_PRINTLN("Early Boot: Reading VBAT from INA228 @ 0x40...");
-  uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
-  MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
+    if (vbat_mv == 0) {
+      MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
+    } else {
+      BoardConfigContainer::BatteryType bootBatType = boardConfig.getBatteryType();
+      uint16_t wake_threshold = getLowVoltageWakeThreshold();
+      uint16_t sleep_threshold = getLowVoltageSleepThreshold();
 
-  // CRITICAL: readVBATDirect() sets ADC_CONFIG to 0x1000 (Single-Shot mode)
-  // Restore to continuous mode (0xF003) as interim config until ina228.begin()
-  // sets the final high-accuracy config (0xFFCA with long conversion times)
-  Wire.beginTransmission(0x40);
-  Wire.write(0x01); // ADC_CONFIG register
-  Wire.write(0xF0); // MSB: Continuous all channels (0xF)
-  Wire.write(0x03); // LSB: 64 samples averaging (0x3) - interim, overridden by ina228.begin()
-  uint8_t i2c_result = Wire.endTransmission();
-  delay(50); // Longer delay for I2C bus to stabilize before BQ init
-  MESH_DEBUG_PRINTLN("Early Boot: ADC_CONFIG restored to 0xF003 (result=%d)", i2c_result);
+      MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Wake=%dmV (0%% SOC), Sleep=%dmV, Reason=0x%02X",
+                         vbat_mv, wake_threshold, sleep_threshold, shutdown_reason);
 
-  if (vbat_mv == 0) {
-    MESH_DEBUG_PRINTLN("Early Boot: Failed to read battery voltage, assuming OK");
-    // Continue boot if we can't read voltage (better than blocking)
-  } else {
-    BoardConfigContainer::BatteryType bootBatType = boardConfig.getBatteryType();
-    uint16_t wake_threshold = getLowVoltageWakeThreshold();
-    uint16_t sleep_threshold = getLowVoltageSleepThreshold();
-
-    MESH_DEBUG_PRINTLN("Early Boot Check: VBAT=%dmV, Wake=%dmV (0%% SOC), Sleep=%dmV, Reason=0x%02X",
-                       vbat_mv, wake_threshold, sleep_threshold, shutdown_reason);
-
-    // BAT_UNKNOWN: No battery type configured yet (fresh flash / factory state).
-    // Low-voltage thresholds are meaningless without known chemistry.
-    // Charging is already disabled for BAT_UNKNOWN, so skip all low-voltage logic
-    // and let the user configure the battery type first.
-    if (bootBatType == BoardConfigContainer::BAT_UNKNOWN) {
-      MESH_DEBUG_PRINTLN("Early Boot: BAT_UNKNOWN - skipping low-voltage check (configure battery type first)");
-      // Clear any stale flags from previous firmware/session
-      if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE ||
-          (shutdown_reason & GPREGRET2_LOW_VOLTAGE_SLEEP)) {
-        NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-        MESH_DEBUG_PRINTLN("Early Boot: Cleared stale GPREGRET2 flags (was 0x%02X)", shutdown_reason);
-      }
-    }
-    // Case 1: Waking from low-voltage sleep (RTC wake → System-Off → reboot)
-    // Voltage must be >= wake_threshold to allow full boot, otherwise go back to sleep.
-    else if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
-      MESH_DEBUG_PRINTLN("Low-voltage recovery: voltage=%dmV (wake=%dmV)", vbat_mv, wake_threshold);
-
-      if (vbat_mv < wake_threshold) {
-        // Still too low — go back to sleep
-        MESH_DEBUG_PRINTLN("Voltage still below wake threshold - sleeping again for %d min", LOW_VOLTAGE_SLEEP_MINUTES);
-        configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
-        NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
-        sd_power_system_off();
-        // Never returns
-      }
-
-      // Voltage recovered — allow full boot with SOC = 0%
-      if (boardConfig.getLEDsEnabled()) {
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_BLUE, HIGH);
-          delay(150);
-          digitalWrite(LED_BLUE, LOW);
-          delay(150);
+      if (bootBatType == BoardConfigContainer::BAT_UNKNOWN) {
+        MESH_DEBUG_PRINTLN("Early Boot: BAT_UNKNOWN - skipping low-voltage check (configure battery type first)");
+        if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE ||
+            (shutdown_reason & GPREGRET2_LOW_VOLTAGE_SLEEP)) {
+          NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
+          MESH_DEBUG_PRINTLN("Early Boot: Cleared stale GPREGRET2 flags (was 0x%02X)", shutdown_reason);
         }
       }
+      // ColdBoot with voltage below sleep threshold — first entry into LV sleep
+      else if (vbat_mv < sleep_threshold) {
+        MESH_DEBUG_PRINTLN("ColdBoot below sleep threshold (%dmV < %dmV)", vbat_mv, sleep_threshold);
+        MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", LOW_VOLTAGE_SLEEP_MINUTES);
 
-      NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
-      boardConfig.setLowVoltageRecovery();
+        delay(100);
+        prepareRadioForSystemOff(false);
 
-      // Set SOC to 0% immediately — battery was critically low,
-      // solar just charged it past the wake threshold.
-      // Must happen HERE (after setLowVoltageRecovery) because begin()
-      // needs INA228 initialized first, and the flag must be set before begin().
-      BoardConfigContainer::setSOCManually(0.0f);
-      MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
-    }
-    // Case 2: ColdBoot with voltage below sleep threshold — immediate sleep
-    else if (vbat_mv < sleep_threshold) {
-      MESH_DEBUG_PRINTLN("ColdBoot below sleep threshold (%dmV < %dmV)", vbat_mv, sleep_threshold);
-      MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", LOW_VOLTAGE_SLEEP_MINUTES);
+        // INA228 → Shutdown mode
+        Wire.beginTransmission(0x40);
+        Wire.write(0x01);  // ADC_CONFIG register
+        Wire.write(0x00);  // Shutdown
+        Wire.write(0x00);
+        Wire.endTransmission();
 
-      delay(100);
-      configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
-      NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
-      sd_power_system_off();
-      // Never returns
+        // Read DIAG_ALRT to clear any latched alert flag
+        Wire.beginTransmission(0x40);
+        Wire.write(0x0B);
+        Wire.endTransmission(false);
+        Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+        while (Wire.available()) Wire.read();
+
+        // Latch BQ CE pin HIGH (solar charging active in sleep)
+#ifdef BQ_CE_PIN
+        digitalWrite(BQ_CE_PIN, HIGH);
+#endif
+
+        // BQ25798 — Disable ADC (saves ~500µA continuous draw)
+        Wire.beginTransmission(0x6B);
+        Wire.write(0x2E);  // ADC_CONTROL
+        Wire.write(0x00);  // ADC_EN=0
+        Wire.endTransmission();
+
+        // BME280 — Force Sleep mode
+        Wire.beginTransmission(0x76);
+        Wire.write(0xF4);  // ctrl_meas
+        Wire.write(0x00);  // Sleep mode
+        Wire.endTransmission();
+
+        configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
+        NRF_P0->LATCH = (1UL << RTC_INT_PIN);
+
+        Wire.end();
+        disconnectLeakyPullups();
+        NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
+
+        sd_power_system_off();
+        NRF_POWER->SYSTEMOFF = 1;
+        while (1) __WFE();
+      }
+      // Normal ColdBoot — voltage OK
+      else {
+        MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, sleep_threshold);
+      }
     }
-    // Case 3: Normal ColdBoot (Power-On, Reset button, firmware update, voltage OK)
-    else {
-      MESH_DEBUG_PRINTLN("Normal ColdBoot - voltage OK (%dmV >= %dmV)", vbat_mv, sleep_threshold);
-    }
+  }
+
+  // === Normal boot path: Initialize board hardware ===
+  // Only reached when voltage is OK (or unreadable) — resleep paths exit above.
+  // boardConfig.begin() initializes BQ25798, INA228, CE pin, alerts, LEDs, etc.
+  MESH_DEBUG_PRINTLN("Initializing Rev 1.0 features (BQ25798, INA228, RTC, CE-FET)");
+  boardConfig.begin();
+
+  // Handle low-voltage recovery (deferred until after boardConfig.begin())
+  if (isLowVoltageRecovery) {
+    boardConfig.setLowVoltageRecovery();
+    BoardConfigContainer::setSOCManually(0.0f);
+    MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
   }
 
   // Enable DC/DC converter for improved power efficiency
@@ -807,6 +873,142 @@ uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
   return BoardConfigContainer::getLowVoltageWakeThreshold(chemType);
 }
 
+/// @brief Put SX1262 radio and SPI pins into lowest power state for System-Off.
+/// Must be called before ANY sd_power_system_off() call — both from initiateShutdown()
+/// and Early Boot quick-shutdown paths.
+///
+/// @param radioInitialized true if SPI + radio have been initialized (normal shutdown),
+///                         false if called from Early Boot before SPI.begin() / radio.begin().
+///
+/// CRITICAL: Do NOT call SPI.end() here! SPI.end() runs nrf_gpio_cfg_default() which
+/// briefly puts NSS/SCK into "disconnected input" (floating). The SX1262's internal 48kΩ
+/// pull-up isn't fast enough — floating SCK triggers a wake from Cold Sleep to Standby RC
+/// (~600µA). Once awake, only an explicit SPI SetSleep command can put it back — but we've
+/// already released SPI.
+///
+/// Instead, pre-configure the GPIO PORT registers (OUTSET/PIN_CNF) while SPIM is still
+/// active. These are "shadow" values that take effect when SPIM is disabled. System-Off
+/// stops all peripherals including SPIM, and the GPIO PORT seamlessly takes over — no
+/// glitch, no floating pins, SX1262 stays in Cold Sleep (~160nA).
+void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
+  if (radioInitialized) {
+    // Put SX1262 into Cold Sleep via SPI while SPIM is still active
+    radio_driver.powerOff();  // calls radio.sleep(false) — cold sleep, lowest power
+    delay(10);
+  } else {
+    // Early Boot: SPI/RadioLib not initialized. The SX1262 may be in:
+    //   a) POR Standby RC (~600µA) — first power-on or VDD glitch
+    //   b) Cold Sleep (~160nA) — if previous shutdown latched pins correctly
+    // Case (b) is fine, case (a) wastes ~600µA. We can't tell which, so always
+    // send SetSleep to ensure Cold Sleep.
+    //
+    // Use bit-banged SPI — completely independent of Arduino SPIClass and SPIM
+    // peripheral configuration. variant.h defines SPI pins as WB header pins
+    // (P0.03/P0.29/P0.30) which are NOT the LoRa radio pins (P1.11/P1.12/P1.13).
+    // Bit-bang directly on P_LORA_* pins avoids all BSP/SPIM conflicts.
+
+    // Configure SPI GPIOs
+    pinMode(P_LORA_NSS, OUTPUT);
+    digitalWrite(P_LORA_NSS, HIGH);
+    pinMode(P_LORA_SCLK, OUTPUT);
+    digitalWrite(P_LORA_SCLK, LOW);   // CPOL=0: idle LOW
+    pinMode(P_LORA_MOSI, OUTPUT);
+    digitalWrite(P_LORA_MOSI, LOW);
+    pinMode(P_LORA_BUSY, INPUT);
+
+    // Wait for SX1262 BUSY LOW (ready for command)
+    // After POR: calibration ~3.5ms; after wake from Cold Sleep: ~3.5ms
+    uint32_t t0 = millis();
+    while (digitalRead(P_LORA_BUSY) == HIGH && (millis() - t0) < 10) {
+      delay(1);
+    }
+
+    // Bit-bang SetSleep command: opcode 0x84, config 0x00 (Cold Start, TCXO off)
+    // SPI Mode 0 (CPOL=0, CPHA=0): data sampled on rising edge, MSB first
+    static const uint8_t cmd[2] = { 0x84, 0x00 };
+
+    digitalWrite(P_LORA_NSS, LOW);
+    delayMicroseconds(2);  // SX1262 NSS setup time
+
+    for (int b = 0; b < 2; b++) {
+      uint8_t byte = cmd[b];
+      for (int i = 7; i >= 0; i--) {
+        // Set MOSI before rising edge
+        digitalWrite(P_LORA_MOSI, (byte >> i) & 1);
+        delayMicroseconds(1);
+        // Rising edge — SX1262 samples MOSI
+        digitalWrite(P_LORA_SCLK, HIGH);
+        delayMicroseconds(1);
+        // Falling edge
+        digitalWrite(P_LORA_SCLK, LOW);
+        delayMicroseconds(1);
+      }
+    }
+
+    digitalWrite(P_LORA_MOSI, LOW);
+    delayMicroseconds(1);
+    digitalWrite(P_LORA_NSS, HIGH);
+
+    delay(1);  // Allow SX1262 to enter Cold Sleep (~500ns typ)
+  }
+
+  // Power off PE4259 RF switch (cut VDD to antenna switch)
+  digitalWrite(SX126X_POWER_EN, LOW);
+
+  // Pre-configure NSS as OUTPUT HIGH for System-Off.
+  // SX1262 must see NSS HIGH to stay in Cold Sleep (~160nA).
+  // All other SPI pins (SCK, MOSI) and PE4259 are set to INPUT_DISCONNECT by
+  // disconnectLeakyPullups() which is called later — covers all GPIO comprehensively.
+  //
+  // GPIO 42 (P_LORA_NSS) = NRF_P1 pin 10 (42 - 32 = 10)
+  NRF_P1->OUTSET = (1UL << 10);  // NSS = HIGH (SX1262 deselected)
+
+  uint32_t pin_cfg_out = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos) |
+                         (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
+                         (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
+                         (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+                         (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+  NRF_P1->PIN_CNF[10] = pin_cfg_out;  // NSS: OUTPUT HIGH
+}
+
+/// @brief Set ALL GPIO pins to INPUT_DISCONNECT except the 3 pins needed during System-Off.
+/// Must be called AFTER Wire.end(), AFTER prepareRadioForSystemOff(), and AFTER all I2C/SPI.
+///
+/// Comprehensive approach: Instead of chasing individual leaky pins, reset ALL pins to the
+/// power-on-reset default (Input, Disconnected, No pull). This eliminates ALL possible
+/// current leakage through GPIO — pull-ups driving OD devices LOW, OUTPUT pins driving
+/// LEDs/loads, etc.
+///
+/// CRITICAL: Adafruit BSP init() runs NRF_P0->OUTSET = NRF_P1->OUTSET = 0xFFFFFFFF on
+/// every boot BEFORE our code. Any pin left as OUTPUT from the previous System-Off cycle
+/// gets its output latch set HIGH. For LEDs (P1.03, P1.04) this means LEDs turn ON.
+/// For CE (P0.04) this means charge enable pulse. By setting unused pins to INPUT_DISCONNECT,
+/// DIR=Input prevents the BSP OUTSET from causing physical pin changes on the next boot.
+///
+/// Only 3 pins are preserved:
+///   P0.04  (BQ_CE_PIN)   — OUTPUT HIGH: solar charging active during sleep
+///   P0.17  (RTC_INT_PIN) — INPUT_PULLUP + SENSE_Low: System-Off wake source
+///   P1.10  (P_LORA_NSS)  — OUTPUT HIGH: keeps SX1262 in Cold Sleep (~160nA)
+void InheroMr2Board::disconnectLeakyPullups() {
+  uint32_t pin_cfg_discon = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+                            (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
+                            (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
+                            (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+                            (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+
+  // P0: pins 0–31, skip P0.04 (CE) and P0.17 (RTC INT)
+  for (uint8_t pin = 0; pin < 32; pin++) {
+    if (pin == 4 || pin == 17) continue;  // BQ_CE_PIN, RTC_INT_PIN
+    NRF_P0->PIN_CNF[pin] = pin_cfg_discon;
+  }
+
+  // P1: pins 0–15, skip P1.10 (LoRa NSS, already OUTPUT HIGH from prepareRadioForSystemOff)
+  for (uint8_t pin = 0; pin < 16; pin++) {
+    if (pin == 10) continue;  // P_LORA_NSS
+    NRF_P1->PIN_CNF[pin] = pin_cfg_discon;
+  }
+}
+
 /// @brief Initiate controlled shutdown with filesystem protection (Rev 1.0)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
 ///
@@ -830,17 +1032,10 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     MESH_DEBUG_PRINTLN("PWRMGT: INA228 shutdown (saving power)");
   }
 
-  // 3. Put SX1262 into sleep mode via SPI (~0.16µA vs ~5mA active RX)
-  // MUST happen BEFORE PE4259 power-off — SPI communication still needs stable power
-  MESH_DEBUG_PRINTLN("PWRMGT: Putting SX1262 to sleep");
-  radio_driver.powerOff();
-  delay(10);
+  // 3. SX1262 sleep + SPI cleanup (prevents ~4mA leakage in System-Off)
+  prepareRadioForSystemOff();
 
-  // 4. Power off PE4259 RF switch (cut VDD to antenna switch)
-  digitalWrite(SX126X_POWER_EN, LOW);
-  delay(10);
-
-  // 5. Turn off LEDs
+  // 4. Turn off LEDs
   digitalWrite(PIN_LED1, LOW);
   digitalWrite(PIN_LED2, LOW);
 
@@ -849,34 +1044,70 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 
     delay(100); // Allow I/O to complete
 
-    // 6. Latch BQ CE pin HIGH (FET ON = CE LOW = charge enabled)
+    // 5. Latch BQ CE pin HIGH (FET ON = CE LOW = charge enabled)
     // GPIO output latch survives System-Off as long as VDD is present
 #ifdef BQ_CE_PIN
     digitalWrite(BQ_CE_PIN, HIGH);
     MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
 #endif
 
-    // 7. Configure RTC to wake us up periodically for voltage check
+    // 5b. BQ25798 @ 0x6B — Disable ADC (saves ~500µA continuous draw)
+    // Must be AFTER CE=HIGH — charge enable may re-enable ADC internally.
+    Wire.beginTransmission(0x6B);
+    Wire.write(0x2E);  // ADC_CONTROL register
+    Wire.write(0x00);  // ADC_EN=0, ADC disabled
+    Wire.endTransmission();
+
+    // 5c. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
+    // After normal operation readBmeTemperature() may have left BME280 in NORMAL mode.
+    // Harmless NACK if no BME280 populated.
+    Wire.beginTransmission(0x76);
+    Wire.write(0xF4);  // ctrl_meas register
+    Wire.write(0x00);  // MODE=00 (Sleep), all oversampling off
+    Wire.endTransmission();
+    MESH_DEBUG_PRINTLN("PWRMGT: BQ25798 ADC + BME280 shut down");
+
+    // 6. Configure RTC to wake us up periodically for voltage check
     configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
 
-    // 8. Store shutdown reason for Early Boot decision
+    // 7. Clear GPIO LATCH for RTC INT pin.
+    // If a previous RTC wake cycle set the LATCH (retained across System-Off),
+    // DETECT would fire immediately → instant wake → boot loop.
+    NRF_P0->LATCH = (1UL << RTC_INT_PIN);
+
+    // 8. Release I2C buses (done AFTER RTC config, which uses Wire)
+    Wire.end();
+
+    // 9. Disconnect all GPIO pull-ups on OD/I2C pins to prevent leakage
+    disconnectLeakyPullups();
+
+    // 10. Store shutdown reason for Early Boot decision
     NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason;
 
     MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEM-OFF (~15uA)");
     delay(50);
 
     sd_power_system_off();
-    // Never returns — RTC wake triggers full reboot; Early Boot checks voltage
+    // Fallback if SoftDevice not enabled
+    NRF_POWER->SYSTEMOFF = 1;
+    while (1) __WFE();
   }
 
   // Non-low-voltage shutdown (user request, thermal): use System OFF
+  Wire.end();
+  disconnectLeakyPullups();
   NRF_POWER->GPREGRET2 = reason;
 
   MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEMOFF");
   delay(50);
 
+  // Clear LATCH to prevent spurious wake
+  NRF_P0->LATCH = (1UL << RTC_INT_PIN);
+
   sd_power_system_off();
-  // Never returns
+  // Fallback if SoftDevice not enabled
+  NRF_POWER->SYSTEMOFF = 1;
+  while (1) __WFE();
 }
 
 /// @brief Configure RV-3028 RTC countdown timer for periodic wake-up

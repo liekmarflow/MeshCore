@@ -75,7 +75,7 @@
 
 // Low-voltage sleep duration (used by Early Boot and socUpdateTask)
 //#define LOW_VOLTAGE_SLEEP_MINUTES    (1) // 1 minute — testing value
-#define LOW_VOLTAGE_SLEEP_MINUTES    (60) // 1 hour — low cost at ~15µA System-Off
+#define LOW_VOLTAGE_SLEEP_MINUTES    (60) // 1 hour
 
 class InheroMr2Board : public NRF52BoardDCDC {
 public:
@@ -104,6 +104,15 @@ public:
 
   /// @brief RTC interrupt handler (called by hardware interrupt)
   static void rtcInterruptHandler();
+
+  /// @brief Put SX1262 + SPI pins into lowest power state for System-Off
+  /// @param radioInitialized false in Early Boot (before SPI.begin), true after full init
+  /// Must be called before any sd_power_system_off() to prevent ~4mA SX1262 leakage
+  static void prepareRadioForSystemOff(bool radioInitialized = true);
+
+  /// @brief Disconnect internal pull-ups on OD/I2C pins to prevent leakage in System-Off
+  /// Must be called AFTER Wire.end() and before sd_power_system_off()
+  static void disconnectLeakyPullups();
 
   const char *getManufacturerName() const override { return "Inhero MR2"; }
 
