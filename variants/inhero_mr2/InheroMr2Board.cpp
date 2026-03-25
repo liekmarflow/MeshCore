@@ -264,7 +264,10 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
   }
 
-  // Enable DC/DC converter for improved power efficiency
+  // Enable DC/DC converter REG1 for improved power efficiency (~1.5mA savings)
+  // REG1: VDD 3.3V → 1.3V core (DC/DC vs LDO)
+  // REG0 (DCDCEN0) is NOT needed — RAK4630 is powered from TPS62840 3.3V rail (VDD),
+  // not from VBUS (USB). REG0 only applies to the VBUS→VDD_nRF path.
   // Done after peripheral initialization to avoid voltage glitches
   NRF52BoardDCDC::begin();
 
