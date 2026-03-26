@@ -797,6 +797,13 @@ bool BoardConfigContainer::begin() {
   // MPPT, SOC updates, and voltage monitoring are handled in tickPeriodic()
   // (called from InheroMr2Board::tick() — no FreeRTOS tasks doing I2C)
   
+  // Load battery capacity from preferences (or default based on chemistry)
+  float cap_mah = 0.0f;
+  loadBatteryCapacity(cap_mah);
+  socStats.capacity_mah = cap_mah;
+  socStats.nominal_voltage = getNominalVoltage(bat);
+  MESH_DEBUG_PRINTLN("SOC: capacity=%.0f mAh, nominal=%.2f V", cap_mah, socStats.nominal_voltage);
+
   // MR2 requires BQ25798 + INA228 (RTC is optional for basic operation)
   return BQ_INITIALIZED && INA228_INITIALIZED;
 }
