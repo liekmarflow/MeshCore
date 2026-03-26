@@ -185,7 +185,8 @@ public:
 
   /// @brief Put INA228 into shutdown mode (power-down)
   /// @note Disables all measurements and Coulomb Counter to save power
-  void shutdown();
+  /// @return true if shutdown confirmed via readback, false if write failed
+  bool shutdown();
 
   /// @brief Wake INA228 from shutdown mode
   /// @note Re-enables continuous measurement mode

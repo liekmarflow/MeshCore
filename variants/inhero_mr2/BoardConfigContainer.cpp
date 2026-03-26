@@ -251,8 +251,14 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
 /// @details Checks solar logic and updates MPPT stats.
 void BoardConfigContainer::runMpptCycle() {
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
+    // Flag registers (0x22-0x27) are read-to-clear and de-assert INT pin.
     if (bqDriverInstance) {
-      bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
+      bqDriverInstance->readReg(0x22); // CHARGER_FLAG_0 — read-to-clear
+      bqDriverInstance->readReg(0x23); // CHARGER_FLAG_1
+      bqDriverInstance->readReg(0x24); // CHARGER_FLAG_2
+      bqDriverInstance->readReg(0x25); // CHARGER_FLAG_3
+      bqDriverInstance->readReg(0x26); // FAULT_FLAG_0
+      bqDriverInstance->readReg(0x27); // FAULT_FLAG_1
     }
 
     checkAndFixSolarLogic();
@@ -700,10 +706,25 @@ bool BoardConfigContainer::begin() {
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
 
-  // Clear any latched fault/interrupt status from previous operation/boot
-  bq.readReg(0x1B); // CHARGER_FLAG_0 - clear INT flags
-  bq.readReg(0x20); // FAULT_STATUS_0
-  bq.readReg(0x21); // FAULT_STATUS_1
+  // Mask ALL BQ25798 interrupts — INT pin is not used (polling only).
+  // Default mask registers are 0x00 (all unmasked!) → every event pulls INT LOW.
+  // With INPUT_PULLUP on BQ_INT_PIN: LOW = ~254µA wasted through pull-up.
+  bq.writeReg(0x28, 0xFF);  // Charger Mask 0 — mask all
+  bq.writeReg(0x29, 0xFF);  // Charger Mask 1 — mask all
+  bq.writeReg(0x2A, 0xFF);  // Charger Mask 2 — mask all
+  bq.writeReg(0x2B, 0xFF);  // Charger Mask 3 — mask all
+  bq.writeReg(0x2C, 0xFF);  // Fault Mask 0 — mask all
+  bq.writeReg(0x2D, 0xFF);  // Fault Mask 1 — mask all
+
+  // Clear any latched flag/interrupt status from previous operation/boot
+  // Flag registers are read-to-clear and de-assert the INT pin.
+  // (0x1B/0x20/0x21 are STATUS registers — read-only, do NOT clear flags!)
+  bq.readReg(0x22); // CHARGER_FLAG_0 — read-to-clear
+  bq.readReg(0x23); // CHARGER_FLAG_1
+  bq.readReg(0x24); // CHARGER_FLAG_2
+  bq.readReg(0x25); // CHARGER_FLAG_3
+  bq.readReg(0x26); // FAULT_FLAG_0
+  bq.readReg(0x27); // FAULT_FLAG_1
 
   // Heartbeat LED task (GPIO only — no I2C, safe as FreeRTOS task)
   if (heartbeatTaskHandle == NULL && leds_enabled) {

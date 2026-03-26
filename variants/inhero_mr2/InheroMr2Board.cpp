@@ -42,11 +42,10 @@ volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 void InheroMr2Board::begin() {
   // === FAST PATH: RTC wake from low-voltage sleep ===
   // Check GPREGRET2 FIRST — before ANY GPIO setup.
-  // On RTC wake from System-Off, all GPIO latches from the previous cycle are preserved:
-  //   CE = OUTPUT HIGH (charge enabled), NSS = OUTPUT HIGH (SX1262 cold sleep),
-  //   PE4259 = INPUT_DISCONNECT (off), SDA/SCL = INPUT_DISCONNECT, etc.
-  // BSP init() ran OUTSET=0xFFFFFFFF but that only affects OUTPUT pins (CE/NSS → already HIGH).
-  // Touch NOTHING except I2C for INA228 voltage read + RTC timer.
+  // Note: System-Off wake triggers a System-ON reset. The bootloader runs before our code,
+  // and the reset clears all PIN_CNF to Input/Disconnect defaults. BSP init() only does
+  // OUTSET=0xFFFFFFFF which has no physical effect on Input-configured pins.
+  // Therefore we MUST explicitly re-assert any GPIO we need (CE, etc.) in this path.
   uint8_t shutdown_reason = NRF_POWER->GPREGRET2;
 
   if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
@@ -72,22 +71,81 @@ void InheroMr2Board::begin() {
 
     if (vbat_mv == 0 || vbat_mv < wake_threshold) {
       // Still too low or read failed — go back to sleep immediately.
-      // NO CE toggle, NO radio, NO BQ/BME/buttons — everything stays as latched.
-      // Only INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
+      // INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
 
-      Wire.beginTransmission(0x40);
-      Wire.write(0x01);  // ADC_CONFIG register
-      Wire.write(0x00);  // Shutdown mode
-      Wire.write(0x00);
+      // BQ CE pin: The System-ON reset after System-Off wake resets all PIN_CNF
+      // to Input/Disconnect defaults. The previous cycle's OUTPUT latch is lost.
+      // Must explicitly re-assert OUTPUT HIGH so solar charging stays active.
+#ifdef BQ_CE_PIN
+      pinMode(BQ_CE_PIN, OUTPUT);
+      digitalWrite(BQ_CE_PIN, HIGH);
+      MESH_DEBUG_PRINTLN("LV-Wake: CE re-latched HIGH (solar charging active)");
+#endif
+
+      // INA228 → Shutdown mode with readback verification (~3.5µA vs ~350µA continuous).
+      // I2C writes can fail silently — if this fails, 350µA wasted in System-Off!
+      for (int retry = 0; retry < 3; retry++) {
+        Wire.beginTransmission(0x40);
+        Wire.write(0x01);  // ADC_CONFIG register
+        Wire.write(0x00);  // Shutdown mode (MSB)
+        Wire.write(0x00);  // (LSB)
+        if (Wire.endTransmission() != 0) {
+          delay(10);
+          continue;
+        }
+        delay(2);
+        // Readback verification
+        Wire.beginTransmission(0x40);
+        Wire.write(0x01);
+        Wire.endTransmission(false);
+        Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+        uint16_t rb = 0;
+        if (Wire.available() >= 2) {
+          rb = (Wire.read() << 8) | Wire.read();
+        }
+        if ((rb & 0xF000) == 0x0000) break;
+        delay(10);
+      }
+
+      // BQ25798 — Disable ADC (saves ~500µA continuous draw)
+      Wire.beginTransmission(0x6B);
+      Wire.write(0x2E);  // ADC_CONTROL register
+      Wire.write(0x00);  // ADC_EN=0, ADC disabled
       Wire.endTransmission();
+
+      // BQ25798 — Mask all interrupts + clear flags to de-assert INT pin.
+      // Without this, any pending flag holds INT LOW and INPUT_PULLUP wastes ~254µA.
+      { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
+        for (uint8_t r : mask_regs) {
+          Wire.beginTransmission(0x6B);
+          Wire.write(r);
+          Wire.write(0xFF);  // Mask all
+          Wire.endTransmission();
+        }
+        const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
+        for (uint8_t r : flag_regs) {
+          Wire.beginTransmission(0x6B);
+          Wire.write(r);
+          Wire.endTransmission(false);
+          Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+          while (Wire.available()) Wire.read();
+        }
+      }
+
+      // SX1262 NSS has internal pull-up inside RAK4630 module.
+      // After System-ON reset, all nRF52 pins are INPUT/Disconnect,
+      // but the SX1262 internal pull-up keeps NSS HIGH → stays in Cold Sleep.
+      // No bit-bang needed in the fast resleep path.
 
       configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
       NRF_P0->LATCH = (1UL << RTC_INT_PIN);
       Wire.end();
 
-      // TESTING: Skip disconnectLeakyPullups — all GPIO already in correct state
-      // from previous System-Off cycle. Isolate whether GPIO manipulation causes
-      // the alternating current pattern.
+      // Disconnect all GPIO pull-ups to prevent leakage in System-Off.
+      // Wire.begin() set SDA/SCL to INPUT_PULLUP; if an I2C device holds
+      // the line LOW, each pull-up wastes ~250µA. Wire.end() alone does NOT
+      // disable the pull-ups on nRF52.
+      disconnectLeakyPullups();
 
       NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
       sd_power_system_off();
@@ -238,12 +296,28 @@ void InheroMr2Board::begin() {
         delay(100);
         prepareRadioForSystemOff(false);
 
-        // INA228 → Shutdown mode
-        Wire.beginTransmission(0x40);
-        Wire.write(0x01);  // ADC_CONFIG register
-        Wire.write(0x00);  // Shutdown
-        Wire.write(0x00);
-        Wire.endTransmission();
+        // INA228 → Shutdown mode with readback verification
+        for (int retry = 0; retry < 3; retry++) {
+          Wire.beginTransmission(0x40);
+          Wire.write(0x01);  // ADC_CONFIG register
+          Wire.write(0x00);  // Shutdown (MSB)
+          Wire.write(0x00);  // (LSB)
+          if (Wire.endTransmission() != 0) {
+            delay(10);
+            continue;
+          }
+          delay(2);
+          Wire.beginTransmission(0x40);
+          Wire.write(0x01);
+          Wire.endTransmission(false);
+          Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+          uint16_t rb = 0;
+          if (Wire.available() >= 2) {
+            rb = (Wire.read() << 8) | Wire.read();
+          }
+          if ((rb & 0xF000) == 0x0000) break;
+          delay(10);
+        }
 
         // Read DIAG_ALRT to clear any latched alert flag
         Wire.beginTransmission(0x40);
@@ -262,6 +336,24 @@ void InheroMr2Board::begin() {
         Wire.write(0x2E);  // ADC_CONTROL
         Wire.write(0x00);  // ADC_EN=0
         Wire.endTransmission();
+
+        // BQ25798 — Mask all interrupts + clear flags to de-assert INT
+        { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
+          for (uint8_t r : mask_regs) {
+            Wire.beginTransmission(0x6B);
+            Wire.write(r);
+            Wire.write(0xFF);
+            Wire.endTransmission();
+          }
+          const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
+          for (uint8_t r : flag_regs) {
+            Wire.beginTransmission(0x6B);
+            Wire.write(r);
+            Wire.endTransmission(false);
+            Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+            while (Wire.available()) Wire.read();
+          }
+        }
 
         // BME280 — Force Sleep mode
         Wire.beginTransmission(0x76);
@@ -866,30 +958,42 @@ void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
     digitalWrite(P_LORA_MOSI, LOW);
     pinMode(P_LORA_BUSY, INPUT);
 
-    // Wait for SX1262 BUSY LOW (ready for command)
-    // After POR: calibration ~3.5ms; after wake from Cold Sleep: ~3.5ms
+    // SX1262 Wake-Up + SetSleep with correct NSS double-cycle.
+    //
+    // SX1262 Datasheet §13.1.1: "When exiting sleep mode using the falling
+    // edge of NSS pin, the SPI command is NOT interpreted by the transceiver
+    // so a SUBSEQUENT falling edge of NSS is therefore necessary."
+    //
+    // Phase 1: Wake-up cycle (NSS LOW → wait BUSY LOW → NSS HIGH)
+    // If SX1262 is in Cold Sleep: NSS LOW wakes it, BUSY goes HIGH (~3.5ms),
+    //   then LOW when ready. We wait for BUSY LOW.
+    // If SX1262 is in Standby RC: NSS LOW does nothing, BUSY already LOW.
+    // Either way, after this phase SX1262 is in Standby RC and ready.
+    digitalWrite(P_LORA_NSS, LOW);
+    delayMicroseconds(2);
+    // Wait for BUSY LOW — SX1262 ready after wake-up or already awake
     uint32_t t0 = millis();
     while (digitalRead(P_LORA_BUSY) == HIGH && (millis() - t0) < 10) {
-      delay(1);
+      delayMicroseconds(100);
     }
+    digitalWrite(P_LORA_NSS, HIGH);  // End wake-up cycle
+    delayMicroseconds(10);           // Minimum NSS HIGH time
 
-    // Bit-bang SetSleep command: opcode 0x84, config 0x00 (Cold Start, TCXO off)
+    // Phase 2: Actual SetSleep command on fresh NSS falling edge
+    // Opcode 0x84, config 0x00 = Cold Start (no config retention, TCXO off)
     // SPI Mode 0 (CPOL=0, CPHA=0): data sampled on rising edge, MSB first
     static const uint8_t cmd[2] = { 0x84, 0x00 };
 
     digitalWrite(P_LORA_NSS, LOW);
-    delayMicroseconds(2);  // SX1262 NSS setup time
+    delayMicroseconds(2);  // NSS setup time
 
     for (int b = 0; b < 2; b++) {
       uint8_t byte = cmd[b];
       for (int i = 7; i >= 0; i--) {
-        // Set MOSI before rising edge
         digitalWrite(P_LORA_MOSI, (byte >> i) & 1);
         delayMicroseconds(1);
-        // Rising edge — SX1262 samples MOSI
         digitalWrite(P_LORA_SCLK, HIGH);
         delayMicroseconds(1);
-        // Falling edge
         digitalWrite(P_LORA_SCLK, LOW);
         delayMicroseconds(1);
       }
@@ -905,20 +1009,10 @@ void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
   // Power off PE4259 RF switch (cut VDD to antenna switch)
   digitalWrite(SX126X_POWER_EN, LOW);
 
-  // Pre-configure NSS as OUTPUT HIGH for System-Off.
-  // SX1262 must see NSS HIGH to stay in Cold Sleep (~160nA).
-  // All other SPI pins (SCK, MOSI) and PE4259 are set to INPUT_DISCONNECT by
-  // disconnectLeakyPullups() which is called later — covers all GPIO comprehensively.
-  //
-  // GPIO 42 (P_LORA_NSS) = NRF_P1 pin 10 (42 - 32 = 10)
-  NRF_P1->OUTSET = (1UL << 10);  // NSS = HIGH (SX1262 deselected)
-
-  uint32_t pin_cfg_out = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos) |
-                         (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
-                         (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
-                         (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
-                         (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
-  NRF_P1->PIN_CNF[10] = pin_cfg_out;  // NSS: OUTPUT HIGH
+  // NSS: SX1262 has internal pull-up inside RAK4630 module.
+  // After disconnectLeakyPullups() sets all pins to INPUT_DISCONNECT,
+  // the internal pull-up keeps NSS HIGH → SX1262 stays in Cold Sleep.
+  // No external OUTPUT latch needed.
 }
 
 /// @brief Set ALL GPIO pins to INPUT_DISCONNECT except the 3 pins needed during System-Off.
@@ -935,10 +1029,10 @@ void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
 /// For CE (P0.04) this means charge enable pulse. By setting unused pins to INPUT_DISCONNECT,
 /// DIR=Input prevents the BSP OUTSET from causing physical pin changes on the next boot.
 ///
-/// Only 3 pins are preserved:
+/// Only 2 pins are preserved:
 ///   P0.04  (BQ_CE_PIN)   — OUTPUT HIGH: solar charging active during sleep
 ///   P0.17  (RTC_INT_PIN) — INPUT_PULLUP + SENSE_Low: System-Off wake source
-///   P1.10  (P_LORA_NSS)  — OUTPUT HIGH: keeps SX1262 in Cold Sleep (~160nA)
+/// NSS (P1.10) has internal pull-up inside RAK4630 — no external latch needed.
 void InheroMr2Board::disconnectLeakyPullups() {
   uint32_t pin_cfg_discon = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
                             (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
@@ -952,9 +1046,8 @@ void InheroMr2Board::disconnectLeakyPullups() {
     NRF_P0->PIN_CNF[pin] = pin_cfg_discon;
   }
 
-  // P1: pins 0–15, skip P1.10 (LoRa NSS, already OUTPUT HIGH from prepareRadioForSystemOff)
+  // P1: pins 0–15, all to INPUT_DISCONNECT
   for (uint8_t pin = 0; pin < 16; pin++) {
-    if (pin == 10) continue;  // P_LORA_NSS
     NRF_P1->PIN_CNF[pin] = pin_cfg_discon;
   }
 }
@@ -979,13 +1072,12 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   Ina228Driver* ina = boardConfig.getIna228Driver();
   if (ina) {
     ina->shutdown();
-    MESH_DEBUG_PRINTLN("PWRMGT: INA228 shutdown (saving power)");
   }
 
   // 3. SX1262 sleep + SPI cleanup (prevents ~4mA leakage in System-Off)
   prepareRadioForSystemOff();
 
-  // 4. Turn off LEDs
+  // 4. LEDs off before sleep
   digitalWrite(PIN_LED1, LOW);
   digitalWrite(PIN_LED2, LOW);
 
@@ -1008,14 +1100,36 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     Wire.write(0x00);  // ADC_EN=0, ADC disabled
     Wire.endTransmission();
 
-    // 5c. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
+    // 5c. BQ25798 — Mask all interrupts and clear flags to de-assert INT pin.
+    // Default masks are 0x00 (all unmasked). Any pending flag holds INT LOW,
+    // and INPUT_PULLUP on BQ_INT_PIN wastes ~254µA through the pull-up.
+    { // Mask all interrupts
+      const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
+      for (uint8_t r : mask_regs) {
+        Wire.beginTransmission(0x6B);
+        Wire.write(r);
+        Wire.write(0xFF);
+        Wire.endTransmission();
+      }
+      // Read-to-clear all flag registers
+      const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
+      for (uint8_t r : flag_regs) {
+        Wire.beginTransmission(0x6B);
+        Wire.write(r);
+        Wire.endTransmission(false);
+        Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+        while (Wire.available()) Wire.read();
+      }
+    }
+
+    // 5d. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
     // After normal operation readBmeTemperature() may have left BME280 in NORMAL mode.
     // Harmless NACK if no BME280 populated.
     Wire.beginTransmission(0x76);
     Wire.write(0xF4);  // ctrl_meas register
     Wire.write(0x00);  // MODE=00 (Sleep), all oversampling off
     Wire.endTransmission();
-    MESH_DEBUG_PRINTLN("PWRMGT: BQ25798 ADC + BME280 shut down");
+    MESH_DEBUG_PRINTLN("PWRMGT: BQ25798 ADC/INT + BME280 shut down");
 
     // 6. Configure RTC to wake us up periodically for voltage check
     configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);

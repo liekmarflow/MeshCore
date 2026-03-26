@@ -161,11 +161,26 @@ float Ina228Driver::readCurrent_mA_precise() {
   return current_mA;
 }
 
-void Ina228Driver::shutdown() {
+bool Ina228Driver::shutdown() {
   // Set operating mode to Shutdown (MODE = 0x0)
-  // This disables all conversions and Coulomb Counter
+  // This disables all conversions and Coulomb Counter.
+  // Use retry+readback — I2C writes can fail silently (see setUnderVoltageAlert).
+  // If this fails, INA228 stays in continuous mode (~350µA wasted in System-Off!).
   uint16_t adc_config = 0x0000;  // MODE = 0x0 (Shutdown)
-  writeRegister16(INA228_REG_ADC_CONFIG, adc_config);
+
+  for (int retry = 0; retry < 3; retry++) {
+    if (!writeRegister16(INA228_REG_ADC_CONFIG, adc_config)) {
+      delay(10);
+      continue;
+    }
+    delay(2);
+    uint16_t readback = readRegister16(INA228_REG_ADC_CONFIG);
+    if ((readback & 0xF000) == 0x0000) {  // Check MODE bits [15:12]
+      return true;
+    }
+    delay(10);
+  }
+  return false;
 }
 
 void Ina228Driver::wakeup() {
