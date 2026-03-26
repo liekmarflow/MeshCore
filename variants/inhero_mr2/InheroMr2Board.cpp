@@ -668,7 +668,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   if (strncmp(setCommand, "bat ", 4) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[4]));
     BoardConfigContainer::BatteryType bt = BoardConfigContainer::getBatteryTypeFromCommandString(value);
-    if (bt != BoardConfigContainer::BatteryType::BAT_UNKNOWN) {
+    if (bt != BoardConfigContainer::BatteryType::BAT_UNKNOWN || strcmp(value, "none") == 0) {
       boardConfig.setBatteryType(bt);
       snprintf(ret, sizeof(ret), "Bat set to %s",
                BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType()));

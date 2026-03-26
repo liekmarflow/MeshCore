@@ -131,6 +131,7 @@ public:
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
                                                        { "lifepo1s", LIFEPO4_1S },
                                                        { "liion1s", LIION_1S },
+                                                       { "none", BAT_UNKNOWN },
                                                        { nullptr, BAT_UNKNOWN } };
 
   enum FrostChargeBehaviour : uint8_t {
