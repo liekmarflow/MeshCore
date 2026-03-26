@@ -687,9 +687,6 @@ bool BoardConfigContainer::begin() {
 
   this->configureBaseBQ();
   this->configureChemistry(bat);
-  
-  // PFM Forward permanently enabled — Rev 1.1 PCB stable with PFM.
-  bq.setPFMForwardDisable(false);
 
   // Charger active by default — HIZ-Gate removed (Rev 1.1 PCB stable).
   bq.setHIZMode(false);
@@ -926,9 +923,6 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setMinSystemV(2.75);  // 2.75V = next valid step above 2.7V (250mV steps: 2.5, 2.75, 3.0...)
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
-
-  // PFM Forward permanently enabled (Rev 1.1 PCB stable).
-  bq.setPFMForwardDisable(false);
 
   // Flush stale ADC registers by running one discard conversion.
   // After reboot (e.g. low-voltage recovery), BQ25798 retains old ADC values

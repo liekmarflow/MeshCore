@@ -682,20 +682,6 @@ bq25798_voc_pct_t BqDriver::getVOCpercent() {
   return (bq25798_voc_pct_t)((reg15 >> 5) & 0x07);
 }
 
-bool BqDriver::setPFMForwardDisable(bool disable) {
-  uint8_t reg12 = readReg(0x12);
-  if (disable) {
-    reg12 |= (1 << 4);   // PFM_FWD_DIS = 1
-  } else {
-    reg12 &= ~(1 << 4);  // PFM_FWD_DIS = 0
-  }
-  return writeReg(0x12, reg12);
-}
-
-bool BqDriver::getPFMForwardDisable() {
-  return (readReg(0x12) & (1 << 4)) != 0;
-}
-
 bool BqDriver::setForwardOOA(bool enable) {
   uint8_t reg12 = readReg(0x12);
   if (enable) {

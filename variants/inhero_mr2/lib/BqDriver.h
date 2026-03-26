@@ -166,7 +166,6 @@ public:
 
   // Direct pass-through to parent — all I2C runs in tick() context (no concurrent access)
   bool setHIZMode(bool enable)        { return Adafruit_BQ25798::setHIZMode(enable); }
-  bool getHIZMode()                   { return Adafruit_BQ25798::getHIZMode(); }
   bool setChargeEnable(bool enable)   { return Adafruit_BQ25798::setChargeEnable(enable); }
   bool getChargeEnable()              { return Adafruit_BQ25798::getChargeEnable(); }
   bool getMPPTenable()                { return Adafruit_BQ25798::getMPPTenable(); }
@@ -215,9 +214,6 @@ public:
 
   bool setVOCpercent(bq25798_voc_pct_t pct);
   bq25798_voc_pct_t getVOCpercent();
-
-  bool setPFMForwardDisable(bool disable);
-  bool getPFMForwardDisable();
 
   bool setForwardOOA(bool enable);
   bool getForwardOOA();
