@@ -644,21 +644,27 @@ bool BoardConfigContainer::begin() {
   }
   
   // === RV-3028 RTC Initialization ===
+  // Retry up to 3 times — after OTA/warm-reset the I2C bus may need recovery.
   bool rtc_initialized = false;
-  Wire.beginTransmission(0x52);  // RV-3028 I2C address
-  if (Wire.endTransmission() == 0) {
-    rtc_initialized = true;
-    MESH_DEBUG_PRINTLN("RV-3028 RTC found @ 0x52");
-    
-    // Blue LED flash: RTC initialized
-    if (leds_enabled) {
-      digitalWrite(LED_BLUE, HIGH);
-      delay(150);
-      digitalWrite(LED_BLUE, LOW);
-      delay(100);
+  for (int attempt = 0; attempt < 3; attempt++) {
+    Wire.beginTransmission(0x52);  // RV-3028 I2C address
+    if (Wire.endTransmission() == 0) {
+      rtc_initialized = true;
+      MESH_DEBUG_PRINTLN("RV-3028 RTC found @ 0x52 (attempt %d)", attempt + 1);
+      
+      // Blue LED flash: RTC initialized
+      if (leds_enabled) {
+        digitalWrite(LED_BLUE, HIGH);
+        delay(150);
+        digitalWrite(LED_BLUE, LOW);
+        delay(100);
+      }
+      break;
     }
-  } else {
-    MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52");
+    delay(20);  // Give I2C bus time to recover before retry
+  }
+  if (!rtc_initialized) {
+    MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52 (3 attempts)");
   }
   
   // === MR2 Configuration ===
