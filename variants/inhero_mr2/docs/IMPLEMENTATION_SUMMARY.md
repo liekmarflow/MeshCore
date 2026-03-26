@@ -236,7 +236,7 @@ Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s I
 ### Solar-Checks
 
 `runMpptCycle()` führt bei jedem Zyklus zwei Prüfungen durch:
-1. `checkAndFixSolarLogic()` — Reaktiviert MPPT wenn PG=1 (Readback-Check)
+1. `checkAndFixSolarLogic()` — PG-Stuck Recovery + MPPT-Reaktivierung
 2. `updateMpptStats()` — Aktualisiert MPPT-Statistiken für 7-Tage-Durchschnitt
 
 ### PFM Forward Mode
@@ -244,10 +244,17 @@ Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s I
 - Permanent aktiviert (optimiert für 5-6V Panels)
 - PFM verbessert Effizienz bei niedrigen Strömen
 
-### MPPT Recovery
+### MPPT Recovery + PG-Stuck
 
-BQ25798 deaktiviert MPPT automatisch bei PG=0. `checkAndFixSolarLogic()` reaktiviert MPPT
-wenn PG=1 ist (Readback-Check: nur schreiben wenn tatsächliche Änderung nötig).
+`checkAndFixSolarLogic()` behandelt zwei Szenarien:
+
+**PG=1**: MPPT-Reaktivierung — BQ25798 deaktiviert MPPT automatisch bei Faults.
+Readback-Check: nur schreiben wenn tatsächliche Änderung nötig.
+
+**PG=0 + VBUS ≥ 4.5V**: PG-Stuck Recovery — Panel liefert Spannung, aber BQ hat die
+Inputquelle nicht qualifiziert (typisch bei langsamem Sonnenaufgang). HIZ-Toggle erzwingt
+neue Input-Qualifikation. 5-Minuten-Cooldown verhindert übermäßiges Toggling.
+Konstante: `PG_STUCK_VBUS_THRESHOLD_MV = 4500` in BoardConfigContainer.h
 
 ### BQ25798 Interrupt Handling
 
@@ -260,14 +267,16 @@ BQ-Status wird via Polling in `runMpptCycle()` alle 60s geprüft.
 
 ### Flag/Tick-Architektur
 
-Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgerufen von `InheroMr2Board::tick()`). Es gibt keine FreeRTOS-Tasks für I2C-Zugriffe — dadurch entfallen Mutex, Race Conditions und I2C-Bus-Recovery.
+Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgerufen von `InheroMr2Board::tick()`). Es gibt keine FreeRTOS-Tasks für I2C-Zugriffe — dadurch entfallen Mutex und Race Conditions.
+
+**I2C Bus Recovery** (in `InheroMr2Board::begin()`): Nach OTA/Warm-Reset kann ein I2C-Slave SDA festhalten. Vor `Wire.begin()` werden bis zu 9 SCL-Pulse + STOP-Condition generiert um den Bus freizugeben.
 
 **tickPeriodic()** dispatcht periodische Arbeit via `millis()`-Timer:
 ```
 tickPeriodic()  [aufgerufen von tick(), Main-Loop]
   ├─ Low-Voltage Alert Flag prüfen → initiateShutdown()
   ├─ Alle 60s: runMpptCycle()
-  │   ├─ checkAndFixSolarLogic() — MPPT-Recovery bei PG=1
+  │   ├─ checkAndFixSolarLogic() — PG-Stuck Recovery (HIZ-Toggle) + MPPT-Recovery
   │   └─ updateMpptStats() — MPPT-Statistiken aktualisieren
   ├─ Alle 60s: updateBatterySOC()
   └─ Alle 60min: updateHourlyStats()
@@ -734,9 +743,9 @@ board.stats     # Combined energy statistics (balance + MPPT)
                 # BAT = Battery deficit (living on battery)
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 
-board.cinfo     # Charger info
-                # Output: "PG / CC" (Power Good, Constant Current)
-                # Code: InheroMr2Board.cpp
+board.cinfo     # Charger info + letzter PG-Stuck HIZ-Toggle
+                # Output: "PG / CC HIZ:never" oder "!PG / !CHG HIZ:3m ago"
+                # Code: InheroMr2Board.cpp → BoardConfigContainer::getChargerInfo()
 
 board.conf      # Gesamte Konfiguration
                 # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
@@ -1112,13 +1121,18 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ## Changelog
 
 ### v3.2 - 26. März 2026 (Rev 1.1 Cleanup)
-- ❌ **Entfernt**: HIZ-Gate State Machine (`HizGateState`, `checkAndFixPgoodStuck()`, `readVbusInHiz()`, `canSafelyEnterHiz()`, `toggleHizAndCheck()`) — Rev 1.1 PCB stabil ohne HIZ-Gating
+- ❌ **Entfernt**: HIZ-Gate State Machine (`HizGateState`, `readVbusInHiz()`, `canSafelyEnterHiz()`) — Rev 1.1 PCB stabil ohne HIZ-Gating
+- 🔧 **Vereinfacht**: PG-Stuck Recovery (HIZ-Toggle bei VBUS ≥ 4.5V + PG=0) in `checkAndFixSolarLogic()` integriert (ersetzt alte `checkAndFixPgoodStuck()` + `toggleHizAndCheck()`)
 - ❌ **Entfernt**: PFM get/set CLI (`set board.pfm`, `get board.pfm`, `setPFMEnabled()`, `getPFMEnabled()`, `loadPfmEnabled()`) — PFM permanent aktiviert
 - ❌ **Entfernt**: INA228 Offset-Kalibrierung (`set board.iboffset`, `get board.iboffset`, `setIna228CurrentOffset()`, `getIna228CurrentOffset()`, `performIna228OffsetCalibration()`, `_current_offset_mA`)
 - ❌ **Entfernt**: Getter `get board.hwver`, `get board.diag`, `get board.energy`
 - ❌ **Entfernt**: `getDetailedDiagnostics()` (verwaiste Funktion)
 - ✅ **Neu**: `set board.bat none` für BAT_UNKNOWN (Laden deaktiviert)
 - 🔧 **Geändert**: `set board.imax` Obergrenze von 1000 auf 1500 mA erhöht
+- ✅ **Neu**: I2C Bus Recovery vor `Wire.begin()` — 9 SCL-Pulse bei stuck SDA (verhindert false Error-LED nach OTA)
+- ✅ **Neu**: RV-3028 RTC Erkennung mit 3× Retry + 20ms Delay
+- ❌ **Entfernt**: Stale BqDriver-Methoden `getHIZMode()`, `getPFMForwardDisable()`, `setPFMForwardDisable()` (Defaults reichen)
+- ✅ **Neu**: `get board.cinfo` zeigt letzten PG-Stuck HIZ-Toggle-Zeitstempel
 - 📝 Dokumentation komplett an Rev 1.1 Code-Stand angepasst
 
 ### v3.1 - 15. März 2026 (Flag/Tick-Architektur)
@@ -1204,4 +1218,4 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ---
 
 *Letzte Aktualisierung: 26. März 2026*
-*Status: ✅ Dokumentation an Rev 1.1 Code-Stand angepasst (PFM permanent, HIZ-Gate/IBCAL/Diag entfernt, imax 50-1500mA)*
+*Status: ✅ Dokumentation an Rev 1.1 Code-Stand angepasst (PFM permanent, IBCAL/Diag entfernt, PG-Stuck Recovery vereinfacht, imax 50-1500mA, I2C Bus Recovery)*

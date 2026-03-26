@@ -74,7 +74,7 @@ get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
                                #   Voraussetzung: mind. 24h Daten + Kapazitaet bekannt
 
 # Ladegeraet & Diagnose
-get board.cinfo                # Charger-Status (State + Flags)
+get board.cinfo                # Charger-Status + letzter PG-Stuck HIZ-Toggle
 
 # Kalibrierung
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
@@ -95,7 +95,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC |
 | `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
-| `get board.cinfo` | Ladegeraet-Status (Charger State + Flags) |
+| `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
 
 ---

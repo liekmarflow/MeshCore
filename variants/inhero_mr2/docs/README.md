@@ -205,7 +205,7 @@ get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
                     # - M:85%: MPPT enabled percentage (7-day average)
                     # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode, 7d-avg basis)
 
-get board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
+get board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                     # Ausgabe: <state> + flags
                     # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
@@ -285,6 +285,8 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 **Bekannte Probleme:**
 1. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
    - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1
+2. **PG-Stuck bei Sonnenaufgang**: VBUS steigt langsam, BQ qualifiziert die Quelle nicht
+   - Lösung: `checkAndFixSolarLogic()` toggled HIZ bei VBUS ≥ 4.5V + PG=0 (5min Cooldown)
 
 ## Siehe auch
 
