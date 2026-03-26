@@ -543,12 +543,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
-  } else if (strcmp(cmd, "hiz") == 0 || strcmp(cmd, "togglehiz") == 0) {
-    // Manual HIZ cycle to force input detection (like automatic task)
-    char hizBuffer[100];
-    boardConfig.toggleHizAndCheck(hizBuffer, sizeof(hizBuffer));
-    snprintf(reply, maxlen, "%s", hizBuffer);
-    return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
     if (!telemetry) {
@@ -659,7 +653,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|tccal|leds|batcap|energy");
+           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|conf|tccal|leds|batcap|energy");
   return true;
 }
 

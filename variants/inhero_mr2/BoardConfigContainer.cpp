@@ -153,14 +153,6 @@ MpptStatistics BoardConfigContainer::mpptStats = {};
 BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
-HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
-
-float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
-uint32_t BoardConfigContainer::chargeBaselineTime = 0;
-uint32_t BoardConfigContainer::hizCooldownUntil = 0;
-
-// Solar charging thresholds
-static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid solar input
 
 // Battery voltage thresholds moved to BatteryProperties structure (see .h file)
 // Rev 1.0: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
@@ -168,37 +160,6 @@ static const uint16_t MIN_VBUS_FOR_CHARGING = 3500; // 3.5V minimum for valid so
 
 // Watchdog state
 static bool wdt_enabled = false;
-
-// Cooldown timer for HIZ toggles (stuck PGOOD recovery)
-static uint32_t lastHizToggleTime = 0;      // 5-minute cooldown for HIZ toggles
-#define HIZ_TOGGLE_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes
-
-// HIZ-Gated charging constants
-#define HIZ_PROBE_SETTLE_MS       500    // Time after HIZ exit for BQ input qualification
-#define HIZ_CHARGE_MONITOR_WINDOW 55000  // ~55s Coulomb Counter measurement window (< 60s task interval)
-#define HIZ_CHARGE_DRAIN_THRESH   (-0.05f) // ΔCharge < -0.05 mAh over window = parasitic drain
-                                             // 0 or slightly positive is OK (battery maintenance at SOC=100%)
-#define HIZ_DRAIN_COOLDOWN_MS     (5 * 60 * 1000)  // 5 minutes cooldown after parasitic drain detected
-
-// VSYS safety: minimum VBAT to safely enter HIZ mode.
-// Without battery (VBAT=0), the board runs on VSYS powered directly by solar.
-// Activating HIZ disconnects solar input → VSYS collapses → instant crash.
-// 2500mV is well below any usable battery voltage but safely above "no battery".
-#define MIN_VBAT_FOR_HIZ_MV       2500
-
-/// @brief Check if HIZ mode can be safely activated without losing VSYS
-/// @details Returns false when no battery is present (VBAT < MIN_VBAT_FOR_HIZ_MV),
-///          which means the system is powered solely by solar via VSYS.
-///          Activating HIZ in this state would disconnect the only power source.
-bool BoardConfigContainer::canSafelyEnterHiz() {
-  if (!ina228DriverInstance) return false;  // No INA228 → can't verify, refuse
-  uint16_t vbat = ina228DriverInstance->readVoltage_mV();
-  if (vbat < MIN_VBAT_FOR_HIZ_MV) {
-    MESH_DEBUG_PRINTLN("HIZ blocked: VBAT=%dmV < %dmV (no battery?)", vbat, MIN_VBAT_FOR_HIZ_MV);
-    return false;
-  }
-  return true;
-}
 
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
@@ -247,88 +208,6 @@ void BoardConfigContainer::disableWatchdog() {
   #endif
 }
 
-/// @brief Detects and fixes stuck PGOOD state by toggling HIZ mode
-/// @details When solar voltage rises slowly (sunrise), BQ25798 may not detect input source properly.
-///          This function forces input qualification by toggling HIZ mode to reset the input detection.
-///          
-///          Trigger conditions (all must be true):
-///          - PG=0 (PowerGood stuck low)
-///          - VBUS sufficient (>3.5V)
-///          - PG_STAT flag NOT set (no recent PGOOD change detected)
-///          
-///          Cooldown mechanism:
-///          - Only allows HIZ toggle once per 5 minutes to prevent excessive toggling
-///          - When HIZ is toggled, also resets the MPPT write cooldown timer
-///          - This allows immediate MPPT re-enable after HIZ toggle when PG goes high
-void BoardConfigContainer::checkAndFixPgoodStuck() {
-  if (!bqDriverInstance) return;
-
-  bqDriverInstance->readReg(0x22); // Refresh status register
-
-  uint8_t flag0 = bqDriverInstance->readReg(0x1B); // CHARGER_FLAG_0 register
-  bool pgFlagSet = (flag0 & 0x08) != 0;            // Bit 3: PG_STAT flag (set when PGOOD changes)
-  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
-
-  // Cooldown: Don't toggle HIZ too frequently (max once per 5 minutes)
-  // This prevents excessive toggling when PG remains stuck
-  uint32_t currentTime = millis();
-  if (lastHizToggleTime != 0 && (currentTime - lastHizToggleTime) < HIZ_TOGGLE_COOLDOWN_MS) {
-    // Too soon since last toggle - skip
-    return;
-  }
-
-  // Get VBUS voltage from telemetry data
-  uint16_t vbat_for_adc = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
-  const Telemetry* telem = bqDriverInstance->getTelemetryData(vbat_for_adc);
-  uint16_t vbusVoltage = telem ? telem->solar.voltage : 0;
-
-  // Detect stuck PGOOD state: VBUS voltage present but PGOOD not set
-  // This can happen after slow solar voltage rise (sunrise over 10-20 minutes)
-  // BQ expects fast VBUS edge (adapter plug), not gradual sunrise
-  // Without edge detection, input qualification never runs → PGOOD stays low
-  //
-  // CRITICAL: Only toggle HIZ if:
-  // 1. PGOOD is currently LOW (not yet set)
-  // 2. VBUS voltage is sufficient for charging
-  // 3. PG_STAT flag is NOT set (interrupt was NOT caused by PG change)
-  //
-  // If PG_STAT flag is set, it means BQ25798 just changed PGOOD itself
-  // and we should NOT interfere by toggling HIZ!
-
-  if (!powerGood && vbusVoltage > MIN_VBUS_FOR_CHARGING && !pgFlagSet) {
-    MESH_DEBUG_PRINT("PGOOD stuck: VBUS=");
-    MESH_DEBUG_PRINT("%d", vbusVoltage);
-    MESH_DEBUG_PRINTLN("mV, PG=0 - forcing input detection");
-
-    // Force input source detection by toggling HIZ
-    // Per datasheet: Exiting HIZ triggers input source qualification
-    bool wasHIZ = bq.getHIZMode();
-    if (wasHIZ) {
-      // EN_HIZ already set (poor source) - just clear it
-      MESH_DEBUG_PRINTLN("EN_HIZ was set - clearing");
-      bq.setHIZMode(false);
-      delay(200); // Allow HIZ exit to settle
-    } else {
-      // EN_HIZ not set - toggle to force input re-detection
-      if (!canSafelyEnterHiz()) return;  // No battery → can't toggle HIZ
-      MESH_DEBUG_PRINTLN("Toggling HIZ to force input scan");
-      bq.setHIZMode(true);
-      delay(250); // Give BQ time to process HIZ state
-      bq.setHIZMode(false);
-    }
-    
-    // Don't write MPPT=1 here - let BQ finish input qualification first
-    // MPPT=1 will be set by checkAndFixSolarLogic() on next task run when PG=1
-    
-    // Set HIZ toggle cooldown timestamp
-    lastHizToggleTime = currentTime;
-
-    delay(100); // Allow input qualification to complete
-    
-    MESH_DEBUG_PRINTLN("Input detection triggered");
-  }
-}
-
 /// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
 /// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
 ///          This function restores MPPT=1 when PG returns to 1.
@@ -368,140 +247,20 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   }
 }
 
-/// @brief Read VBUS voltage from BQ25798 ADC while in HIZ mode
-/// @details In HIZ, no current flows — VBUS equals the panel's open-circuit voltage (Voc).
-///          The BQ25798 ADC can be used in HIZ by setting EN_ADC=1 (per datasheet 9.3.6.5 / 9.3.10).
-///          Uses one-shot conversion with only VBUS channel enabled for speed.
-/// @return VBUS in millivolts, or 0 on failure
-uint16_t BoardConfigContainer::readVbusInHiz() {
-  if (!bqDriverInstance) return 0;
-
-  // Start one-shot ADC with only VBUS enabled
-  // Reg 0x2F bit map: IBUS(7) IBAT(6) VBUS(5) VBAT(4) VSYS(3) TS(2) TDIE(1) reserved(0)
-  // 1 = disabled, 0 = enabled
-  bqDriverInstance->writeReg(0x2F, 0xDE);  // Only VBUS enabled: 1101_1110
-  bqDriverInstance->writeReg(0x30, 0xF0);  // Disable D+, D-, VAC1, VAC2
-  bqDriverInstance->writeReg(0x2E, 0xC0);  // EN_ADC=1, ADC_RATE=one-shot
-
-  // Poll ADC_EN (bit 7 of 0x2E) — clears when conversion complete
-  // Single channel one-shot is fast (~10ms), but give plenty of time
-  for (int i = 0; i < 25; i++) {
-    delay(10);
-    if (!bqDriverInstance->getADCEnabled()) break;
-  }
-
-  // Read VBUS using proven 2-byte BusIO register read (not individual byte reads!)
-  return bqDriverInstance->getVBUS();
-}
-
 /// @brief Single MPPT cycle — called from tickPeriodic() every 60s
-/// @details HIZ-Gated state machine always active when battery present.
-///          Runs in tick() context — no concurrent I2C access possible.
-///          Falls back to charger-always-on when no battery (can't enter HIZ).
+/// @details Checks solar logic and updates MPPT stats.
 void BoardConfigContainer::runMpptCycle() {
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     if (bqDriverInstance) {
       bqDriverInstance->readReg(0x1B); // Read CHARGER_FLAG_0 to clear flags
     }
 
-    // === No-battery fallback ===
-    // If no battery present, HIZ-gated approach is impossible (VSYS would collapse).
-    // Run traditional charger-always-active path instead.
-    if (!canSafelyEnterHiz()) {
-      checkAndFixPgoodStuck();
-      checkAndFixSolarLogic();
-      bool mpptEnabled;
-      BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-      if (mpptEnabled && bqDriverInstance) {
-        updateMpptStats();
-      }
-      return;
-    }
-
-    // === HIZ-Gated State Machine (always active when battery present) ===
-    // Default state = HIZ (safe). BQ decides via PG whether input is usable.
-    // Coulomb Counter monitors net charge over 55s window (TX-burst immune).
-    // Parasitic drain triggers 5-minute cooldown in HIZ.
-    switch (hizGateState) {
-
-    case HIZ_IDLE: {
-      // Default safe state: charger in HIZ, no battery drain from BQ.
-
-      // Cooldown active? (parasitic drain was detected recently)
-      if (hizCooldownUntil != 0 && (millis() - hizCooldownUntil) < HIZ_DRAIN_COOLDOWN_MS) {
-        uint32_t remainSec = (HIZ_DRAIN_COOLDOWN_MS - (millis() - hizCooldownUntil)) / 1000;
-        MESH_DEBUG_PRINTLN("HIZ_IDLE: cooldown %ds remaining", remainSec);
-        break;
-      }
-      hizCooldownUntil = 0;  // Cooldown expired
-
-      // Quick check: is anything connected at all? (ADC read in HIZ = zero cost)
-      uint16_t voc_mv = readVbusInHiz();
-      if (voc_mv == 0) {
-        MESH_DEBUG_PRINTLN("HIZ_IDLE: VBUS=0, nothing connected");
-        break;
-      }
-
-      // Something on VBUS — exit HIZ and let BQ qualify the input via PG.
-      MESH_DEBUG_PRINTLN("HIZ_IDLE: VBUS=%dmV, exiting HIZ...", voc_mv);
-      bq.setHIZMode(false);
-      delay(HIZ_PROBE_SETTLE_MS);  // Allow BQ input qualification
-
-      bool pg = bqDriverInstance->getChargerStatusPowerGood();
-      if (!pg) {
-        // BQ couldn't qualify input — back to HIZ
-        bq.setHIZMode(true);
-        MESH_DEBUG_PRINTLN("HIZ_IDLE: !PG, back to HIZ");
-        break;
-      }
-
-      // PG=1 — BQ accepted input. Take Coulomb Counter baseline and start monitoring.
-      chargeBaseline_mAh = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
-      chargeBaselineTime = millis();
-      hizGateState = CHARGE_ACTIVE;
-      checkAndFixSolarLogic();  // Re-enable MPPT if needed
-      MESH_DEBUG_PRINTLN("HIZ_IDLE -> CHARGE_ACTIVE (PG=1)");
-      break;
-    }
-
-    case CHARGE_ACTIVE: {
-      // Charger is active — monitor using Coulomb Counter delta (TX-immune).
-      bool pg = bqDriverInstance->getChargerStatusPowerGood();
-
-      if (!pg) {
-        // Panel gone (cloud, sunset) — back to safe HIZ
-        bq.setHIZMode(true);
-        hizGateState = HIZ_IDLE;
-        MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (!PG)");
-        break;
-      }
-
-      // Check net charge over the last monitoring window
-      float charge_now = ina228DriverInstance ? ina228DriverInstance->readCharge_mAh() : 0.0f;
-      float delta_mAh = charge_now - chargeBaseline_mAh;
-      uint32_t elapsed_ms = millis() - chargeBaselineTime;
-
-      if (elapsed_ms >= HIZ_CHARGE_MONITOR_WINDOW) {
-        if (delta_mAh < HIZ_CHARGE_DRAIN_THRESH) {
-          // Net drain over full window — parasitic source. HIZ + cooldown.
-          bq.setHIZMode(true);
-          hizGateState = HIZ_IDLE;
-          hizCooldownUntil = millis();  // Start cooldown timer
-          MESH_DEBUG_PRINTLN("CHARGE_ACTIVE -> HIZ_IDLE (delta=%.2fmAh/%lums, drain, cooldown %ds)",
-                             delta_mAh, elapsed_ms, HIZ_DRAIN_COOLDOWN_MS / 1000);
-        } else {
-          MESH_DEBUG_PRINTLN("CHARGE_ACTIVE: OK (delta=+%.2fmAh/%lums)", delta_mAh, elapsed_ms);
-        }
-        // Reset baseline for next window
-        chargeBaseline_mAh = charge_now;
-        chargeBaselineTime = millis();
-      }
-
-      checkAndFixSolarLogic();  // Keep MPPT enabled
+    checkAndFixSolarLogic();
+    bool mpptEnabled;
+    BoardConfigContainer::loadMpptEnabled(mpptEnabled);
+    if (mpptEnabled && bqDriverInstance) {
       updateMpptStats();
-      break;
     }
-    } // end switch
 }
 
 /// @brief Stops heartbeat task and disarms alerts before OTA
@@ -757,69 +516,7 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  // Show solar management state (HIZ gate state)
-  const char* solarTag = "";
-  switch (hizGateState) {
-    case HIZ_IDLE:      solarTag = (hizCooldownUntil != 0) ? " HIZ-COOL" : " HIZ-GATE"; break;
-    case CHARGE_ACTIVE: solarTag = " CHG-OK";   break;
-  }
-
-  if (lastHizToggleTime == 0) {
-    snprintf(buffer, bufferSize, "%s / %s HIZ:never%s", powerGood, statusString, solarTag);
-  } else {
-    uint32_t agoSec = (millis() - lastHizToggleTime) / 1000;
-    if (agoSec < 60) {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%ds ago%s", powerGood, statusString, agoSec, solarTag);
-    } else if (agoSec < 3600) {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%dm ago%s", powerGood, statusString, agoSec / 60, solarTag);
-    } else {
-      snprintf(buffer, bufferSize, "%s / %s HIZ:%dh%dm ago%s", powerGood, statusString, agoSec / 3600, (agoSec % 3600) / 60, solarTag);
-    }
-  }
-}
-
-/// @brief Manual HIZ toggle with status report for debugging stuck PGOOD
-/// @param buffer Destination buffer for status string
-/// @param bufferSize Size of destination buffer
-void BoardConfigContainer::toggleHizAndCheck(char* buffer, uint32_t bufferSize) {
-  if (!buffer || bufferSize == 0 || !BQ_INITIALIZED || !bqDriverInstance) {
-    return;
-  }
-
-  memset(buffer, 0, bufferSize);
-
-  // Read current HIZ state (Register 0x0F Bit 2)
-  uint8_t reg0F = bqDriverInstance->readReg(0x0F);
-  bool hizBefore = (reg0F & 0x04) != 0;
-
-  // Toggle HIZ
-  if (hizBefore) {
-    bqDriverInstance->writeReg(0x0F, reg0F & ~0x04); // Clear HIZ
-  } else {
-    bqDriverInstance->writeReg(0x0F, reg0F | 0x04); // Set HIZ
-  }
-
-  delay(100); // Allow registers to settle
-
-  // Re-read HIZ state
-  reg0F = bqDriverInstance->readReg(0x0F);
-  bool hizAfter = (reg0F & 0x04) != 0;
-
-  // Check PGOOD
-  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
-  const Telemetry* telem = getTelemetryData();
-  float vbusVoltage = telem ? telem->solar.voltage : 0;
-
-  // Check if toggle was successful
-  bool success = (hizBefore != hizAfter);
-  const char* result = success ? (powerGood ? "OK" : "!PG") : "FAIL";
-
-  // Update HIZ toggle timestamp so board.cinfo reflects manual toggles too
-  if (success) {
-    lastHizToggleTime = millis();
-  }
-
-  snprintf(buffer, bufferSize, "HIZ toggled: VBUS=%.1fV PG=%s", vbusVoltage / 1000.0f, result);
+  snprintf(buffer, bufferSize, "%s / %s", powerGood, statusString);
 }
 
 /// @brief Get detailed BQ25798 diagnostics for debugging PG / !CHG issues
@@ -1166,17 +863,9 @@ bool BoardConfigContainer::begin() {
   // PFM Forward permanently enabled — Rev 1.1 PCB stable with PFM.
   bq.setPFMForwardDisable(false);
 
-  // Start in HIZ_IDLE (safe default) — state machine will exit HIZ when solar is proven useful.
-  // Without battery: can't use HIZ (VSYS collapse) → charger stays active, fallback path in runMpptCycle.
-  if (canSafelyEnterHiz()) {
-    bq.setHIZMode(true);
-    hizGateState = HIZ_IDLE;
-    MESH_DEBUG_PRINTLN("Solar: HIZ-Gated mode (battery present)");
-  } else {
-    bq.setHIZMode(false);
-    MESH_DEBUG_PRINTLN("Solar: Charger always-on (no battery, HIZ unsafe)");
-  }
-  
+  // Charger active by default — HIZ-Gate removed (Rev 1.1 PCB stable).
+  bq.setHIZMode(false);
+
   this->setFrostChargeBehaviour(frost);
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
 

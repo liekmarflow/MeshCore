@@ -30,15 +30,6 @@
 // Solar MPPT polling interval (no interrupt — pure polling)
 #define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute
 
-// HIZ-Gated Charging State Machine
-// Default state is HIZ (charger off) — fail-safe: no parasitic battery drain.
-// Charging is only enabled after proving the panel delivers net positive current.
-// Falls back to charger-always-on when no battery present (can't use HIZ without battery).
-enum HizGateState : uint8_t {
-  HIZ_IDLE       = 0,  ///< Charger in HIZ (safe default). Probes VBUS periodically.
-  CHARGE_ACTIVE  = 1   ///< BQ qualified input (PG=1) — charger active, monitored via Coulomb Counter
-};
-
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
 
@@ -180,30 +171,11 @@ public:
   // Solar Power Management Functions
   // These functions work together to handle stuck PGOOD conditions and MPPT recovery:
   
-  /// Check for stuck PGOOD (slow sunrise condition) and toggle HIZ if needed.
-  /// Implements 5-minute cooldown to prevent excessive HIZ toggling.
-  /// When toggling HIZ, also resets the MPPT cooldown timer to allow immediate MPPT re-enable.
-  static void checkAndFixPgoodStuck();
-  
+  static void heartbeatTask(void* pvParameters);
+
   /// Re-enable MPPT if BQ disabled it (when PG=1).
-  /// Implements 60-second cooldown to prevent interrupt loops between MPPT writes and BQ interrupts.
-  /// Only writes to MPPT register if PowerGood is high to avoid false positives.
   static void checkAndFixSolarLogic();
 
-  /// Read VBUS voltage via BQ25798 ADC while in HIZ mode (= panel open-circuit voltage).
-  /// @return VBUS in mV, or 0 on failure
-  static uint16_t readVbusInHiz();
-
-  /// Check if HIZ mode can safely be activated (requires battery to sustain VSYS)
-  static bool canSafelyEnterHiz();
-
-  /// Get the current HIZ gate state
-  static HizGateState getHizGateState() { return hizGateState; }
-
-
-
-  static void heartbeatTask(void* pvParameters);
-  
   static bool loadMpptEnabled(bool& enabled);
   void tickPeriodic();              ///< Called from tick() — dispatches all periodic I2C work (MPPT, SOC, hourly stats)
   static void stopBackgroundTasks(); ///< Stop heartbeat task and disarm alerts before OTA
@@ -229,7 +201,6 @@ public:
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
-  void toggleHizAndCheck(char* buffer, uint32_t bufferSize); ///< Manual HIZ cycle to force input detection (always ends HIZ=0)
   void getDetailedDiagnostics(char* buffer, uint32_t bufferSize); ///< Get detailed BQ25798 diagnostics for debugging
   
   // MPPT Statistics methods
@@ -325,13 +296,6 @@ private:
   // MPPT Statistics helper
   static void updateMpptStats();
 
-  // HIZ-Gated charging state
-  static HizGateState    hizGateState;        ///< Current state of HIZ gate machine
-
-  static float           chargeBaseline_mAh;  ///< INA228 CHARGE reading at start of monitoring window
-  static uint32_t        chargeBaselineTime;   ///< millis() when baseline was taken
-  static uint32_t        hizCooldownUntil;     ///< millis() timestamp: stay in HIZ until this time (drain cooldown)
-  
   // Battery SOC helpers
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
   static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
