@@ -37,7 +37,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 8) Maximalen Ladestrom setzen
 - Command: set board.imax <mA>
-- Bereich laut Firmware: 50 bis 1000 mA (BQ25798-Minimum: 50mA).
+- Bereich laut Firmware: 50 bis 1500 mA (BQ25798-Minimum: 50mA).
 - Passend zum Solar-Setup waehlen, damit die Stroeme zum PG-Check passen.
 - Faustformel: Panelleistung / Panelspannung * 1.2
 

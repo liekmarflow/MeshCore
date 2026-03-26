@@ -123,7 +123,7 @@ get board.pfm                  # PFM Forward Mode Status + HIZ-Gate-State
 |---|---|---|
 | `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` | Akkuchemie waehlen |
 | `set board.batcap` | `100`–`100000` (mAh) | Akkukapazitaet setzen |
-| `set board.imax` | `50`–`1000` (mA) | Max. Ladestrom setzen |
+| `set board.imax` | `50`–`1500` (mA) | Max. Ladestrom setzen |
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |

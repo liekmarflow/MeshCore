@@ -288,7 +288,7 @@ set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # N/A for LTO batteries (JEITA disabled)
 
 set board.imax <current>       # Maximalen Ladestrom in mA setzen
-                               # Range: 50-1000mA (BQ25798-Minimum: 50mA)
+                               # Range: 50-1500mA (BQ25798-Minimum: 50mA)
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
