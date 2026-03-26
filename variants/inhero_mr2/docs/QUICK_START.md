@@ -1,4 +1,4 @@
-# Inhero MR2 Quick-Start (Rev 1.0)
+# Inhero MR2 Quick-Start
 
 Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
 
@@ -67,8 +67,6 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 ## Zusatzhinweise (Praxis)
 - Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
-- Wenn die Eingangserkennung haengt (PGOOD/USB), hilft `get board.togglehiz` fuer eine manuelle Neuqualifikation.
-- Bei konstantem Strom-Offset (z.B. INA228 zeigt immer 2mA zu viel) hilft `set board.iboffset <mA>` fuer eine Offset-Korrektur.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
 Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
@@ -142,15 +140,12 @@ get board.leds
 get board.batcap
 get board.telem
 get board.stats
-get board.energy
 get board.cinfo
-get board.diag
 get board.conf
 ```
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
-- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s).
-- `get board.hwver` - Hardware-Version (MR2 immer Rev 1.0).
+- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, none).
 - `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).
@@ -158,10 +153,6 @@ get board.conf
 - `get board.batcap` - Batteriekapazität in mAh (set/default).
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
 - `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
-- `get board.energy` - INA228 Coulomb Counter (Rohdaten, Base, Net).
 - `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
-- `get board.diag` - Detaildiagnose des BQ25798 (PG, HIZ, MPPT, VBUS, Temp, Register).
-- `get board.togglehiz` - Manuelles Input-Qualify via HIZ-Toggle.
 - `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
-- `get board.iboffset` - INA228-Strom-Offset in mA (0.00 = default).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).

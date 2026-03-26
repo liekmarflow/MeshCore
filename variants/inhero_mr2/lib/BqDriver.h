@@ -226,7 +226,7 @@ public:
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
 
-  // ADC status/result accessors (needed by BoardConfigContainer::readVbusInHiz)
+  // ADC status/result accessors
   bool getADCEnabled();
   uint16_t getVBUS();
 

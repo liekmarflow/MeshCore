@@ -223,61 +223,26 @@ avg_deficit = (day0 + day1 + ... + day6).net_balance / 7
 
 ---
 
-## 4. Solar-Energieverwaltung (HIZ-Gated Charging)
+## 4. Solar-Energieverwaltung
 
 ### Designprinzip
 
 Der BQ25798 entscheidet **selbst** über PowerGood (PG), ob ein Eingang nutzbar ist.
-Die Firmware nutzt **HIZ als Default-Zustand** (fail-safe: kein parasitärer Batterie-Drain)
-und überwacht die Ladung nach BQ-Freigabe via INA228 Coulomb Counter.
+Der Charger läuft im Always-Active-Modus (HIZ deaktiviert).
+Die Firmware überwacht Solar-Status und reaktiviert MPPT bei Bedarf.
 
 Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s Intervall).
 
-### State Machine: 2 Zustände
+### Solar-Checks
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ HIZ_IDLE (Default, safe)                                │
-│  • Charger in HIZ → kein Batterie-Drain                 │
-│  • Cooldown aktiv? → warten (5 min nach Drain)          │
-│  • VBUS > 0? → Exit HIZ                                 │
-│  • PG=1? → Coulomb-Baseline → CHARGE_ACTIVE             │
-│  • PG=0? → zurück in HIZ                                │
-└──────────────────────────┬──────────────────────────────┘
-                           │ PG=1
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│ CHARGE_ACTIVE (monitored)                               │
-│  • PG=0? → zurück zu HIZ_IDLE                           │
-│  • Alle 55s: ΔCharge < -0.05 mAh?                      │
-│    → Parasitärer Drain erkannt                          │
-│    → HIZ + 5-Min-Cooldown → HIZ_IDLE                    │
-│  • ΔCharge ≥ -0.05 mAh → OK (auch 0 = Maintenance)     │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Konstanten
-
-| Konstante | Wert | Beschreibung |
-|---|---|---|
-| `HIZ_PROBE_SETTLE_MS` | 500ms | Wartezeit nach HIZ-Exit für BQ Input-Qualifikation |
-| `HIZ_CHARGE_MONITOR_WINDOW` | 55s | Coulomb-Counter-Messfenster (< 60s Task-Intervall) |
-| `HIZ_CHARGE_DRAIN_THRESH` | -0.05 mAh | Schwelle: darunter = parasitärer Drain |
-| `HIZ_DRAIN_COOLDOWN_MS` | 5 min | HIZ bleibt aktiv nach erkanntem Drain |
-| `MIN_VBAT_FOR_HIZ_MV` | 2500 mV | Minimum VBAT für sicheren HIZ-Eintritt |
-
-### No-Battery Fallback
-
-Ohne Batterie (VBAT < 2500mV) kann HIZ nicht aktiviert werden (VSYS würde einbrechen).
-In diesem Fall läuft der Charger im traditionellen Always-Active-Modus:
-- `checkAndFixPgoodStuck()` — Stuck-PGOOD-Erkennung via HIZ-Toggle (5-Min-Cooldown)
-- `checkAndFixSolarLogic()` — MPPT-Recovery bei PG=1
+`runMpptCycle()` führt bei jedem Zyklus zwei Prüfungen durch:
+1. `checkAndFixSolarLogic()` — Reaktiviert MPPT wenn PG=1 (Readback-Check)
+2. `updateMpptStats()` — Aktualisiert MPPT-Statistiken für 7-Tage-Durchschnitt
 
 ### PFM Forward Mode
 
-- Manuell steuerbar via `set board.pfm 0|1` (persistent in LittleFS)
-- PFM verbessert Effizienz bei niedrigen Strömen (gut für 5-6V Panels)
-- Default: aus (sicher für 12V Panels)
+- Permanent aktiviert (optimiert für 5-6V Panels)
+- PFM verbessert Effizienz bei niedrigen Strömen
 
 ### MPPT Recovery
 
@@ -302,9 +267,8 @@ Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgeru
 tickPeriodic()  [aufgerufen von tick(), Main-Loop]
   ├─ Low-Voltage Alert Flag prüfen → initiateShutdown()
   ├─ Alle 60s: runMpptCycle()
-  │   ├─ HIZ_IDLE: VBUS prüfen → Exit HIZ → PG? → CHARGE_ACTIVE
-  │   └─ CHARGE_ACTIVE: PG? → Coulomb-Delta → Drain? → HIZ + Cooldown
-  │   └─ (No-Battery Fallback: checkAndFixPgoodStuck + checkAndFixSolarLogic)
+  │   ├─ checkAndFixSolarLogic() — MPPT-Recovery bei PG=1
+  │   └─ updateMpptStats() — MPPT-Statistiken aktualisieren
   ├─ Alle 60s: updateBatterySOC()
   └─ Alle 60min: updateHourlyStats()
 ```
@@ -314,10 +278,7 @@ tickPeriodic()  [aufgerufen von tick(), Main-Loop]
 - `ErrorLED` Lambda — rote LED bei fehlenden Komponenten
 
 **Timing Summary**:
-- **MPPT Cycle / HIZ Gate**: 60 Sekunden (via tickPeriodic)
-- **Coulomb Monitor Window**: 55 Sekunden (innerhalb CHARGE_ACTIVE)
-- **Drain Cooldown**: 5 Minuten (HIZ bleibt aktiv nach Parasitärerkennung)
-- **Stuck-PGOOD Toggle Cooldown**: 5 Minuten (nur No-Battery-Fallback)
+- **MPPT Cycle**: 60 Sekunden (via tickPeriodic)
 - **SOC Update**: 60 Sekunden (via tickPeriodic)
 - **Hourly Stats**: 60 Minuten (via tickPeriodic)
 
@@ -740,7 +701,7 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 **Persistente Daten** (überleben Reboots via LittleFS):
 - Batterietyp (`batType`)
 - Batteriekapazität (`batCap`)
-- INA228 Kalibrierung (`ina228Cal`, `ina228Off`)
+- INA228 Kalibrierung (`ina228Cal`)
 - NTC Kalibrierung (`tcCal`)
 - MPPT-Einstellung (`mpptEn`)
 - Frostverhalten (`frost`)
@@ -760,10 +721,6 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 
 ### Getter (Implemented)
 ```bash
-board.hwver     # Hardware-Information
-                # Output: "Rev 1.0 (INA228+RTC)"
-                # Code: InheroMr2Board.cpp
-
 board.telem     # Full telemetry with SOC
                 # Output: "B:3.85V/125.432mA/22.3C SOC:68.5% S:5.12V/245mA"
                 # Output: "B:3.85V/125.432mA/22.3C SOC:N/A S:5.12V/245mA" (if not synced)
@@ -779,17 +736,7 @@ board.stats     # Combined energy statistics (balance + MPPT)
 
 board.cinfo     # Charger info
                 # Output: "PG / CC" (Power Good, Constant Current)
-                # Code: InheroMr2Board.cpp Zeile 215-221
-
-board.diag      # Detailed BQ25798 diagnostics
-                # Output: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | voltages | temps
-                # Code: InheroMr2Board.cpp Zeile 223-226
-
-board.togglehiz # Manual HIZ cycle for input detection
-                # Output: "HIZ cycle <was set|forced>: VBUS=5.2V PG=OK"
-                # Same logic as automatic checkAndFixPgoodStuck()
-                # Always ends with HIZ=0
-                # Code: InheroMr2Board.cpp - getCustomGetter()
+                # Code: InheroMr2Board.cpp
 
 board.conf      # Gesamte Konfiguration
                 # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
@@ -797,11 +744,6 @@ board.conf      # Gesamte Konfiguration
 
 board.leds      # LED enable status
                 # Output: "LEDs: ON (Heartbeat + BQ Stat)"
-                # Code: InheroMr2Board.cpp - getCustomGetter()
-
-board.pfm       # PFM Forward Mode Status + HIZ-Gate-State
-                # Output: "PFM: on [CHG]" | "PFM: off [HIZ]"
-                # States: [HIZ] = HIZ-Idle, [CHG] = Charge-Active
                 # Code: InheroMr2Board.cpp - getCustomGetter()
 ```
 
@@ -813,11 +755,11 @@ set board.batcap <mAh>      # Set battery capacity
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.bat <type>        # Set battery chemistry
-                            # Options: liion1s | lifepo1s | lto2s
+                            # Options: liion1s | lifepo1s | lto2s | none
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.imax <mA>         # Set max charge current
-                            # Range: 10-1000 mA
+                            # Range: 50-1500 mA
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.mppt <0|1>        # Enable/disable MPPT
@@ -829,11 +771,6 @@ set board.frost <mode>      # Set frost charge behavior
 
 set board.leds <on|off>     # Enable/disable heartbeat + BQ stat LED
                             # Options: on/1 | off/0
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
-
-set board.pfm <0|1|on|off>  # Set PFM Forward Mode (persistent)
-                            # on/1 = PFM aktiv (besser für 5-6V Panels)
-                            # off/0 = PFM deaktiviert (sicher für 12V Panels)
                             # Code: InheroMr2Board.cpp - setCustomSetter()
 
 set board.soc <percent>     # Manually set SOC percentage
@@ -872,7 +809,7 @@ set board.soc <percent>     # Manually set SOC percentage
 | `disarmLowVoltageAlert()` | BoardConfigContainer.cpp | INA228 Alert disarmen + ISR detachen |
 | `lowVoltageAlertISR()` | BoardConfigContainer.cpp | ISR: setzt lowVoltageAlertFired Flag (geprüft in tickPeriodic) |
 | `tickPeriodic()` | BoardConfigContainer.cpp | Main-Loop Dispatch: MPPT (60s), SOC (60s), Hourly (60min), Low-V Check |
-| `runMpptCycle()` | BoardConfigContainer.cpp | Einzelner MPPT-Zyklus (Solar-Checks, HIZ-Gating) |
+| `runMpptCycle()` | BoardConfigContainer.cpp | Einzelner MPPT-Zyklus (Solar-Checks, MPPT-Recovery) |
 | `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb Counter SOC Calculation |
 | `updateDailyBalance()` | BoardConfigContainer.cpp | 7-Day Energy Balance Tracking |
 | `calculateTTL()` | BoardConfigContainer.cpp | Time To Live Forecast |
@@ -1174,6 +1111,16 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ## Changelog
 
+### v3.2 - 26. März 2026 (Rev 1.1 Cleanup)
+- ❌ **Entfernt**: HIZ-Gate State Machine (`HizGateState`, `checkAndFixPgoodStuck()`, `readVbusInHiz()`, `canSafelyEnterHiz()`, `toggleHizAndCheck()`) — Rev 1.1 PCB stabil ohne HIZ-Gating
+- ❌ **Entfernt**: PFM get/set CLI (`set board.pfm`, `get board.pfm`, `setPFMEnabled()`, `getPFMEnabled()`, `loadPfmEnabled()`) — PFM permanent aktiviert
+- ❌ **Entfernt**: INA228 Offset-Kalibrierung (`set board.iboffset`, `get board.iboffset`, `setIna228CurrentOffset()`, `getIna228CurrentOffset()`, `performIna228OffsetCalibration()`, `_current_offset_mA`)
+- ❌ **Entfernt**: Getter `get board.hwver`, `get board.diag`, `get board.energy`
+- ❌ **Entfernt**: `getDetailedDiagnostics()` (verwaiste Funktion)
+- ✅ **Neu**: `set board.bat none` für BAT_UNKNOWN (Laden deaktiviert)
+- 🔧 **Geändert**: `set board.imax` Obergrenze von 1000 auf 1500 mA erhöht
+- 📝 Dokumentation komplett an Rev 1.1 Code-Stand angepasst
+
 ### v3.1 - 15. März 2026 (Flag/Tick-Architektur)
 - 🔧 **Flag/Tick-Pattern**: Alle I2C-Operationen aus FreeRTOS-Tasks in `tickPeriodic()` (Main-Loop) verlagert
 - ❌ **Entfernt**: `solarMpptTask()`, `socUpdateTask()` — ersetzt durch `tickPeriodic()` + `runMpptCycle()`
@@ -1220,7 +1167,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - ✅ RTC Wake-up Management
 - ✅ INA228 Shutdown Mode
 - ✅ Energieverwaltungsablauf (5 Schritte)
-- ✅ CLI Commands (hwver, soc, balance, batcap, diag)
+- ✅ CLI Commands (soc, batcap)
 - ✅ Voltage Monitor Task (adaptive)
 - ✅ Hardware UVLO (INA228 → TPS EN)
 - ✅ RTC Interrupt Handler Fix (Read-Modify-Write)
@@ -1256,5 +1203,5 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
-*Letzte Aktualisierung: 02. Juni 2026*
-*Status: ✅ Dokumentation an Rev 1.0 Code-Stand angepasst*
+*Letzte Aktualisierung: 26. März 2026*
+*Status: ✅ Dokumentation an Rev 1.1 Code-Stand angepasst (PFM permanent, HIZ-Gate/IBCAL/Diag entfernt, imax 50-1500mA)*

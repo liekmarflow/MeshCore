@@ -316,7 +316,7 @@ MESH_DEBUG_PRINTLN("Boot reason: 0x%02X", shutdown_reason);
 #### Learning ergibt 150% der erwarteten Kapazität
 **Ursache:** INA228 Kalibrationsfehler
 
-**Lösung:** Offset-Kalibrierung mit `set board.iboffset <mA>` durchführen (siehe README.md).
+**Lösung:** INA228-Messwerte prüfen und ggf. Hardware-Shunt-Widerstand verifizieren.
 
 ## Zukünftige Erweiterungen
 

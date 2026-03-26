@@ -1,10 +1,10 @@
-# Inhero MR-2 (Hardware Rev 1.0)
+# Inhero MR-2
 
 ## Inhaltsverzeichnis
 
 - [Übersicht](#übersicht)
 - [Aktuelle Feature-Matrix](#aktuelle-feature-matrix)
-- [Energieverwaltungsfunktionen (Rev 1.0)](#energieverwaltungsfunktionen-rev-10)
+- [Energieverwaltungsfunktionen](#energieverwaltungsfunktionen)
 - [Firmware-Build](#firmware-build)
 - [CLI-Befehle](#cli-befehle)
 - [Diagnose & Fehlersuche](#diagnose--fehlersuche)
@@ -14,7 +14,7 @@
 
 Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Power-Management.
 
-**Hardware-Version:** Rev 1.0  
+**Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
 - INA228 Power Monitor mit Coulomb Counter + ALERT-Interrupt auf P1.02
 - RV-3028-C7 RTC für Wake-up Management
@@ -34,15 +34,14 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
-| HIZ-Gated Charging + Parasitic-Drain-Schutz | Aktiv | 2-State-Machine (HIZ_IDLE / CHARGE_ACTIVE) |
-| PFM Forward Mode | Konfigurierbar | `set board.pfm 0\|1` (persistent) |
+| PFM Forward Mode | Permanent aktiv | Immer aktiviert (optimiert für 5-6V Panels) |
 | Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
 
-## Energieverwaltungsfunktionen (Rev 1.0)
+## Energieverwaltungsfunktionen
 
-### Architektur-Vergleich v0.2 → Rev 1.0
+### Architektur-Vergleich v0.2 → Rev 1.1
 
-| Aspekt | v0.2 | Rev 1.0 |
+| Aspekt | v0.2 | Rev 1.1 |
 |--------|------|---------|
 | Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
 | Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
@@ -51,7 +50,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
 | GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
 
-### Low-Voltage-Handling (Rev 1.0 — Flag/Tick-Architektur)
+### Low-Voltage-Handling (Rev 1.1 — Flag/Tick-Architektur)
 
 1. **INA228 ALERT** feuert bei `lowv_sleep_mv` (Hardware-Interrupt auf P1.02)
 2. **ISR** setzt `lowVoltageAlertFired = true` (nur volatile Flag, kein FreeRTOS-Aufruf)
@@ -67,7 +66,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 > **Hinweis**: Alle I2C-Operationen (MPPT, SOC, Hourly Stats) laufen im Main-Loop-Kontext
 > über `tickPeriodic()` — keine FreeRTOS-Tasks für I2C, kein Mutex nötig.
 
-### BQ CE-Pin (Rev 1.0 — FET-invertiert)
+### BQ CE-Pin (Rev 1.1 — FET-invertiert)
 - **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE an GND → Laden aktiv
 - **GPIO LOW** → FET OFF → CE floatet → ext. Pull-Up → CE HIGH → Laden gesperrt
 - **Vorteil**: In System-Off (alle GPIOs High-Z) floatet CE → ext. Pull-Up → CE HIGH → **Laden bleibt aktiv** → Solar-Recovery möglich
@@ -141,9 +140,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
   - `~72mA` — 50–100mA mit Rundungszeichen `~` (eingeschränkte Genauigkeit)
   - `385mA` — >100mA ohne Rundungszeichen (hinreichend genau)
   - Immer ganzzahlig ohne Dezimalstellen (keine Pseudopräzision)
-- **HIZ-Gated Charging:** Default-Zustand = HIZ (charger aus, kein Batterie-Drain). BQ entscheidet via PG ob Eingang nutzbar. Bei PG=1 startet Coulomb-Counter-Monitoring (55s-Fenster). Erkennt parasitären Drain (ΔCharge < -0.05 mAh) → HIZ + 5 Minuten Cooldown.
-- **PFM Forward Mode:** Manuell steuerbar via `set board.pfm 0|1` (persistent). Verbessert Effizienz bei niedrigen Strömen. Default: aus.
-- **Stuck-PGOOD-Erkennung:** Erkennt automatisch hängendes PGOOD und triggert Input-Qualifizierung via HIZ-Toggle (5-Minuten-Cooldown, nur No-Battery-Fallback)
+- **PFM Forward Mode:** Permanent aktiviert. Verbessert Effizienz bei niedrigen Strömen (optimiert für 5-6V Panels).
 - **MPPT VOC_PCT 81.25%:** Der BQ25798-MPPT ist auf VOC_PCT=81.25% konfiguriert (statt Chip-Default 87.5% oder vormals 75%). Dieser Wert entspricht dem typischen Vmp/Voc-Verhältnis kristalliner Silizium-Solarzellen (~80-83%) und passt sowohl für 5-6V als auch 12V Panels.
 - **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 (Readback-Check: nur bei tatsächlicher Änderung)
 - **BQ INT-Pin nicht genutzt:** Kein Interrupt — reines Polling alle 60s in `runMpptCycle()`
@@ -161,11 +158,7 @@ platformio run -e Inhero_MR2_repeater
 ### Get-Befehle
 ```bash
 get board.bat       # Aktuellen Batterietyp abfragen
-                    # Ausgabe: liion1s | lifepo1s | lto2s
-
-get board.hwver     # Hardware-Version abfragen
-                    # Ausgabe: Rev 1.0 (INA228+RTC)
-                    # Hinweis: MR2 ist immer Rev 1.0-Hardware
+                    # Ausgabe: liion1s | lifepo1s | lto2s | none
 
 get board.fmax      # Frost-Ladeverhalten abfragen
                     # Ausgabe: 0% | 20% | 40% | 100%
@@ -216,62 +209,26 @@ get board.cinfo     # Ladegerät-Info (BQ25798-Status) abfragen
                     # Ausgabe: <state> + flags
                     # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
-get board.diag      # Detaillierte BQ25798-Diagnose abfragen
-                    # Ausgabe: PG CE HIZ MPPT CHG VBUS VINDPM IINDPM | Spannungen | Temperaturen | Register | VOC-Konfig
-                    # Beispiel: PG:1 CE:1 HIZ:0 MPPT:1 CHG:CC VBUS:UnkAdp VINDPM:1 IINDPM:0 | 
-                    #          Vbus:6.22V Vbat:3.35V Ibat:0mA Temp:31C | 
-                    #          TS: OK | R0F:0x23 R15:0xAB | VOC:87.5%/300ms/2min
-                    # Key diagnostics for debugging charging issues:
-                    # - PG: Power Good status (1=good, 0=no power)
-                    # - CE: Charge Enable (1=enabled, 0=disabled)
-                    # - HIZ: High Impedance mode (0=normal, 1=input disabled)
-                    # - MPPT: Maximum Power Point Tracking (1=aktiv, 0=inaktiv)
-                    # - CHG: Charge state (!CHG|TRKL|PRE|CC|CV|TOP|DONE)
-                    # - VBUS: Input source type (NoIn|SDP|CDP|DCP|UnkAdp|NStd|NotQual|DirPwr)
-                    # - VINDPM: Eingangs-Spannungs-DPM aktiv (1=limitierend, 0=ok)
-                    # - IINDPM: Eingangs-Strom-DPM aktiv (1=limitierend, 0=ok)
-                    # - VOC: MPPT VOC configuration (percentage/delay/rate)
-
-get board.togglehiz # Force input detection via HIZ cycle 🆕
-                    # Ausgabe: HIZ-Zyklus <war gesetzt|erzwungen>: VBUS=<V>V PG=<status>
-                    # Same logic as automatic task in checkAndFixPgoodStuck()
-                    # If HIZ=1: Clears HIZ → input qualification
-                    # If HIZ=0: Set HIZ briefly, then clear → triggers input detection
-                    # Always ends with HIZ=0
-                    # Useful for manually triggering stuck PGOOD recovery
-
 get board.conf      # Alle Konfigurationswerte abfragen
                     # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-get board.iboffset  # INA228-Strom-Offset abfragen (v0.2-Feature)
-                    # Ausgabe: INA228 offset: <+/-offset> mA (0.00=default)
-                    # Korrigiert einen konstanten Offset der Strommessung
-
-get board.batcap    # Batteriekapazität abfragen (v0.2-Feature)
+get board.batcap    # Batteriekapazität abfragen
                     # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
                     # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
 
-get board.energy    # INA228 Coulomb Counter abfragen (v0.2-Feature)
-                    # Ausgabe bei validem SOC: <charge>mAh (Base: <baseline>mAh, Net: <net>mAh)
-                    # Ausgabe ohne SOC-Sync: <charge>mAh (SOC not synced)
-                    # Fehler: Err: INA228 not initialized
-
-get board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen (v0.2-Feature)
+get board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen
                     # Ausgabe: TC offset: <+/-offset> C (0.00=default)
 
-get board.leds      # LED-Aktivstatus abfragen (v0.2-Feature)
+get board.leds      # LED-Aktivstatus abfragen
                     # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
                     # Shows whether heartbeat LED and BQ25798 stat LED are enabled
-
-get board.pfm       # PFM Forward Mode Status + HIZ-Gate-State abfragen
-                    # Ausgabe: PFM: on [CHG] | PFM: off [HIZ]
-                    # States: [HIZ] = HIZ-Idle, [CHG] = Charge-Active
 ```
 
 ### Set-Befehle
 ```bash
 set board.bat <type>           # Batterietyp setzen
-                               # Options: lto2s | lifepo1s | liion1s
+                               # Options: lto2s | lifepo1s | liion1s | none
+                               # none = kein Akku / unbekannt (Laden deaktiviert)
 
 set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Options: 0% | 20% | 40% | 100%
@@ -293,35 +250,22 @@ set board.imax <current>       # Maximalen Ladestrom in mA setzen
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
 
-set board.batcap <capacity>    # Batteriekapazität in mAh setzen (v0.2-Feature)
+set board.batcap <capacity>    # Batteriekapazität in mAh setzen
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
 
-set board.iboffset <current_mA> # INA228-Strom-Offset kalibrieren (v0.2-Feature)
-                               # Range: -2000 to +2000 mA
-                               # Berechnet Offset: offset = actual - ina228_reading
-                               # Beispiel: set board.iboffset 0.0
-                               # (bei bekanntem 0mA-Zustand, korrigiert Nullpunktfehler)
-                               # Ausgabe: INA228 offset: +1.25 mA
-                               # Oder: set board.iboffset reset
-                               # Setzt Offset auf +0.00 mA zurück
-
-set board.tccal                # NTC-Temperatur kalibrieren (v0.2-Feature)
+set board.tccal                # NTC-Temperatur kalibrieren
                                # Zwei Modi:
                                # 1) set board.tccal         → Auto-Kalibrierung via BME280
                                #    Ausgabe: TC auto-cal: BME=<temp> offset=<+/-offset> C
                                # 2) set board.tccal reset    → Offset auf 0.00 zurücksetzen
                                #    Ausgabe: TC calibration reset to 0.00 (default)
 
-set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED (v0.2)
+set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED
                                # on/1 = enable, off/0 = disable
                                # Boot-LEDs (3 blaue Blinks) immer aktiv
 
-set board.pfm <0|1|on|off>     # PFM Forward Mode ein-/ausschalten (persistent)
-                               # on/1 = PFM aktiv (besser für 5-6V Panels)
-                               # off/0 = PFM deaktiviert (sicher für 12V Panels)
-
-set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
+set board.soc <percent>        # SOC manuell setzen
                                # Bereich: 0-100
                                # Hinweis: INA228 muss initialisiert sein
 ```
@@ -332,49 +276,15 @@ set board.soc <percent>        # SOC manuell setzen (v0.2-Feature)
 Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register gegen das Datenblatt:
 
 **Wichtige Register:**
-- **0x0F (CHARGER_CONTROL_0)**: EN_HIZ (Bit 2), EN_CHG (Bit 5)
+- **0x0F (CHARGER_CONTROL_0)**: EN_CHG (Bit 5)
 - **0x15 (MPPT_CONTROL)**: EN_MPPT (Bit 0), VOC_PCT (Bits 7-5), VOC_DLY (Bits 4-3), VOC_RATE (Bits 2-1)
 - **0x1B (CHARGER_STATUS_0)**: PG_STAT (Bit 3), VINDPM (Bit 6), IINDPM (Bit 7)
 - **0x1C (CHARGER_STATUS_1)**: CHG_STAT (Bits 7-5), VBUS_STAT (Bits 4-1)
 - **0x1F (CHARGER_STATUS_4)**: Temperature status (Bits 3-0)
 
 **Bekannte Probleme:**
-1. **Stuck PGOOD**: Langsamer Sonnenaufgang kann Input-Qualifikation verhindern
-   - Symptom: VBUS >3.5V aber PG=0
-   - Lösung: `board.togglehiz` oder automatisch via `checkAndFixPgoodStuck()` (nur No-Battery-Fallback)
-   - Mechanismus: HIZ-Toggle triggert Input-Qualifikation (per BQ25798 Datasheet)
-2. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
+1. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
    - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1
-3. **Parasitärer Drain**: Panel liefert PG=1 aber Netto-Entladung (typisch für 12V Panels bei schwachem Licht)
-   - Erkennung: Coulomb-Counter ΔCharge < -0.05 mAh über 55s-Fenster
-   - Reaktion: HIZ + 5 Minuten Cooldown
-   - CLI: `get board.cinfo` zeigt `HIZ-COOL` während Cooldown
-
-### INA228-Kalibrierung (v0.2)
-
-Die INA228-Strommessung kann einen **Offset-Fehler** (additiv, konstante Abweichung) aufweisen.
-Die Rev 1.0 PCB-Kelvin-Traces minimieren Skalierungsfehler, daher ist nur die Offset-Kalibrierung nötig.
-
-#### Offset-Kalibrierung (iboffset)
-
-Im Ruhezustand des Repeaters (kein USB-Kabel, kein Solar) ein Multimeter in den Batteriekreis hängen und den Ruhestrom vergleichen:
-
-```bash
-# Multimeter zeigt: -9.5 mA (Entladestrom im Ruhezustand)
-# INA228 zeigt:     -8.0 mA
-# → Konstanter Offset von +1.5 mA
-
-# Offset kalibrieren: den tatsächlichen DMM-Wert angeben
-set board.iboffset -9.5
-# Ausgabe: INA228 offset: -1.50 mA
-
-# Prüfen:
-get board.iboffset
-# Ausgabe: INA228 offset: -1.50 mA (0.00=default)
-```
-
-Der Wert wird persistent gespeichert und bei jedem Boot geladen.
-Zurücksetzen mit `set board.iboffset reset`.
 
 ## Siehe auch
 
