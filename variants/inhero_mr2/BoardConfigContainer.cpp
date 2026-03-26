@@ -161,6 +161,10 @@ float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature cali
 // Watchdog state
 static bool wdt_enabled = false;
 
+// PG-Stuck recovery: timestamp of last HIZ toggle (0 = never)
+static uint32_t lastPgStuckToggleTime = 0;
+#define PG_STUCK_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes between toggles
+
 /// @brief Initialize and start the hardware watchdog timer
 /// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
 ///          Watchdog continues running during sleep and pauses during debug.
@@ -212,7 +216,8 @@ void BoardConfigContainer::disableWatchdog() {
 /// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
 ///          This function restores MPPT=1 when PG returns to 1.
 ///          
-///          CRITICAL: Only runs when PowerGood=1 to avoid false positives
+///          CRITICAL: Only runs when PowerGood=1 to avoid false positives.
+///          Exception: PG-Stuck recovery toggles HIZ when VBUS is present but PG=0.
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -233,8 +238,24 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   // Check if PowerGood is currently set
   bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
 
-  // Only re-enable MPPT when PowerGood=1
   if (!powerGood) {
+    // PG-Stuck recovery: Panel may be connected but BQ didn't qualify it.
+    // Typical at sunrise when VBUS ramps slowly past the input threshold.
+    // Toggling HIZ forces a new input source qualification cycle (per datasheet).
+    // Cooldown: max once per 5 minutes to prevent excessive toggling
+    uint32_t now = millis();
+    if (lastPgStuckToggleTime != 0 && (now - lastPgStuckToggleTime) < PG_STUCK_COOLDOWN_MS) {
+      return;
+    }
+
+    uint16_t vbus_mv = bqDriverInstance->getVBUS();
+    if (vbus_mv >= PG_STUCK_VBUS_THRESHOLD_MV) {
+      bqDriverInstance->setHIZMode(true);
+      delay(50);  // BQ needs time to enter HIZ and reset input detection
+      bqDriverInstance->setHIZMode(false);
+      lastPgStuckToggleTime = now;
+      MESH_DEBUG_PRINTLN("PG-Stuck recovery: VBUS=%dmV but PG=0, toggled HIZ", vbus_mv);
+    }
     return;
   }
 
@@ -522,7 +543,18 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     break;
   }
   
-  snprintf(buffer, bufferSize, "%s / %s", powerGood, statusString);
+  if (lastPgStuckToggleTime == 0) {
+    snprintf(buffer, bufferSize, "%s / %s HIZ:never", powerGood, statusString);
+  } else {
+    uint32_t agoSec = (millis() - lastPgStuckToggleTime) / 1000;
+    if (agoSec < 60) {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%ds ago", powerGood, statusString, agoSec);
+    } else if (agoSec < 3600) {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dm ago", powerGood, statusString, agoSec / 60);
+    } else {
+      snprintf(buffer, bufferSize, "%s / %s HIZ:%dh ago", powerGood, statusString, agoSec / 3600);
+    }
+  }
 }
 
 /// @brief Initializes battery manager, preferences, and background tasks

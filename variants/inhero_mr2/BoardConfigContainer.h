@@ -160,6 +160,10 @@ public:
   static constexpr uint16_t DEFAULT_MAX_CHARGE_CURRENT_MA = 200;
   static constexpr bool DEFAULT_MPPT_ENABLED = false;
 
+  // PG-Stuck recovery: VBUS threshold above which a panel is assumed present.
+  // If PG=0 but VBUS >= this value, toggle HIZ to force input re-qualification.
+  static constexpr uint16_t PG_STUCK_VBUS_THRESHOLD_MV = 4500;
+
   static BatteryType getBatteryTypeFromCommandString(const char* cmdStr);
   static char* trim(char* str);
   static const char* getBatteryTypeCommandString(BatteryType type);
