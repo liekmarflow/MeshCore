@@ -200,10 +200,7 @@ public:
   /// Get the current HIZ gate state
   static HizGateState getHizGateState() { return hizGateState; }
 
-  /// Set PFM Forward mode (persistent). true = PFM enabled (good for 6V panels), false = PFM disabled (safe for 12V panels)
-  bool setPFMEnabled(bool enabled);
-  /// Get current PFM enabled state
-  bool getPFMEnabled() const;
+
 
   static void heartbeatTask(void* pvParameters);
   
@@ -322,7 +319,7 @@ private:
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* INA228_OFFSET_KEY = "ina228Off";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
-  static constexpr const char* PFMKEY = "pfmEn";                 // PFM Forward mode enabled (0=disabled, 1=enabled)
+
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
@@ -330,14 +327,14 @@ private:
   bool loadBatteryCapacity(float& capacity_mah) const;
   bool loadIna228CurrentOffset(float& offset) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
-  bool loadPfmEnabled(bool& enabled) const;   // PFM Forward mode
+
   
   // MPPT Statistics helper
   static void updateMpptStats();
 
   // HIZ-Gated charging state
   static HizGateState    hizGateState;        ///< Current state of HIZ gate machine
-  static bool            pfmEnabled;          ///< PFM Forward enabled (persisted via preferences)
+
   static float           chargeBaseline_mAh;  ///< INA228 CHARGE reading at start of monitoring window
   static uint32_t        chargeBaselineTime;   ///< millis() when baseline was taken
   static uint32_t        hizCooldownUntil;     ///< millis() timestamp: stay in HIZ until this time (drain cooldown)

@@ -154,7 +154,7 @@ BatterySOCStats BoardConfigContainer::socStats = {};
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
 HizGateState BoardConfigContainer::hizGateState = HIZ_IDLE;
-bool BoardConfigContainer::pfmEnabled = false;  // Default: PFM disabled (safe for 12V panels)
+
 float BoardConfigContainer::chargeBaseline_mAh = 0.0f;
 uint32_t BoardConfigContainer::chargeBaselineTime = 0;
 uint32_t BoardConfigContainer::hizCooldownUntil = 0;
@@ -1173,16 +1173,8 @@ bool BoardConfigContainer::begin() {
   this->configureBaseBQ();
   this->configureChemistry(bat);
   
-  // Load PFM preference and apply.
-  // PFM Forward: enabled improves light-load efficiency (good for 6V panels),
-  // disabled prevents 2A pulse VBUS oscillation (safe for 12V panels).
-  // Default: disabled (safe). User sets via 'set board.pfm 0|1'.
-  bool pfm = false;
-  if (loadPfmEnabled(pfm)) {
-    pfmEnabled = pfm;
-  }
-  bq.setPFMForwardDisable(!pfmEnabled);
-  MESH_DEBUG_PRINTLN("PFM: %s (from prefs)", pfmEnabled ? "enabled" : "disabled");
+  // PFM Forward permanently enabled — Rev 1.1 PCB stable with PFM.
+  bq.setPFMForwardDisable(false);
 
   // Start in HIZ_IDLE (safe default) — state machine will exit HIZ when solar is proven useful.
   // Without battery: can't use HIZ (VSYS collapse) → charger stays active, fallback path in runMpptCycle.
@@ -1428,9 +1420,8 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
 
-  // PFM setting is loaded from preferences and applied in begin() after configureBaseBQ().
-  // Default at boot: PFM disabled (safe for any panel type).
-  bq.setPFMForwardDisable(true);
+  // PFM Forward permanently enabled (Rev 1.1 PCB stable).
+  bq.setPFMForwardDisable(false);
 
   // Flush stale ADC registers by running one discard conversion.
   // After reboot (e.g. low-voltage recovery), BQ25798 retains old ADC values
@@ -2107,52 +2098,7 @@ float BoardConfigContainer::getTcCalOffset() const {
   return tcCalOffset;
 }
 
-/// @brief Load PFM enabled state from preferences
-/// @param enabled Reference to store loaded state
-/// @return true if preference found and valid, false if default used
-bool BoardConfigContainer::loadPfmEnabled(bool& enabled) const {
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
 
-  char buffer[8];
-  if (prefs.getString(PFMKEY, buffer, sizeof(buffer), "") > 0) {
-    if (buffer[0] != '\0') {
-      enabled = (strcmp(buffer, "1") == 0);
-      return true;
-    }
-  }
-
-  // Default: PFM disabled (safe for any panel)
-  enabled = false;
-  return false;
-}
-
-/// @brief Set PFM Forward mode and save to preferences
-/// @param enabled true = PFM enabled (good for 6V panels), false = PFM disabled (safe for 12V panels)
-/// @return true if saved and applied successfully
-bool BoardConfigContainer::setPFMEnabled(bool enabled) {
-  pfmEnabled = enabled;
-
-  // Apply immediately
-  if (bqDriverInstance) {
-    bq.setPFMForwardDisable(!enabled);
-  }
-
-  // Persist
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  bool ok = prefs.putString(PFMKEY, enabled ? "1" : "0");
-  if (ok) {
-    MESH_DEBUG_PRINTLN("PFM %s (saved)", enabled ? "enabled" : "disabled");
-  }
-  return ok;
-}
-
-/// @brief Get current PFM enabled state
-/// @return true if PFM Forward is enabled
-bool BoardConfigContainer::getPFMEnabled() const {
-  return pfmEnabled;
-}
 
 /// @brief Perform NTC temperature calibration using a reference temperature
 /// Averages 5 NTC readings to reduce ADC noise, computes offset = reference - avg, stores it.
