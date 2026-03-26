@@ -97,6 +97,7 @@ typedef struct {
                                  ///< Based on 7-day rolling avg of daily net deficit (avg_7day_daily_net_mah)
                                  ///< from hourly INA228 Coulomb-counter samples in 168h ring buffer.
   bool living_on_battery;        ///< True if net deficit over last 24h
+  uint16_t soc_update_count;     ///< Debug: number of updateBatterySOC() calls since boot
 } BatterySOCStats;
 
 class BoardConfigContainer {
@@ -226,6 +227,7 @@ public:
   const BatterySOCStats* getSOCStats() const { return &socStats; } ///< Get SOC stats for CLI
   const MpptStatistics* getMpptStats() const { return &mpptStats; } ///< Get MPPT stats for CLI
   static void updateBatterySOC();              ///< Update SOC from INA228 Coulomb Counter
+  static uint32_t getRTCTimestamp();            ///< Get current RTC time (for diagnostics)
 
   static float getNominalVoltage(BatteryType type); ///< Get nominal voltage for chemistry type
   void setLowVoltageRecovery() { lowVoltageRecovery = true; } ///< Mark as low-voltage recovery boot

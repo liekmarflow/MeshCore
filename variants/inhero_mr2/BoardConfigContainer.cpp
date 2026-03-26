@@ -1767,12 +1767,22 @@ void BoardConfigContainer::updateBatterySOC() {
     return;
   }
   
+  // Periodic SHUNT_CAL self-heal (~every 5 min via static counter)
+  // If SHUNT_CAL got wiped (clone chip glitch, I2C error, etc.),
+  // CURRENT and CHARGE registers read 0 forever → stats stay at 0.
+  static uint8_t scal_check_counter = 0;
+  if (++scal_check_counter >= 5) {  // Every 5th call = ~5 minutes (called every 60s)
+    scal_check_counter = 0;
+    ina228DriverInstance->validateAndRepairShuntCal();
+  }
+  
   // Read INA228 Hardware Coulomb Counter (mAh) - TWO'S COMPLEMENT, has correct sign!
   // Positive = charging (into battery), Negative = discharging (from battery)
   float charge_mah = ina228DriverInstance->readCharge_mAh();
   
   uint32_t now_ms = millis();
   socStats.last_soc_update_ms = now_ms;
+  socStats.soc_update_count++;
   
   // Update current hour statistics (track charged/discharged charge in mAh)
   // This runs ALWAYS, independent of SOC validity
@@ -1782,7 +1792,6 @@ void BoardConfigContainer::updateBatterySOC() {
   if (first_read) {
     // Initialize baseline on first read, don't count initial value as delta
     last_charge_mah = charge_mah;
-    socStats.last_charge_reading_mah = charge_mah;
     first_read = false;
   } else {
     float delta_mah = charge_mah - last_charge_mah;
@@ -1803,6 +1812,7 @@ void BoardConfigContainer::updateBatterySOC() {
       }
     }
   }
+  socStats.last_charge_reading_mah = charge_mah;  // Always update for diagnostics
   
   // Check if BQ reports charging done → auto-sync
   if (bqDriverInstance) {
@@ -1811,9 +1821,13 @@ void BoardConfigContainer::updateBatterySOC() {
       if (!socStats.soc_valid) {
         MESH_DEBUG_PRINTLN("SOC: First \"Charging Done\" detected - syncing to 100%%");
         syncSOCToFull();
+        // Re-read CHARGE after counter reset to prevent false discharge spike
+        last_charge_mah = ina228DriverInstance->readCharge_mAh();
       } else if (socStats.current_soc_percent < 99.0f) {
         MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" detected - re-syncing to 100%%");
         syncSOCToFull();
+        // Re-read CHARGE after counter reset to prevent false discharge spike
+        last_charge_mah = ina228DriverInstance->readCharge_mAh();
       }
     }
   }
@@ -1842,6 +1856,10 @@ void BoardConfigContainer::updateBatterySOC() {
 
 /// @brief Update daily balance statistics (mAh-based)
 /// @brief Update hourly battery statistics and advance rolling window
+uint32_t BoardConfigContainer::getRTCTimestamp() {
+  return getRTCTime();
+}
+
 void BoardConfigContainer::updateHourlyStats() {
   uint32_t currentTime = getRTCTime();
   

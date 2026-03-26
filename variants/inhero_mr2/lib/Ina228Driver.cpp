@@ -308,10 +308,44 @@ bool Ina228Driver::readAll(Ina228BatteryData* data) {
 }
 
 void Ina228Driver::resetCoulombCounter() {
-  // Use CONFIG.RSTACC to clear ENERGY/CHARGE accumulators (see datasheet)
-  uint16_t config = readRegister16(INA228_REG_CONFIG);
-  config |= (1 << 14);  // RSTACC
-  writeRegister16(INA228_REG_CONFIG, config);
+  // Write RSTACC (bit 14) directly — no read-modify-write!
+  // CONFIG is always 0x0000 (set in begin()), so we can safely write 0x4000.
+  // RMW is dangerous: if readRegister16() returns garbage on I2C glitch,
+  // we could accidentally set RST (bit 15) and wipe SHUNT_CAL.
+  writeRegister16(INA228_REG_CONFIG, (1 << 14));  // RSTACC only
+}
+
+uint16_t Ina228Driver::readShuntCalRegister() {
+  return readRegister16(INA228_REG_SHUNT_CAL);
+}
+
+uint16_t Ina228Driver::readAdcConfigRegister() {
+  return readRegister16(INA228_REG_ADC_CONFIG);
+}
+
+uint16_t Ina228Driver::readConfigRegister() {
+  return readRegister16(INA228_REG_CONFIG);
+}
+
+bool Ina228Driver::validateAndRepairShuntCal() {
+  uint16_t expected = (uint16_t)(_base_shunt_cal * _calibration_factor);
+  if (expected == 0) return false;  // Not initialized
+  
+  uint16_t actual = readShuntCalRegister();
+  if (actual == expected) return true;  // OK
+  
+  // SHUNT_CAL is wrong — repair it!
+  MESH_DEBUG_PRINTLN("INA228: SHUNT_CAL corrupted! Expected=%u, Got=%u — repairing", expected, actual);
+  writeRegister16(INA228_REG_SHUNT_CAL, expected);
+  delay(2);
+  
+  uint16_t verify = readShuntCalRegister();
+  if (verify != expected) {
+    MESH_DEBUG_PRINTLN("INA228: SHUNT_CAL repair FAILED! Wrote=%u, Read=%u", expected, verify);
+    return false;
+  }
+  MESH_DEBUG_PRINTLN("INA228: SHUNT_CAL repaired successfully");
+  return true;
 }
 
 bool Ina228Driver::setUnderVoltageAlert(uint16_t voltage_mv) {

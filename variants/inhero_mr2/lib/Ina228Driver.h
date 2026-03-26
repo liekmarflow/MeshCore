@@ -151,6 +151,19 @@ public:
   /// @brief Reset Coulomb Counter (energy and charge accumulators)
   void resetCoulombCounter();
 
+  /// @brief Read back SHUNT_CAL register value (diagnostic)
+  uint16_t readShuntCalRegister();
+
+  /// @brief Read back ADC_CONFIG register value (diagnostic)
+  uint16_t readAdcConfigRegister();
+
+  /// @brief Read back CONFIG register value (diagnostic)
+  uint16_t readConfigRegister();
+
+  /// @brief Validate SHUNT_CAL and repair if corrupted
+  /// @return true if SHUNT_CAL is correct (or was repaired), false if repair failed
+  bool validateAndRepairShuntCal();
+
   /// @brief Set bus under-voltage alert threshold (for UVLO)
   /// @param voltage_mv Threshold in millivolts (e.g., 3200 for Li-Ion)
   /// @return true if successful

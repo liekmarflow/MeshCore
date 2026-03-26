@@ -629,9 +629,14 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     }
 
     // Balance info (mAh) - rolling windows (no midnight reset)
-    float last_24h_net = socStats->last_24h_net_mah;
-    float last_24h_charged = socStats->last_24h_charged_mah;
-    float last_24h_discharged = socStats->last_24h_discharged_mah;
+    // Include current-hour accumulators so data is visible before first hour boundary
+    float last_24h_net = socStats->last_24h_net_mah
+                       + socStats->current_hour_solar_mah
+                       - socStats->current_hour_discharged_mah;
+    float last_24h_charged = socStats->last_24h_charged_mah
+                           + socStats->current_hour_charged_mah;
+    float last_24h_discharged = socStats->last_24h_discharged_mah
+                              + socStats->current_hour_discharged_mah;
     const char* status = socStats->living_on_battery ? "BAT" : "SOL";
     float avg3d = socStats->avg_3day_daily_net_mah;
     float avg3d_charged = socStats->avg_3day_daily_charged_mah;
@@ -661,6 +666,25 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     char infoBuffer[100];
     boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
     snprintf(reply, maxlen, "%s", infoBuffer);
+    return true;
+  } else if (strcmp(cmd, "socdebug") == 0) {
+    Ina228Driver* ina = boardConfig.getIna228Driver();
+    if (!ina) {
+      snprintf(reply, maxlen, "INA228 n/a");
+      return true;
+    }
+    const BatterySOCStats* s = boardConfig.getSOCStats();
+    uint16_t scal = ina->readShuntCalRegister();
+    float chg = ina->readCharge_mAh();
+    float cur = ina->readCurrent_mA_precise();
+    uint32_t rtc = boardConfig.getRTCTimestamp();
+    snprintf(reply, maxlen,
+             "S=%u I=%.1f C=%.1f hC%.1f hD%.1f n=%u t=%lu",
+             scal, cur, chg,
+             s->current_hour_charged_mah,
+             s->current_hour_discharged_mah,
+             s->soc_update_count,
+             (unsigned long)rtc);
     return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
