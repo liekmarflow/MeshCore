@@ -1155,7 +1155,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ### v2.1 - 4. Februar 2026 (Dokumentation aktualisiert)
 - 📝 Dokumentation vollständig überarbeitet und aktualisiert
 - 📝 Datei- und Zeilenreferenzen korrigiert für InheroMr2Board.cpp
-- 📝 CLI-Command `board.diag` dokumentiert (detaillierte BQ25798 Diagnostics)
+- 📝 CLI-Command `board.diag` dokumentiert (später in v3.2 entfernt)
 - 📝 Code-Struktur dokumentiert und vereinfacht
 - ✅ Code-Implementierung unverändert (bereits vollständig in v2.0)
 

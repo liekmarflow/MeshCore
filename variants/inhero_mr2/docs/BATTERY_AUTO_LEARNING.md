@@ -294,8 +294,9 @@ board.learning
 
 **Debug:**
 ```bash
-board.diag
-# Check: Vbat vs. danger_threshold
+get board.telem
+get board.cinfo
+# Check: Vbat vs. Schwellenwerte
 ```
 
 **Lösung:** Voltage-Thresholds in `BoardConfigContainer.h` anpassen
