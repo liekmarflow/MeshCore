@@ -475,9 +475,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "%s",
              BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType()));
     return true;
-  } else if (strcmp(cmd, "hwver") == 0) {
-    snprintf(reply, maxlen, "Rev 1.0 (INA228 ALERT+RTC+CE-FET)");
-    return true;
   } else if (strcmp(cmd, "fmax") == 0) {
     // LTO batteries ignore JEITA temperature control
     if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
@@ -536,12 +533,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     char infoBuffer[100];
     boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
     snprintf(reply, maxlen, "%s", infoBuffer);
-    return true;
-  } else if (strcmp(cmd, "diag") == 0) {
-    // Detailed diagnostics for debugging charging issues
-    char diagBuffer[100];
-    boardConfig.getDetailedDiagnostics(diagBuffer, sizeof(diagBuffer));
-    snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
   } else if (strcmp(cmd, "telem") == 0) {
     const Telemetry* telemetry = boardConfig.getTelemetryData();
@@ -630,30 +621,10 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
       snprintf(reply, maxlen, "%.0f mAh (default)", capacity_mah);
     }
     return true;
-  } else if (strcmp(cmd, "energy") == 0) {
-    // Read INA228 Charge Counter Register (already inverted in driver)
-    Ina228Driver* ina = boardConfig.getIna228Driver();
-    if (ina != nullptr) {
-      float charge_mah = ina->readCharge_mAh();
-      const BatterySOCStats* socStats = boardConfig.getSOCStats();
-
-      if (socStats && socStats->soc_valid) {
-        // Show charge and baseline (for debugging SOC calculations)
-        float net_charge = charge_mah - socStats->ina228_baseline_mah;
-        snprintf(reply, maxlen, "%.1fmAh (Base: %.1fmAh, Net: %+.1fmAh)", charge_mah,
-                 socStats->ina228_baseline_mah, net_charge);
-      } else {
-        // SOC not yet synced, only show raw value
-        snprintf(reply, maxlen, "%.1fmAh (SOC not synced)", charge_mah);
-      }
-    } else {
-      snprintf(reply, maxlen, "Err: INA228 not initialized");
-    }
-    return true;
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|conf|tccal|leds|batcap|energy");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap");
   return true;
 }
 
