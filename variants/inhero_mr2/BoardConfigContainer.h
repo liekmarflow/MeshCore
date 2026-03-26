@@ -78,7 +78,7 @@ typedef struct {
   float current_soc_percent;   ///< Current State of Charge in % (0-100)
   bool soc_valid;              ///< True after first "Charging Done" sync
   float ina228_baseline_mah;   ///< INA228 CHARGE reading at last 100% sync (mAh)
-  float offset_accumulated_mah; ///< Accumulated current offset compensation (mAh, reset with baseline)
+
   uint32_t last_soc_update_ms;  ///< millis() of last updateBatterySOC() call (for offset dt)
   
   // Hourly statistics (168-hour rolling buffer for 7 days)
@@ -256,11 +256,6 @@ public:
   void setLowVoltageRecovery() { lowVoltageRecovery = true; } ///< Mark as low-voltage recovery boot
   Ina228Driver* getIna228Driver();             ///< Get INA228 driver instance
   
-  // INA228 Current Offset Calibration
-  bool setIna228CurrentOffset(float offset_mA);  ///< Store INA228 current offset in mA (persistent)
-  float getIna228CurrentOffset() const;           ///< Get current INA228 offset correction
-  float performIna228OffsetCalibration(float actual_current_ma); ///< Calibrate offset and store
-  
   // NTC Temperature Calibration methods
   bool setTcCalOffset(float offset_c);           ///< Store temperature calibration offset in °C (persistent)
   float getTcCalOffset() const;                  ///< Get current temperature calibration offset
@@ -317,7 +312,6 @@ private:
   static constexpr const char* MAXCHARGECURRENTKEY = "maxChrg";
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
-  static constexpr const char* INA228_OFFSET_KEY = "ina228Off";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
 
@@ -325,7 +319,6 @@ private:
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadBatteryCapacity(float& capacity_mah) const;
-  bool loadIna228CurrentOffset(float& offset) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
 
   

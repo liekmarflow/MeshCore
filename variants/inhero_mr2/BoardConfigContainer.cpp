@@ -1074,16 +1074,6 @@ bool BoardConfigContainer::begin() {
         delay(100);
       }
       
-      // Load and apply current offset correction (additive)
-      float current_offset = 0.0f;
-      if (loadIna228CurrentOffset(current_offset)) {
-        ina228.setCurrentOffset(current_offset);
-        MESH_DEBUG_PRINTLN("INA228 current offset loaded: %+.2f mA", current_offset);
-      } else {
-        MESH_DEBUG_PRINTLN("INA228 using default offset (0.0)");
-      }
-      delay(10);
-      
       // Arm INA228 low-voltage alert for this battery chemistry
       // Rev 1.0: Always active when battery type is configured (no CLI toggle)
       // ISR on ALERT pin → task notification → System-Off with latched CE
@@ -1860,7 +1850,6 @@ void BoardConfigContainer::syncSOCToFull() {
   
   // Set baseline to 0 (we just reset the counter)
   socStats.ina228_baseline_mah = 0;
-  socStats.offset_accumulated_mah = 0.0f;  // Reset offset compensation accumulator
   socStats.last_soc_update_ms = millis();   // Reset time reference
   
   // Mark as fully charged
@@ -1897,11 +1886,9 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
   float remaining_mah = (soc_percent / 100.0f) * socStats.capacity_mah;
   
   // Calculate baseline: charge_mah = baseline + net_charge
-  // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline + offset_accum)
-  // Therefore: baseline = charge - (remaining - capacity) + offset_accum
-  // But since we reset offset_accum to 0, baseline absorbs it:
+  // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline)
+  // Therefore: baseline = charge - (remaining - capacity)
   socStats.ina228_baseline_mah = current_charge_mah - (remaining_mah - socStats.capacity_mah);
-  socStats.offset_accumulated_mah = 0.0f;  // Reset offset compensation accumulator
   socStats.last_soc_update_ms = millis();   // Reset time reference
   
   // Set SOC and mark as valid
@@ -1955,89 +1942,6 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
 /// @return Pointer to INA228 driver or nullptr if not initialized
 Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
-}
-
-// ===== INA228 Current Offset Calibration =====
-
-/// @brief Load INA228 current offset from preferences
-/// @param offset Output parameter in mA
-/// @return true if loaded successfully, false if using default (0.0)
-bool BoardConfigContainer::loadIna228CurrentOffset(float& offset) const {
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  
-  char buffer[20];
-  if (prefs.getString(INA228_OFFSET_KEY, buffer, sizeof(buffer), "") > 0) {
-    if (buffer[0] != '\0') {
-      offset = atof(buffer);
-      
-      // Validate offset is in reasonable range (±50mA)
-      if (offset >= -50.0f && offset <= 50.0f) {
-        return true;
-      }
-    }
-  }
-  
-  // Default: no offset
-  offset = 0.0f;
-  return false;
-}
-
-/// @brief Set INA228 current offset and save to preferences
-/// @param offset_mA Offset in mA (-50 to +50)
-/// @return true if saved successfully
-bool BoardConfigContainer::setIna228CurrentOffset(float offset_mA) {
-  // Clamp to reasonable range
-  if (offset_mA < -50.0f) offset_mA = -50.0f;
-  if (offset_mA > 50.0f) offset_mA = 50.0f;
-  
-  // Apply to INA228 driver
-  if (ina228DriverInstance) {
-    ina228DriverInstance->setCurrentOffset(offset_mA);
-  }
-  
-  // Save to preferences
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  
-  char buffer[20];
-  snprintf(buffer, sizeof(buffer), "%.2f", offset_mA);
-  
-  if (prefs.putString(INA228_OFFSET_KEY, buffer)) {
-    MESH_DEBUG_PRINTLN("INA228 current offset saved: %+.2f mA", offset_mA);
-    return true;
-  }
-  
-  return false;
-}
-
-/// @brief Get current INA228 offset correction
-/// @return Current offset in mA (0.0 = no correction)
-float BoardConfigContainer::getIna228CurrentOffset() const {
-  if (ina228DriverInstance) {
-    return ina228DriverInstance->getCurrentOffset();
-  }
-  return 0.0f;
-}
-
-/// @brief Perform INA228 current offset calibration and store result
-/// @param actual_current_ma Actual battery current in mA (from reference meter, signed)
-/// @return Calculated offset in mA, or 0.0 on error
-/// @note Best performed at LOW current where offset error dominates (e.g., idle/sleep current)
-float BoardConfigContainer::performIna228OffsetCalibration(float actual_current_ma) {
-  if (!ina228DriverInstance) {
-    return 0.0f;
-  }
-  
-  // Perform offset calibration
-  float offset = ina228DriverInstance->calibrateCurrentOffset(actual_current_ma);
-  
-  // Store persistently
-  if (!setIna228CurrentOffset(offset)) {
-    return 0.0f;
-  }
-  
-  return offset;
 }
 
 // ===== NTC Temperature Calibration =====
@@ -2297,21 +2201,7 @@ void BoardConfigContainer::updateBatterySOC() {
   // Positive = charging (into battery), Negative = discharging (from battery)
   float charge_mah = ina228DriverInstance->readCharge_mAh();
   
-  // === Current Offset Compensation ===
-  // The INA228 hardware CHARGE register accumulates the raw ADC current including
-  // any constant input offset voltage (Vos). This offset causes a phantom current
-  // that accumulates over time, drifting the Coulomb count.
-  // We compensate by tracking the offset × time and applying it to all delta/net calculations.
   uint32_t now_ms = millis();
-  float offset_delta_mah = 0.0f;
-  
-  if (socStats.last_soc_update_ms > 0) {
-    uint32_t elapsed_ms = now_ms - socStats.last_soc_update_ms;
-    // offset_mA × dt_hours = offset_mA × (elapsed_ms / 3600000)
-    float offset_mA = ina228DriverInstance->getCurrentOffset();
-    offset_delta_mah = offset_mA * ((float)elapsed_ms / 3600000.0f);
-    socStats.offset_accumulated_mah += offset_delta_mah;
-  }
   socStats.last_soc_update_ms = now_ms;
   
   // Update current hour statistics (track charged/discharged charge in mAh)
@@ -2327,10 +2217,6 @@ void BoardConfigContainer::updateBatterySOC() {
   } else {
     float delta_mah = charge_mah - last_charge_mah;
     last_charge_mah = charge_mah;
-    
-    // Apply offset compensation to delta
-    // The hardware delta is offset-biased; add the software offset correction
-    delta_mah += offset_delta_mah;
     
     // Handle potential counter wrap or reset (ignore huge jumps > 10Ah)
     if (delta_mah > 10000.0f || delta_mah < -10000.0f) {
@@ -2369,8 +2255,7 @@ void BoardConfigContainer::updateBatterySOC() {
   
   // Net charge since last baseline reset (using CHARGE register in mAh)
   // Driver inverted: positive = charged into battery, negative = discharged from battery
-  // Apply accumulated offset compensation to correct hardware CHARGE register drift
-  float net_charge_mah = (charge_mah - socStats.ina228_baseline_mah) + socStats.offset_accumulated_mah;
+  float net_charge_mah = charge_mah - socStats.ina228_baseline_mah;
   
   // Remaining capacity = Initial capacity + net charge (positive=charged adds, negative=discharged subtracts)
   float remaining_mah = socStats.capacity_mah + net_charge_mah;

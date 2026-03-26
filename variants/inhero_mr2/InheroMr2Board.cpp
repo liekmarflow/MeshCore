@@ -616,11 +616,6 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f V0:%.2f", batType, frostBehaviour,
              mpptEnabled ? "1" : "0", imax, chargeVoltage, voltage0Soc);
     return true;
-  } else if (strcmp(cmd, "iboffset") == 0) {
-    // Get current INA228 current offset correction
-    float offset = boardConfig.getIna228CurrentOffset();
-    snprintf(reply, maxlen, "INA228 offset: %+.2f mA (0.00=default)", offset);
-    return true;
   } else if (strcmp(cmd, "tccal") == 0) {
     // Get current NTC temperature calibration offset
     float offset = boardConfig.getTcCalOffset();
@@ -664,7 +659,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|iboffset|tccal|leds|batcap|energy");
+           "Err: bat|hwver|fmax|imax|mppt|telem|stats|cinfo|diag|hiz|conf|tccal|leds|batcap|energy");
   return true;
 }
 
@@ -750,34 +745,6 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid capacity (100-100000 mAh)");
     }
     return ret;
-  } else if (strncmp(setCommand, "iboffset ", 9) == 0) {
-    // INA228 current offset calibration:
-    //   set board.iboffset <actual_current_mA>  → calibrate offset using reference meter
-    //   set board.iboffset reset                → reset offset to 0.00
-    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[9]));
-
-    // Check for reset command
-    if (strcmp(value, "reset") == 0 || strcmp(value, "RESET") == 0) {
-      if (boardConfig.setIna228CurrentOffset(0.0f)) {
-        snprintf(ret, sizeof(ret), "INA228 offset reset to +0.00 mA (default)");
-      } else {
-        snprintf(ret, sizeof(ret), "Err: Failed to reset offset");
-      }
-      return ret;
-    }
-
-    float actual_current_ma = atof(value);
-
-    // Validate reasonable current range (-2000 to +2000 mA)
-    if (actual_current_ma < -2000.0f || actual_current_ma > 2000.0f) {
-      snprintf(ret, sizeof(ret), "Err: Current out of range (-2000 to +2000 mA)");
-      return ret;
-    }
-
-    // Perform offset calibration and store
-    float offset = boardConfig.performIna228OffsetCalibration(actual_current_ma);
-    snprintf(ret, sizeof(ret), "INA228 offset: %+.2f mA", offset);
-    return ret;
   } else if (strncmp(setCommand, "tccal", 5) == 0) {
     // NTC temperature calibration:
     //   set board.tccal          → auto-read BME280 as reference
@@ -835,7 +802,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|iboffset|tccal|leds|soc");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc");
   return ret;
 }
 

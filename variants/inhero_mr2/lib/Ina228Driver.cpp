@@ -10,7 +10,7 @@
 #include "../../../src/MeshCore.h"  // For MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
-  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f), _current_offset_mA(0.0f) {}
+  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
 
 bool Ina228Driver::begin(float shunt_resistor_mohm) {
   _shunt_mohm = shunt_resistor_mohm;
@@ -144,7 +144,6 @@ int16_t Ina228Driver::readCurrent_mA() {
   // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
   float current_mA = -current_a * 1000.0f;  // Convert to mA, inverted sign
-  current_mA += _current_offset_mA;  // Apply software offset correction
   return (int16_t)(current_mA);
 }
 
@@ -159,7 +158,6 @@ float Ina228Driver::readCurrent_mA_precise() {
   // Positive = charging (current into battery), Negative = discharging (current from battery)
   float current_a = current_raw * _current_lsb;
   float current_mA = -current_a * 1000.0f;  // Convert to mA with full precision, inverted sign
-  current_mA += _current_offset_mA;  // Apply software offset correction
   return current_mA;
 }
 
@@ -497,42 +495,4 @@ float Ina228Driver::getCalibrationFactor() const {
   return _calibration_factor;
 }
 
-void Ina228Driver::setCurrentOffset(float offset_mA) {
-  _current_offset_mA = offset_mA;
-}
 
-float Ina228Driver::getCurrentOffset() const {
-  return _current_offset_mA;
-}
-
-float Ina228Driver::calibrateCurrentOffset(float actual_current_ma) {
-  // Read current value (with existing gain calibration, but without offset)
-  // Temporarily remove offset for raw measurement
-  float saved_offset = _current_offset_mA;
-  _current_offset_mA = 0.0f;
-  
-  // Read multiple samples for better accuracy
-  float sum = 0.0f;
-  const int num_samples = 4;
-  for (int i = 0; i < num_samples; i++) {
-    sum += readCurrent_mA_precise();
-    delay(50);
-  }
-  float measured_mA = sum / num_samples;
-  
-  // Offset = actual - measured
-  // Example: actual = -9.8mA, measured = -7.2mA → offset = -9.8 - (-7.2) = -2.6mA
-  float offset = actual_current_ma - measured_mA;
-  
-  // Clamp to reasonable range (±50mA offset should cover any hardware offset)
-  if (offset < -50.0f) offset = -50.0f;
-  if (offset > 50.0f) offset = 50.0f;
-  
-  // Apply the new offset
-  _current_offset_mA = offset;
-  
-  MESH_DEBUG_PRINTLN("INA228 offset calibration: measured=%.2fmA, actual=%.2fmA, offset=%+.2fmA",
-                     measured_mA, actual_current_ma, offset);
-  
-  return offset;
-}
