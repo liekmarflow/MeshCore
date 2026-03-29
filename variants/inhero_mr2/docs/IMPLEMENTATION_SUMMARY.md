@@ -14,15 +14,8 @@
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
 - [Siehe auch](#siehe-auch)
 
-> ✅ **STATUS: IMPLEMENTIERT (Rev 1.1)** ✅
-> 
-> Diese Dokumentation beschreibt die vollständige Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
+> Diese Dokumentation beschreibt die Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
 > Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN an VDD, CE-Pin via DMN2004TK-7 FET (invertiert).
-> Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
-> 
-> Datum: 02. Juni 2026
-> Version: 3.0 (Rev 1.1 Architektur)
-> Hardware: INA228 + RTC + DMN2004TK-7 CE-FET
 
 ---
 
@@ -37,18 +30,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
 6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
 
-### Architektur-Unterschiede v0.2 → Rev 1.1
-
-| Aspekt | v0.2 | Rev 1.1 |
-|--------|------|---------|
-| Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
-| Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
-| CE-Pin Logik | Direkt (LOW=enable) | FET-invertiert via DMN2004TK-7 (HIGH=enable) |
-| TPS62840 EN | Software-steuerbar (UVLO kann EN abschalten) | An VDD gebunden (immer an) |
-| Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
-| GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
-
-### Aktuelle Feature-Matrix
+### Feature-Matrix
 
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
@@ -59,7 +41,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
-| Auto-Learning (Method 1/2) | Deprecated | Aktuell nicht umgesetzt/aktiv |
+
 
 ---
 
@@ -124,8 +106,8 @@ sd_power_system_off() → System-Off (~15µA)
 ## 2. Coulomb Counter & SOC (Ladezustand)
 
 ### INA228 Integration
-- **Driver**: `lib/Ina228Driver.cpp` (255 Zeilen, vollständig implementiert)
-- **Init**: `BoardConfigContainer::begin()` Zeile 592-641
+- **Driver**: `lib/Ina228Driver.cpp`
+- **Init**: `BoardConfigContainer::begin()`
   - 100mΩ Shunt-Kalibrierung
   - CURRENT_LSB = 1A / 524288 ≈ 1.91µA
   - ADC Range ±163.84mV (ADCRANGE=0, optimal für 1A @ 100mΩ)
@@ -133,9 +115,9 @@ sd_power_system_off() → System-Off (~15µA)
   - BUVL Alert konfiguriert auf `lowv_sleep_mv` (chemie-spezifisch)
 
 ### SOC-Berechnung
-**Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp` Zeile 1337-1418
+**Methode**: `updateBatterySOC()` in `BoardConfigContainer.cpp`
 - **Primary**: Coulomb Counting (INA228 CHARGE Register)
-- **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()` (Zeile 1491-1541)
+- **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()`
 - **Update-Intervall**: tickPeriodic() ruft auf (60s normal, stündlich im Low-Voltage RTC-Wake)
 
 **Formel**:
@@ -144,10 +126,7 @@ SOC_delta = charge_delta_mah / capacity_mah × 100%
 SOC_new = SOC_old + SOC_delta
 ```
 
-**Auto-Learning** (deprecated, nicht aktiv):
-- Code vorhanden in Zeile 1369-1388
-- Trigger: BQ25798 "Charge Done" + Entladung bis Low-Voltage-Sleep
-- Berechnet: capacity = accumulated_discharge_mah
+**Auto-Sync**: Bei BQ25798 "Charge Done" wird SOC auf 100% gesetzt.
 
 ### Kapazitäts-Management
 
@@ -161,18 +140,13 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 
 #### Persistenz-Mechanik
 **Storage Path**: `/prefs/battery_capacity` (LittleFS)
-**Save-Methode**: `saveBatteryCapacity()` in `BoardConfigContainer.cpp` Zeile 1256-1260
-**Load-Methode**: `loadBatteryCapacity()` Zeile 1304-1329
+**Save-Methode**: `saveBatteryCapacity()` in `BoardConfigContainer.cpp`
+**Load-Methode**: `loadBatteryCapacity()`
 
 **Speichern bei**:
 1. **Manuelles Setzen**: CLI-Befehl `set board.batcap <mAh>`
    - Schreibt sofort in LittleFS
    - Aktualisiert `batteryStats.capacity_mah`
-   
-2. **Auto-Learning** (deprecated, nicht aktiv):
-   - Trigger: BQ25798 "Charge Done" + Entladung bis Low-Voltage
-   - Berechnet neue Kapazität aus Coulomb Counter
-   - Speichert automatisch via `saveBatteryCapacity()`
 
 **Laden bei**:
 - **Boot-Zeit**: `BoardConfigContainer::begin()` ruft `loadBatteryCapacity()` auf
@@ -191,11 +165,11 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 ## 3. Tägliche Energiebilanz
 
 ### Tracking (7-Day Rolling Window)
-**Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp` Zeile 1420-1489
+**Methode**: `updateDailyBalance()` in `BoardConfigContainer.cpp`
 - **Aufgerufen von**: tickPeriodic()
 - **Frequenz**: Bei Tag-Wechsel (RTC time % 86400 < 60)
 
-**Datenstruktur**: `BatterySOCStats.daily_stats[7]` (Zeile 74-89 in .h)
+**Datenstruktur**: `BatterySOCStats.daily_stats[7]`
 ```cpp
 struct DailyBatteryStats {
   uint32_t timestamp_day;       // Unix day start
@@ -429,7 +403,7 @@ oder
 
 ### RV-3028-C7 Integration
 **Pin**: GPIO17 (WB_IO1) → RTC INT
-**Init**: `InheroMr2Board::begin()` Zeile 459+
+**Init**: `InheroMr2Board::begin()`
 - `attachInterrupt(RTC_INT_PIN, rtcInterruptHandler, FALLING)`
 - Prüft `GPREGRET2` für den Wake-up-Grund
 
@@ -505,10 +479,9 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
     - RAM-Inhalt geht verloren (168h-Statistiken, SOC, etc.)
     - RTC-Interrupt auf GPIO17 weckt System nach Timer-Ablauf
 
-**Warum System-Off statt System ON Idle (v0.2)?**
-- Rev 1.1 nutzt DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
-- System ON Idle war nur nötig um GPIO-Latches für CE-Pin LOW zu halten (v0.2 ohne FET)
-- System-Off: **~15µA** vs. System ON Idle: **~0.6mA** → **40× effizienter**
+**Warum System-Off?**
+- DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
+- System-Off: **~15µA** Gesamtverbrauch (nRF52840 System-Off + RTC + quiescent currents)
 
 **168h-Statistiken gehen bei System-Off verloren** — es existiert kein Persistenzmechanismus für die Ring-Buffer-Daten. Nach Recovery starten die Statistiken bei Null.
 
@@ -563,7 +536,6 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 **Stromverbrauch im System-Off (Low-Voltage Sleep)**:
 - **Gesamt: ~15µA** (nRF52840 System-Off + RTC + quiescent currents)
 - CE-FET: GPIO High-Z → ext. Pull-Up → CE HIGH → **Solar-Laden aktiv**
-- Verglichen mit v0.2 System ON Idle (~0.6mA): **40× effizienter**
 
 ---
 
@@ -573,9 +545,8 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 **Pin**: INA228 ALERT → P1.02 (nRF52840 GPIO, mit ext. Pull-Up)
 **TPS62840 EN**: An VDD gebunden (immer an) — kein Hardware-UVLO-Cutoff
 
-### Funktionsweise (Rev 1.1)
-Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pin in Rev 1.1 als
-**Software-Interrupt** genutzt:
+### Funktionsweise
+Der ALERT-Pin wird als **Software-Interrupt** genutzt:
 
 1. `armLowVoltageAlert()` konfiguriert INA228 BUVL (Bus Under-Voltage Limit) auf `lowv_sleep_mv`
 2. ALERT feuert als FALLING-Edge-Interrupt auf P1.02
@@ -584,14 +555,6 @@ Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pi
 
 **Kein Latch-Problem**: Da der ALERT nicht an TPS62840 EN geht, gibt es kein latched-off-Verhalten.
 Das System kann nach RTC-Wake normal booten und die Spannung in `begin()` prüfen.
-
-### Alert-Schwellen
-Identisch mit den Low-Voltage-Schwellen (siehe Section 1):
-| Chemie | BUVL Threshold |
-|--------|---------------|
-| Li-Ion 1S | 3100mV |
-| LiFePO4 1S | 2700mV |
-| LTO 2S | 3900mV |
 
 ---
 
@@ -637,10 +600,6 @@ radio.std_init(&SPI);  // → setDio2AsRfSwitch(true) → DIO2 steuert TX/RX
 - **`DIO2`** wird intern vom SX1262 gesteuert (`setDio2AsRfSwitch(true)`) — kein GPIO nötig
 - **Sleep-Strom SX1262**: ~0.16µA (Cold Sleep) — Datenblatt-Wert
 - **Ohne `radio_driver.powerOff()`**: SX1262 bleibt im RX-Modus → ~5mA Stromverbrauch!
-
----
-
-## 10. (Entfernt — UVLO CLI war v0.2-Feature, in Rev 1.1 nicht mehr vorhanden)
 
 ---
 
@@ -793,16 +752,12 @@ set board.soc <percent>     # Manually set SOC percentage
 ## Dateien-Übersicht
 
 ### Hauptimplementierung
-| Datei | Zeilen | Beschreibung |
-|-------|--------|--------------|
-| **InheroMr2Board.h** | 116 | Board-Klasse, Energieverwaltungsdefinitionen |
-| **InheroMr2Board.cpp** | 761 | Board-Init, Shutdown, RTC, CLI-Commands |
-| **BoardConfigContainer.h** | 276 | Battery Management, SOC, Daily Balance Structures |
-| **BoardConfigContainer.cpp** | ~2300 | BQ25798, INA228, MPPT, SOC, Daily Balance, Tasks |
-| **lib/Ina228Driver.h** | ~180 | INA228 Register, Methods, BatteryData Struct |
-| **lib/Ina228Driver.cpp** | ~255 | INA228 I2C Communication, Calibration, Coulomb Counter |
-| **lib/BqDriver.h** | ~100 | BQ25798 Driver Interface |
-| **lib/BqDriver.cpp** | ~600 | BQ25798 I2C Communication, MPPT, Charging |
+| Datei | Beschreibung |
+|-------|--------------|
+| **InheroMr2Board.h/cpp** | Board-Klasse, Init, Shutdown, RTC, CLI-Commands |
+| **BoardConfigContainer.h/cpp** | Battery Management, BQ25798, INA228, MPPT, SOC, Daily Balance |
+| **lib/Ina228Driver.h/cpp** | INA228 I2C Communication, Calibration, Coulomb Counter |
+| **lib/BqDriver.h/cpp** | BQ25798 I2C Communication, MPPT, Charging |
 
 ### Schlüssel-Methoden
 | Methode | Datei | Funktion |
@@ -831,7 +786,7 @@ set board.soc <percent>     # Manually set SOC percentage
 
 ### INA228 Shutdown Mode
 ```cpp
-// Ina228Driver.cpp Zeile 79-83
+// Ina228Driver.cpp
 void Ina228Driver::shutdown() {
   // Set operating mode to Shutdown (MODE = 0x0)
   // This disables all conversions and Coulomb Counter
@@ -842,7 +797,7 @@ void Ina228Driver::shutdown() {
 
 ### INA228 Wake-up
 ```cpp
-// Ina228Driver.cpp Zeile 85-90
+// Ina228Driver.cpp
 void Ina228Driver::wakeup() {
   // Re-enable continuous measurement mode
   uint16_t adc_config = (INA228_ADC_MODE_CONT_ALL << 12) |  // Continuous all
@@ -853,7 +808,7 @@ void Ina228Driver::wakeup() {
 
 ### RTC Interrupt Handler Fix
 ```cpp
-// InheroMr2Board.cpp Zeile 739-761
+// InheroMr2Board.cpp
 void InheroMr2Board::rtcInterruptHandler() {
   // Read current CTRL2 register
   Wire.beginTransmission(RTC_I2C_ADDR);
@@ -940,10 +895,6 @@ t=+2h:    RTC-Wake → VBAT = 2.95V (weiter gesunken, kein Solar)
 t=+∞:     Bei ~15µA kann die Batterie monatelang überleben
           - Sobald Solar verfügbar → VBAT steigt → normaler Boot bei >3300mV
           - KEIN Latching: System kann IMMER von selbst recovern
-          
-Vergleich v0.2: Dort hätte INA228 ALERT → TPS EN=LOW das System
-permanent abgeschaltet (latched) — manuelles Eingreifen nötig.
-Rev 1.1 ist hier resilienter — Solar-Recovery immer möglich.
 ```
 
 ### Szenario C: Daily Balance Tracking - LiFePO4
@@ -990,116 +941,11 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 
 ---
 
-## Testing-Historie
+## Siehe auch
 
-### Phase 1: Compilation ✅
-- **Datum**: 31. Januar 2026
-- **Status**: Erfolgreich
-- **Build**: PlatformIO, Inhero_MR2_repeater environment
-- **Exit Code**: 0
-
-### Phase 2: INA228 Kommunikation (TODO)
-- I2C-Probe INA228 @ 0x45
-- Manufacturer ID: 0x5449 ("TI")
-- Device ID: 0x228
-- Verify communication stability
-
-### Phase 3: INA228 Calibration (TODO)
-- Shunt: 100mΩ ± 1%
-- Current LSB: 1.91µA
-- Test: 100mA load → 100mA reading
-- Test: 500mA load → 500mA reading
-- Test: 1A load → 1A reading (max)
-
-### Phase 4: Coulomb Counter (TODO)
-- Charge 1000mAh → INA228 charge register ≈ 1000
-- Discharge 500mAh → INA228 charge register ≈ 500
-- Verify energy register accumulation
-
-### Phase 5: RTC Integration (TODO)
-- Countdown 10s test → INT pin trigger
-- Countdown 1h test → Wake from SYSTEMOFF
-- INT flag clearing → Pin releases to HIGH
-
-### Phase 6: Energieverwaltung End-to-End (TODO)
-- Simulate low voltage (3.3V Li-Ion)
-- Verify shutdown sequence (all 5 steps)
-- Verify INA228 enters shutdown mode
-- Verify RTC wake after 1h
-- Verify voltage recovery check
-- Verify resume at Critical (3.4V+) and 0% SOC initialization
-
-### Phase 7: Daily Balance (TODO)
-- Run 7 days with varying solar
-- Verify daily statistics accumulation
-- Verify 7-day average calculation
-- Verify living_on_battery flag
-- Verify TTL calculation (7-day avg basis)
-
-### Phase 8: Long-term Stability (TODO)
-- 7-day continuous operation
-- Solar panel connected
-- Monitor daily balance
-- Monitor SOC accuracy
-- Monitor MPPT statistics
-- Verify RTC drift (±3ppm spec)
-
----
-
-## Known Issues & Workarounds
-
-### Issue 1: SimplePreferences Float Support
-**Problem**: SimplePreferences doesn't support `putFloat()` / `getFloat()`
-**Solution**: Store as Integer mAh, convert with `(uint16_t)capacity_mah`
-**Code**: BoardConfigContainer.cpp Zeile 1258
-
-### Issue 2: RTC INT Pin nicht released
-**Problem**: INT pin blieb LOW nach Timer-Flag
-**Root Cause**: `Wire.write(0x00)` überschrieb TIE bit
-**Solution**: Read-Modify-Write, nur TF bit clearen
-**Code**: InheroMr2Board.cpp
-**Fixed**: 31. Januar 2026
-
-### Issue 3: Vereinfachte Hardware-Architektur
-**Design**: Einheitliche Hardware-Plattform
-**Vorteil**: Einfacherer, wartbarerer Code
-**Implementierung**: Direkter Zugriff auf INA228/RTC
-
-### Issue 4: SOC-Anzeige in Companion App (Workaround)
-**Problem**: Das MeshCore-Protokoll überträgt aktuell nur die Batteriespannung (`getBattMilliVolts()`), keinen direkten SOC-Prozentwert. Die Companion App interpretiert die empfangene Spannung über eine fest hinterlegte Li-Ion-Entladekurve und leitet daraus den SOC% ab. Bei LiFePO4- und LTO-Chemien, deren Spannungsprofile erheblich von Li-Ion abweichen, führt das zu falschen Prozentanzeigen.
-**Workaround**: Wenn ein valider Coulomb-Counting-SOC vorliegt (`soc_valid == true`), gibt `getBattMilliVolts()` nicht die echte Batteriespannung zurück, sondern eine aus dem SOC rückgerechnete Li-Ion 1S OCV (Open Circuit Voltage, 3000–4200 mV). Damit interpretiert die App den Wert korrekt — unabhängig von der tatsächlichen Zellchemie.
-**Lookup-Tabelle**: Standard Li-Ion NMC/NCA OCV, 11 Stützstellen (0–100% in 10%-Schritten) mit stückweiser linearer Interpolation.
-**Fallback**: Solange kein valider SOC vorliegt (z.B. vor dem ersten „Charging Done"), wird die echte Batteriespannung zurückgegeben.
-**Code**: `InheroMr2Board::getBattMilliVolts()` + `socToLiIonMilliVolts()` in InheroMr2Board.cpp
-**TODO**: Diesen Workaround entfernen, sobald MeshCore die Übertragung des tatsächlichen SOC% (neben oder anstelle der Batterie-mV) unterstützt. Dann soll `getBattMilliVolts()` wieder die echte Spannung liefern.
-
----
-
-## Future Enhancements
-
-### Short-term
-- [ ] Deprecated: Auto-Learning reaktivieren/neu implementieren (BQ25798 CHARGE_DONE detection)
-- [ ] Load Shedding implementieren (TX power reduction, BLE disable)
-- [ ] CLI-Command: `pwrmgt.test shutdown` für Testing
-- [ ] CLI-Command: `pwrmgt.rtc status` für RTC diagnostics
-
-### Medium-term
-- [ ] Adaptive RTC wake interval (15min → 1h → 3h bei langer Low-Voltage)
-- [ ] SOC persistence in LittleFS (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
-- [ ] Daily balance persistence (survive cold boots) — aktuell gehen alle Stats bei Reboot verloren
-- [ ] Web-UI für Energy Dashboard
-- [ ] CayenneLPP channel für SOC/Balance
-
-### Long-term
-- [ ] Machine Learning für Solar-Prognose
-- [ ] Seasonal adjustment (Winter vs. Summer)
-- [ ] Multi-device energy sharing (Mesh-level)
-- [ ] Battery health estimation (internal resistance)
-- [ ] Predictive maintenance alerts
-
----
-
-## Referenzen
+- [README.md](README.md) — Benutzer-Dokumentation und CLI-Referenz
+- [QUICK_START.md](QUICK_START.md) — Inbetriebnahme und Konfiguration
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
 
 ### Datasheets
 - **INA228**: https://www.ti.com/product/INA228
@@ -1107,115 +953,3 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - **BQ25798**: https://www.ti.com/product/BQ25798
 - **TPS62840**: https://www.ti.com/product/TPS62840
 - **nRF52840**: https://www.nordicsemi.com/products/nrf52840
-
-### Code-Repositories
-- **MeshCore**: https://github.com/[repo]/MeshCore
-- **Variant**: `variants/inhero_mr2/`
-
-### Related Documentation
-- [README.md](README.md) - User-facing documentation (DE)
-- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Deprecated: Battery capacity auto-learning details
-
----
-
-## Changelog
-
-### v3.2 - 26. März 2026 (Rev 1.1 Cleanup)
-- ❌ **Entfernt**: HIZ-Gate State Machine (`HizGateState`, `readVbusInHiz()`, `canSafelyEnterHiz()`) — Rev 1.1 PCB stabil ohne HIZ-Gating
-- 🔧 **Vereinfacht**: PG-Stuck Recovery (HIZ-Toggle bei VBUS ≥ 4.5V + PG=0) in `checkAndFixSolarLogic()` integriert (ersetzt alte `checkAndFixPgoodStuck()` + `toggleHizAndCheck()`)
-- ❌ **Entfernt**: PFM get/set CLI (`set board.pfm`, `get board.pfm`, `setPFMEnabled()`, `getPFMEnabled()`, `loadPfmEnabled()`) — PFM permanent aktiviert
-- ❌ **Entfernt**: INA228 Offset-Kalibrierung (`set board.iboffset`, `get board.iboffset`, `setIna228CurrentOffset()`, `getIna228CurrentOffset()`, `performIna228OffsetCalibration()`, `_current_offset_mA`)
-- ❌ **Entfernt**: Getter `get board.hwver`, `get board.diag`, `get board.energy`
-- ❌ **Entfernt**: `getDetailedDiagnostics()` (verwaiste Funktion)
-- ✅ **Neu**: `set board.bat none` für BAT_UNKNOWN (Laden deaktiviert)
-- 🔧 **Geändert**: `set board.imax` Obergrenze von 1000 auf 1500 mA erhöht
-- ✅ **Neu**: I2C Bus Recovery vor `Wire.begin()` — 9 SCL-Pulse bei stuck SDA (verhindert false Error-LED nach OTA)
-- ✅ **Neu**: RV-3028 RTC Erkennung mit 3× Retry + 20ms Delay
-- ❌ **Entfernt**: Stale BqDriver-Methoden `getHIZMode()`, `getPFMForwardDisable()`, `setPFMForwardDisable()` (Defaults reichen)
-- ✅ **Neu**: `get board.cinfo` zeigt letzten PG-Stuck HIZ-Toggle-Zeitstempel
-- 📝 Dokumentation komplett an Rev 1.1 Code-Stand angepasst
-
-### v3.1 - 15. März 2026 (Flag/Tick-Architektur)
-- 🔧 **Flag/Tick-Pattern**: Alle I2C-Operationen aus FreeRTOS-Tasks in `tickPeriodic()` (Main-Loop) verlagert
-- ❌ **Entfernt**: `solarMpptTask()`, `socUpdateTask()` — ersetzt durch `tickPeriodic()` + `runMpptCycle()`
-- ❌ **Entfernt**: `I2CMutex.h`, `g_i2c_mutex`, `i2c_mutex_init()` — kein Mutex mehr nötig (single-threaded I2C)
-- ❌ **Entfernt**: `recoverI2CBus()`, `areBackgroundTasksAlive()` — I2C-Bus-Recovery überflüssig ohne Tasks
-- ❌ **Entfernt**: `xTaskNotifyFromISR()` aus `lowVoltageAlertISR()` — nur noch volatile Flag
-- ❌ **Entfernt**: ADC_CONFIG Race-Condition Check in `begin()` — keine konkurrierenden Tasks mehr
-- 🔧 **`stopBackgroundTasks()`**: Nur noch Heartbeat-Task + Alert-Disarm (keine MPPT/SOC-Tasks mehr)
-- 🔧 **`InheroMr2Board::tick()`**: Vereinfacht auf RTC-Clear + `tickPeriodic()` + `feedWatchdog()`
-- 📝 Dokumentation für Flag/Tick-Architektur aktualisiert
-
-### v3.0 - 02. Juni 2026 (Rev 1.1 Architektur)
-- 🔧 **Architektur-Umstellung**: System ON Idle (v0.2) → System-Off (Rev 1.1) — 40× effizienter (~15µA vs. ~0.6mA)
-- 🔧 **INA228 ALERT auf P1.02**: ISR-basierte Low-Voltage-Erkennung statt Software-Polling + Hardware-UVLO
-- 🔧 **TPS62840 EN an VDD**: Immer an, kein Hardware-UVLO-Cutoff — System recovert immer selbstständig
-- 🔧 **CE-Pin FET-invertiert**: DMN2004TK-7 N-FET ermöglicht Solar-Laden in System-Off (GPIO High-Z → Pull-Up → CE HIGH → Laden aktiv)
-- 🔧 **1-Stufen-Schwellenmodell**: lowv_sleep_mv / lowv_wake_mv mit einheitlicher 200mV Hysterese für alle Chemien
-- ❌ **Entfernt**: UVLO CLI (board.uvlo getter/setter), uvloEn Preference, runVoltageMonitor(), voltageMonitorTask()
-- ❌ **Entfernt**: Hardware-UVLO (INA228 Alert → TPS62840 EN), Danger Zone System ON Idle, __WFI Loop
-- 📝 Dokumentation komplett für Rev 1.1 überarbeitet
-
-### v2.2 - 25. Februar 2026 (Code-Fix + Dokumentation an Code-Stand angepasst)
-- 🐛 **Code-Fix**: `runVoltageMonitor()` delegiert jetzt an `board.initiateShutdown(LOW_VOLTAGE)` statt inline `sd_power_system_off()` — CE-Pin bleibt LOW, Solar-Laden in Danger Zone möglich
-- 📝 `.noinit Stats Preservation` entfernt — Feature existiert nicht im Code (kein Linker-Script, keine Structs/Funktionen)
-- 📝 Danger Zone korrekt als System ON Idle dokumentiert (CE-Pin LOW, GPIO-Latches aktiv)
-- 📝 `initiateShutdown()` als aktiver Code-Pfad dokumentiert (aufgerufen von `runVoltageMonitor()`)
-- 📝 RTC-Wake-Intervall von 12h auf 6h korrigiert, dann auf 1h reduziert (Code: `DANGER_ZONE_SLEEP_MINUTES = 60`)
-- 📝 `voltageMonitorTask` als Stub dokumentiert, Verweis auf `socUpdateTask` + `runVoltageMonitor()`
-- 📝 Statistik-Persistenz-Sektion neu geschrieben: keine Persistenz für 168h-Ringpuffer
-- 📝 Szenarien und Future Enhancements aktualisiert
-
-### v2.1 - 4. Februar 2026 (Dokumentation aktualisiert)
-- 📝 Dokumentation vollständig überarbeitet und aktualisiert
-- 📝 Datei- und Zeilenreferenzen korrigiert für InheroMr2Board.cpp
-- 📝 CLI-Command `board.diag` dokumentiert (später in v3.2 entfernt)
-- 📝 Code-Struktur dokumentiert und vereinfacht
-- ✅ Code-Implementierung unverändert (bereits vollständig in v2.0)
-
-### v2.0 - 31. Januar 2026 (Implementiert)
-- ✅ INA228 Driver vollständig implementiert (255 Zeilen)
-- ✅ Coulomb Counter mit SOC-Berechnung
-- ✅ Tägliche Energiebilanz (7-Tage rolling)
-- ✅ TTL Forecast Algorithmus
-- ✅ RTC Wake-up Management
-- ✅ INA228 Shutdown Mode
-- ✅ Energieverwaltungsablauf (5 Schritte)
-- ✅ CLI Commands (soc, batcap)
-- ✅ Voltage Monitor Task (adaptive)
-- ✅ Hardware UVLO (INA228 → TPS EN)
-- ✅ RTC Interrupt Handler Fix (Read-Modify-Write)
-- ✅ Chemie-spezifische Schwellen
-- ✅ Preferences als Integer-Storage
-- ✅ README dokumentiert
-- ✅ Compilation erfolgreich (Exit 0)
-
-### v1.0 - 29. Januar 2026 (Initial Design)
-- Design-Phase Dokumentation
-- Hardware-Architektur definiert
-- Grundkonzept RTC Wake-up
-- Test-Strategie erstellt
-
----
-
-## Autoren
-
-**Implementierung**: GitHub Copilot (Claude Sonnet 4.5)
-**Hardware-Design**: Inhero GmbH
-**Projekt**: MeshCore
-
-**Kontakt**: Siehe README.md
-
----
-
-## Siehe auch
-
-- [README.md](README.md) - Übersicht, Feature-Matrix und Diagnose
-- [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - Alle board-spezifischen CLI-Befehle auf einen Blick
-- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Veraltet: historisches Auto-Learning-Konzept
-
----
-
-*Letzte Aktualisierung: 26. März 2026*
-*Status: ✅ Dokumentation an Rev 1.1 Code-Stand angepasst (PFM permanent, IBCAL/Diag entfernt, PG-Stuck Recovery vereinfacht, imax 50-1500mA, I2C Bus Recovery)*

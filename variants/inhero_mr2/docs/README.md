@@ -35,22 +35,10 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | PFM Forward Mode | Permanent aktiv | Immer aktiviert (optimiert für 5-6V Panels) |
-| Auto-Learning (Methode 1/2) | Veraltet | Aktuell nicht umgesetzt/aktiv |
 
 ## Energieverwaltungsfunktionen
 
-### Architektur-Vergleich v0.2 → Rev 1.1
-
-| Aspekt | v0.2 | Rev 1.1 |
-|--------|------|---------|
-| Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
-| Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
-| CE-Pin Logik | Direkt (LOW=enable) | FET-invertiert via DMN2004TK-7 (HIGH=enable) |
-| TPS62840 EN | Software-steuerbar (UVLO kann EN abschalten) | An VDD gebunden (immer an) |
-| Schwellen-Modell | 2 Stufen (Danger Zone + UVLO) | 1 Stufe (lowv_sleep_mv / lowv_wake_mv) |
-| GPIO-Latching | Erforderlich (System ON für CE-Pin) | Nicht nötig (CE-FET hält Zustand in System-Off) |
-
-### Low-Voltage-Handling (Rev 1.1 — Flag/Tick-Architektur)
+### Low-Voltage-Handling (Flag/Tick-Architektur)
 
 1. **INA228 ALERT** feuert bei `lowv_sleep_mv` (Hardware-Interrupt auf P1.02)
 2. **ISR** setzt `lowVoltageAlertFired = true` (nur volatile Flag, kein FreeRTOS-Aufruf)
@@ -86,24 +74,17 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 ### Stromverbrauch im System-Off
 - **~15µA** Gesamtverbrauch (nRF52840 System-Off + RTC + quiescent currents)
 - CE-Pin bleibt über FET-Schaltung aktiv → Solar-Laden möglich
-- Verglichen mit v0.2 System ON Idle (~0.6mA): **40× effizienter**
 
-### Coulomb Counter & Auto-Learning (veraltet)
+### Coulomb Counter & SOC-Tracking
 - **Echtzeit-SOC-Tracking** via INA228 (±0.1% Genauigkeit)
 - **100mΩ Shunt-Widerstand** (1.6A max Strom)
 - **200mV einheitliche Hysterese** für alle Chemien (lowv_sleep_mv → lowv_wake_mv)
-- **Auto-Learning-Status:** veraltet / aktuell nicht aktiv in dieser Firmware
+- **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
 
 ### SOC→Li-Ion mV Mapping (Workaround)
 - **Problem**: MeshCore überträgt nur `getBattMilliVolts()`, keinen SOC%. Die Companion App nutzt eine Li-Ion-Kurve zur SOC-Berechnung — falsche Anzeige bei LiFePO4/LTO.
 - **Lösung**: Bei validem Coulomb-Counting-SOC wird eine äquivalente Li-Ion 1S OCV (3000–4200 mV) zurückgegeben, sodass die App den korrekten SOC% anzeigt.
 - **TODO**: Entfernen, sobald MeshCore die native Übertragung des SOC% unterstützt.
-- **Zwei-Methoden-Auto-Learning** zur Kapazitätskalibrierung (historisches Konzept):
-   * **Methode 1:** Voller Entladezyklus (100% → 10% Danger Zone, ~29 Tage @ 13mA)
-   * **Methode 2:** USB-C-Ladung aus der Danger Zone (0% → 100%, ~Stunden)
-- **Learning gate / persistence:** dokumentiert, aber derzeit nicht aktiv
-- **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
-- **7-Tage-Energiebilanz** für TTL-Prognosen
 
 ### Time-To-Live (TTL) Prognose
 - **Zeitbasis:** 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) des täglichen Netto-Energieverbrauchs
@@ -293,4 +274,3 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 - [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - Alle board-spezifischen CLI-Befehle auf einen Blick
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
-- [BATTERY_AUTO_LEARNING.md](BATTERY_AUTO_LEARNING.md) - Veraltet: historisches Auto-Learning-Konzept
