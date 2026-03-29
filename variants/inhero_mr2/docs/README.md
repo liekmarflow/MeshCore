@@ -1,128 +1,130 @@
 # Inhero MR-2
 
-## Inhaltsverzeichnis
+> 🇩🇪 [Deutsche Version](de/README.md)
 
-- [Übersicht](#übersicht)
-- [Aktuelle Feature-Matrix](#aktuelle-feature-matrix)
-- [Energieverwaltungsfunktionen](#energieverwaltungsfunktionen)
-- [Firmware-Build](#firmware-build)
-- [CLI-Befehle](#cli-befehle)
-- [Diagnose & Fehlersuche](#diagnose--fehlersuche)
-- [Siehe auch](#siehe-auch)
+## Table of Contents
 
-## Übersicht
+- [Overview](#overview)
+- [Current Feature Matrix](#current-feature-matrix)
+- [Power Management Features](#power-management-features)
+- [Firmware Build](#firmware-build)
+- [CLI Commands](#cli-commands)
+- [Diagnostics & Troubleshooting](#diagnostics--troubleshooting)
+- [See Also](#see-also)
 
-Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Power-Management.
+## Overview
 
-**Hardware-Version:** Rev 1.1  
-**Hauptmerkmale:**
-- INA228 Power Monitor mit Coulomb Counter + ALERT-Interrupt auf P1.02
-- RV-3028-C7 RTC für Wake-up Management
-- TPS62840 Buck Converter (EN an VDD — immer an)
-- BQ25798 Battery Charger mit MPPT
-- BQ CE-Pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (invertierte Logik: HIGH=Laden an)
+The Inhero MR-2 is the second generation mesh repeater with improved power management.
 
-## Aktuelle Feature-Matrix
+**Hardware Version:** Rev 1.1  
+**Key Features:**
+- INA228 Power Monitor with Coulomb Counter + ALERT interrupt on P1.02
+- RV-3028-C7 RTC for wake-up management
+- TPS62840 Buck Converter (EN tied to VDD — always on)
+- BQ25798 Battery Charger with MPPT
+- BQ CE pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (inverted logic: HIGH=charging on)
 
-| Funktion | Status | Hinweis |
-|---------|--------|---------|
-| INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
-| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 60 min (periodisch) |
-| BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
-| System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
-| SOC 0% nach Low-Voltage-Recovery | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
-| SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
-| SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
-| MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
-| PFM Forward Mode | Permanent aktiv | Immer aktiviert (optimiert für 5-6V Panels) |
+## Current Feature Matrix
 
-## Energieverwaltungsfunktionen
+| Feature | Status | Notes |
+|---------|--------|-------|
+| INA228 ALERT → Low-Voltage System-Off | Active | ISR on P1.02 → Task Notification → System-Off + RTC Wake |
+| RTC Wakeup (Low-Voltage Recovery) | Active | 60 min (periodic) |
+| BQ CE Pin Safety (FET-inverted) | Active | HIGH=charging on (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
+| System-Off with latched CE | Active | ~15µA, CE pin remains active → solar charging possible |
+| SOC 0% after Low-Voltage Recovery | Active | SOC initialized to 0% on recovery, auto-sync on "Charging Done" |
+| SOC via INA228 + manual battery capacity | Active | `set board.batcap` available |
+| SOC→Li-Ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
+| MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
+| PFM Forward Mode | Permanently active | Always enabled (optimized for 5-6V panels) |
 
-### Low-Voltage-Handling (Flag/Tick-Architektur)
+## Power Management Features
 
-1. **INA228 ALERT** feuert bei `lowv_sleep_mv` (Hardware-Interrupt auf P1.02)
-2. **ISR** setzt `lowVoltageAlertFired = true` (nur volatile Flag, kein FreeRTOS-Aufruf)
-3. **`tickPeriodic()`** (Main-Loop, nächster `tick()`) prüft Flag → Shutdown:
-   - CE-Pin → HIGH (Laden an, da FET-invertiert — Solar-Laden bleibt möglich)
-   - RTC-Wake konfiguriert (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
-   - SOC auf 0% gesetzt
+### Low-Voltage Handling (Flag/Tick Architecture)
+
+1. **INA228 ALERT** fires at `lowv_sleep_mv` (hardware interrupt on P1.02)
+2. **ISR** sets `lowVoltageAlertFired = true` (volatile flag only, no FreeRTOS call)
+3. **`tickPeriodic()`** (main loop, next `tick()`) checks flag → shutdown:
+   - CE pin → HIGH (charging on, since FET-inverted — solar charging remains possible)
+   - RTC wake configured (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
+   - SOC set to 0%
    - `sd_power_system_off()` → **System-Off** (~15µA)
-4. **RTC-Wake** (stündlich) → System bootet, Early-Boot prüft VBAT:
-   - Unter `lowv_wake_mv` → sofort wieder System-Off (CE bleibt gelatcht)
-   - Über `lowv_wake_mv` → normaler Boot, SOC startet bei 0%
+4. **RTC Wake** (hourly) → system boots, early-boot checks VBAT:
+   - Below `lowv_wake_mv` → immediately back to System-Off (CE remains latched)
+   - Above `lowv_wake_mv` → normal boot, SOC starts at 0%
 
-> **Hinweis**: Alle I2C-Operationen (MPPT, SOC, Hourly Stats) laufen im Main-Loop-Kontext
-> über `tickPeriodic()` — keine FreeRTOS-Tasks für I2C, kein Mutex nötig.
+> **Note**: All I2C operations (MPPT, SOC, Hourly Stats) run in main loop context
+> via `tickPeriodic()` — no FreeRTOS tasks for I2C, no mutex needed.
 
-### BQ CE-Pin (Rev 1.1 — FET-invertiert)
-- **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE an GND → Laden aktiv
-- **GPIO LOW** → FET OFF → CE floatet → ext. Pull-Up → CE HIGH → Laden gesperrt
-- **Vorteil**: In System-Off (alle GPIOs High-Z) floatet CE → ext. Pull-Up → CE HIGH → **Laden bleibt aktiv** → Solar-Recovery möglich
-- **Dual-Layer**: CE-Pin (Hardware-FET) + `setChargeEnable()` (I2C Register)
+### BQ CE Pin (Rev 1.1 — FET-inverted)
+- **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE to GND → charging active
+- **GPIO LOW** → FET OFF → CE floats → ext. pull-up → CE HIGH → charging blocked
+- **Advantage**: In System-Off (all GPIOs High-Z) CE floats → ext. pull-up → CE HIGH → **charging remains active** → solar recovery possible
+- **Dual-Layer**: CE pin (hardware FET) + `setChargeEnable()` (I2C register)
 
-### Spannungsschwellen (alle Chemien)
+### Voltage Thresholds (all chemistries)
 
-| Chemie | lowv_sleep_mv | lowv_wake_mv | Hysterese |
-|--------|--------------|-------------|-----------|
+| Chemistry | lowv_sleep_mv | lowv_wake_mv | Hysteresis |
+|-----------|--------------|-------------|------------|
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
 
-- **lowv_sleep_mv**: INA228 ALERT-Schwelle → löst System-Off aus
-- **lowv_wake_mv**: RTC-Wake-Schwelle → Boot nur wenn VBAT darüber liegt, gleichzeitig 0% SOC-Marker
+- **lowv_sleep_mv**: INA228 ALERT threshold → triggers System-Off
+- **lowv_wake_mv**: RTC wake threshold → boot only when VBAT is above, also 0% SOC marker
 
-### Stromverbrauch im System-Off
-- **~15µA** Gesamtverbrauch (nRF52840 System-Off + RTC + quiescent currents)
-- CE-Pin bleibt über FET-Schaltung aktiv → Solar-Laden möglich
+### System-Off Power Consumption
+- **~15µA** total consumption (nRF52840 System-Off + RTC + quiescent currents)
+- CE pin remains active via FET circuit → solar charging possible
 
-### Coulomb Counter & SOC-Tracking
-- **Echtzeit-SOC-Tracking** via INA228 (±0.1% Genauigkeit)
-- **100mΩ Shunt-Widerstand** (1.6A max Strom)
-- **200mV einheitliche Hysterese** für alle Chemien (lowv_sleep_mv → lowv_wake_mv)
-- **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
+### Coulomb Counter & SOC Tracking
+- **Real-time SOC tracking** via INA228 (±0.1% accuracy)
+- **100mΩ shunt resistor** (1.6A max current)
+- **200mV uniform hysteresis** for all chemistries (lowv_sleep_mv → lowv_wake_mv)
+- **Manual capacity:** `set board.batcap` for fixed capacity
 
 ### SOC→Li-Ion mV Mapping (Workaround)
-- **Problem**: MeshCore überträgt nur `getBattMilliVolts()`, keinen SOC%. Die Companion App nutzt eine Li-Ion-Kurve zur SOC-Berechnung — falsche Anzeige bei LiFePO4/LTO.
-- **Lösung**: Bei validem Coulomb-Counting-SOC wird eine äquivalente Li-Ion 1S OCV (3000–4200 mV) zurückgegeben, sodass die App den korrekten SOC% anzeigt.
-- **TODO**: Entfernen, sobald MeshCore die native Übertragung des SOC% unterstützt.
+- **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The Companion App uses a Li-Ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
+- **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%.
+- **TODO**: Remove once MeshCore supports native SOC% transmission.
 
-### Time-To-Live (TTL) Prognose
-- **Zeitbasis:** 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) des täglichen Netto-Energieverbrauchs
-- **Datenbasis:** 168-Stunden-Ringpuffer (7 Tage) mit stündlichen INA228-Coulomb-Counter-Samples (charged/discharged/solar mAh)
-- **Formel:** `TTL_hours = (SOC% × capacity_mah / 100) / |avg_7day_daily_net_mah| × 24`
-- **Voraussetzungen:** `living_on_battery == true` (24h-Defizit), mind. 24h Daten, Kapazität bekannt
-- **TTL = 0:** Solar-Überschuss, keine 24h Daten vorhanden, oder Kapazität unbekannt
-- **CLI:** TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `T:12d0h`)
-- **Telemetrie:** Wird als Tage via CayenneLPP Distance-Feld übertragen (max. 990 Tage für "unendlich")
+### Time-To-Live (TTL) Prediction
+- **Time base:** 7-day moving average (`avg_7day_daily_net_mah`) of daily net energy consumption
+- **Data source:** 168-hour ring buffer (7 days) with hourly INA228 coulomb counter samples (charged/discharged/solar mAh)
+- **Formula:** `TTL_hours = (SOC% × capacity_mah / 100) / |avg_7day_daily_net_mah| × 24`
+- **Prerequisites:** `living_on_battery == true` (24h deficit), min. 24h data, capacity known
+- **TTL = 0:** Solar surplus, no 24h data available, or capacity unknown
+- **CLI:** TTL is shown in `get board.stats` (BAT mode only, e.g. `T:12d0h`)
+- **Telemetry:** Transmitted as days via CayenneLPP Distance field (max. 990 days for "infinite")
 
-### Solar-Energieverwaltung 🆕
+### Solar Power Management 🆕
 
-- **Solarstrom-Anzeige:** Der BQ25798 IBUS-ADC ist bei niedrigen Strömen ungenau (~±30mA Fehler). Daher wird der Solarstrom abgestuft angezeigt:
-  - `0mA` — ADC meldet exakt 0 (kein Solarstrom)
-  - `<50mA` — 1–49mA (ADC in diesem Bereich unzuverlässig)
-  - `~72mA` — 50–100mA mit Rundungszeichen `~` (eingeschränkte Genauigkeit)
-  - `385mA` — >100mA ohne Rundungszeichen (hinreichend genau)
-  - Immer ganzzahlig ohne Dezimalstellen (keine Pseudopräzision)
-- **PFM Forward Mode:** Permanent aktiviert. Verbessert Effizienz bei niedrigen Strömen.
-- **MPPT VOC_PCT 81.25%:** Der BQ25798-MPPT ist auf VOC_PCT=81.25% konfiguriert (statt Chip-Default 87.5% oder vormals 75%). Dieser Wert entspricht dem typischen Vmp/Voc-Verhältnis kristalliner Silizium-Solarzellen (~80-83%).
-- **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 (Readback-Check: nur bei tatsächlicher Änderung)
-- **BQ INT-Pin nicht genutzt:** Kein Interrupt — reines Polling alle 60s in `runMpptCycle()`
-- **Fehlerüberwachung:** Diagnosebefehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Analyse inkl. VBAT_OVP, VBUS_OVP und Temperaturbedingungen
-- **VREG-Anzeige:** Zeigt die tatsächlich konfigurierte Battery-Regulation-Spannung in der Diagnose zur Schwellenwert-Prüfung
+- **Solar current display:** The BQ25798 IBUS ADC is inaccurate at low currents (~±30mA error). Therefore solar current is displayed in steps:
+  - `0mA` — ADC reports exactly 0 (no solar current)
+  - `<50mA` — 1–49mA (ADC unreliable in this range)
+  - `~72mA` — 50–100mA with rounding symbol `~` (limited accuracy)
+  - `385mA` — >100mA without rounding symbol (sufficiently accurate)
+  - Always integer without decimal places (no pseudo-precision)
+- **PFM Forward Mode:** Permanently enabled. Improves efficiency at low currents.
+- **MPPT VOC_PCT 81.25%:** The BQ25798 MPPT is configured to VOC_PCT=81.25% (instead of chip default 87.5% or former 75%). This value matches the typical Vmp/Voc ratio of crystalline silicon solar cells (~80-83%).
+- **MPPT Recovery:** Re-enables MPPT on PowerGood=1 (readback check: only on actual change)
+- **BQ INT pin not used:** No interrupt — pure polling every 60s in `runMpptCycle()`
+- **Error monitoring:** Diagnostic commands show FAULT_STATUS registers (0x20, 0x21) for detailed analysis incl. VBAT_OVP, VBUS_OVP and temperature conditions
+- **VREG display:** Shows the actually configured battery regulation voltage in diagnostics for threshold verification
 
-## Firmware-Build
+## Firmware Build
 
 ```bash
-# Repeater (Standard)
+# Repeater (default)
 platformio run -e Inhero_MR2_repeater
 
-# Repeater mit RS232-Bridge (Serial2 an P0.19/P0.20)
+# Repeater with RS232 bridge (Serial2 on P0.19/P0.20)
 platformio run -e Inhero_MR2_repeater_bridge_rs232
 
 # Room Server
 platformio run -e Inhero_MR2_room_server
 
-# Companion Radio (USB, mit Extra-Filesystem)
+# Companion Radio (USB, with extra filesystem)
 platformio run -e Inhero_MR2_companion_radio_usb
 
 # Terminal Chat
@@ -135,47 +137,47 @@ platformio run -e Inhero_MR2_sensor
 platformio run -e Inhero_MR2_kiss_modem
 ```
 
-## CLI-Befehle
+## CLI Commands
 
-### Get-Befehle
+### Get Commands
 ```bash
-get board.bat       # Aktuellen Batterietyp abfragen
-                    # Ausgabe: liion1s | lifepo1s | lto2s | none
+get board.bat       # Query current battery type
+                    # Output: liion1s | lifepo1s | lto2s | none
 
-get board.fmax      # Frost-Ladeverhalten abfragen
-                    # Ausgabe: 0% | 20% | 40% | 100%
-                    # Wert = maximaler Ladestrom im T-Cool-Bereich (0°C bis -5°C),
-                    # relativ zu board.imax
-                    # 40% bei imax=500mA → max. 200mA Ladestrom bei 0°C bis -5°C
-                    # 0% = Laden im T-Cool-Bereich gesperrt
-                    # 100% = keine Reduktion (voller Strom auch bei Kälte)
-                    # Unter -5°C (T-Cold): Laden immer komplett gesperrt (JEITA)
-                    # Hinweis: Nur das Laden wird eingeschränkt. Bei ausreichend
-                    # Solar wird das Board weiterhin mit Solarstrom betrieben —
-                    # der Akku wird weder ge- noch entladen.
-                    # LTO batteries: N/A (JEITA disabled, lädt auch bei Frost)
+get board.fmax      # Query frost charge behavior
+                    # Output: 0% | 20% | 40% | 100%
+                    # Value = max charge current in T-Cool range (0°C to -5°C),
+                    # relative to board.imax
+                    # 40% at imax=500mA → max. 200mA charge current at 0°C to -5°C
+                    # 0% = charging blocked in T-Cool range
+                    # 100% = no reduction (full current even in cold)
+                    # Below -5°C (T-Cold): charging always completely blocked (JEITA)
+                    # Note: Only charging is restricted. With sufficient
+                    # solar, the board continues to run on solar power —
+                    # the battery is neither charged nor discharged.
+                    # LTO batteries: N/A (JEITA disabled, charges even in frost)
 
-get board.imax      # Maximalen Ladestrom abfragen
-                    # Ausgabe: <current>mA (z.B. 200mA)
+get board.imax      # Query maximum charge current
+                    # Output: <current>mA (e.g. 200mA)
 
-get board.mppt      # MPPT-Status abfragen
-                    # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
+get board.mppt      # Query MPPT status
+                    # Output: MPPT=1 (enabled) | MPPT=0 (disabled)
 
-get board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
-                    # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<SolarStrom>
-                    # Beispiele:
-                    #   B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA      (>100mA: genau)
-                    #   B:3.85V/-8.2mA/18C SOC:72.0% S:4.90V/~72mA      (50-100mA: ~Schätzwert)
-                    #   B:3.30V/-45.0mA/5C SOC:40.1% S:0.00V/<50mA      (<50mA: ADC ungenau)
-                    # Komponenten:
+get board.telem     # Query real-time telemetry with SOC 🆕
+                    # Output: B:<V>V/<I>mA/<T>C SOC:<percent>% S:<V>V/<solar current>
+                    # Examples:
+                    #   B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA      (>100mA: accurate)
+                    #   B:3.85V/-8.2mA/18C SOC:72.0% S:4.90V/~72mA      (50-100mA: ~estimate)
+                    #   B:3.30V/-45.0mA/5C SOC:40.1% S:0.00V/<50mA      (<50mA: ADC inaccurate)
+                    # Components:
                     # - B: Battery (Voltage/Current/Temperature/SOC)
-                    # - S: Solar (Voltage/Strom — Genauigkeit abhängig vom BQ25798 IBUS-ADC)
+                    # - S: Solar (Voltage/Current — accuracy depends on BQ25798 IBUS ADC)
 
-get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
-                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
-                    # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
-                    # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
-                    # Komponenten:
+get board.stats     # Query energy statistics (balance + MPPT) 🆕
+                    # Output: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
+                    # Example: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
+                    # Example: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
+                    # Components:
                     # - +125: Last 24h net balance (charge - discharge) in mAh
                     # - +45: 3-day average net balance in mAh
                     # - +38: 7-day average net balance in mAh
@@ -186,93 +188,93 @@ get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
                     # - BAT: Living on battery (deficit mode)
                     # - M:85%: MPPT enabled percentage (7-day average)
                     # - T:72h: Time To Live (only shown if BAT mode, 7d-avg basis)
-                    #   Format: T:12d5h (≥24h) oder T:72h (<24h) oder T:N/A
+                    #   Format: T:12d5h (≥24h) or T:72h (<24h) or T:N/A
 
-get board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
-                    # Ausgabe: <state> + flags
+get board.cinfo     # Charger info + last PG-stuck HIZ toggle
+                    # Output: <state> + flags
                     # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
-get board.conf      # Alle Konfigurationswerte abfragen
-                    # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
+get board.conf      # Query all configuration values
+                    # Output: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-get board.batcap    # Batteriekapazität abfragen
-                    # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
-                    # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
+get board.batcap    # Query battery capacity
+                    # Output: <capacity> mAh (set) or <capacity> mAh (default)
+                    # Shows whether capacity was manually set or chemistry default
 
-get board.tccal     # NTC-Temperatur-Kalibrieroffset abfragen
-                    # Ausgabe: TC offset: <+/-offset> C (0.00=default)
+get board.tccal     # Query NTC temperature calibration offset
+                    # Output: TC offset: <+/-offset> C (0.00=default)
 
-get board.leds      # LED-Aktivstatus abfragen
-                    # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)" oder "LEDs: OFF (Heartbeat + BQ Stat)"
+get board.leds      # Query LED enable status
+                    # Output: "LEDs: ON (Heartbeat + BQ Stat)" or "LEDs: OFF (Heartbeat + BQ Stat)"
                     # Shows whether heartbeat LED and BQ25798 stat LED are enabled
 ```
 
-### Set-Befehle
+### Set Commands
 ```bash
-set board.bat <type>           # Batterietyp setzen
+set board.bat <type>           # Set battery type
                                # Options: lto2s | lifepo1s | liion1s | none
-                               # none = kein Akku / unbekannt (Laden deaktiviert)
+                               # none = no battery / unknown (charging disabled)
 
-set board.fmax <behavior>      # Frost-Ladeverhalten setzen
+set board.fmax <behavior>      # Set frost charge behavior
                                # Options: 0% | 20% | 40% | 100%
-                               # Begrenzt Ladestrom im T-Cool-Bereich (0°C bis -5°C)
-                               # auf X% von board.imax
-                               # 0% = Laden im T-Cool-Bereich gesperrt
-                               # 20% = max. 20% von imax bei 0°C bis -5°C
-                               # 40% = max. 40% von imax bei 0°C bis -5°C
-                               # 100% = keine Reduktion
-                               # Unter -5°C (T-Cold): Laden immer gesperrt (JEITA)
-                               # Hinweis: Nur das Laden wird eingeschränkt. Bei
-                               # ausreichend Solar läuft das Board weiterhin auf
-                               # Solarstrom — der Akku wird weder ge- noch entladen.
+                               # Limits charge current in T-Cool range (0°C to -5°C)
+                               # to X% of board.imax
+                               # 0% = charging blocked in T-Cool range
+                               # 20% = max. 20% of imax at 0°C to -5°C
+                               # 40% = max. 40% of imax at 0°C to -5°C
+                               # 100% = no reduction
+                               # Below -5°C (T-Cold): charging always blocked (JEITA)
+                               # Note: Only charging is restricted. With sufficient
+                               # solar, the board continues to run on solar power —
+                               # the battery is neither charged nor discharged.
                                # N/A for LTO batteries (JEITA disabled)
 
-set board.imax <current>       # Maximalen Ladestrom in mA setzen
-                               # Range: 50-1500mA (BQ25798-Minimum: 50mA)
+set board.imax <current>       # Set maximum charge current in mA
+                               # Range: 50-1500mA (BQ25798 minimum: 50mA)
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
 
-set board.batcap <capacity>    # Batteriekapazität in mAh setzen
+set board.batcap <capacity>    # Set battery capacity in mAh
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
 
-set board.tccal                # NTC-Temperatur kalibrieren
-                               # Zwei Modi:
-                               # 1) set board.tccal         → Auto-Kalibrierung via BME280
-                               #    Ausgabe: TC auto-cal: BME=<temp> offset=<+/-offset> C
-                               # 2) set board.tccal reset    → Offset auf 0.00 zurücksetzen
-                               #    Ausgabe: TC calibration reset to 0.00 (default)
+set board.tccal                # Calibrate NTC temperature
+                               # Two modes:
+                               # 1) set board.tccal         → auto-calibration via BME280
+                               #    Output: TC auto-cal: BME=<temp> offset=<+/-offset> C
+                               # 2) set board.tccal reset   → reset offset to 0.00
+                               #    Output: TC calibration reset to 0.00 (default)
 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED
                                # on/1 = enable, off/0 = disable
-                               # Boot-LEDs (3 blaue Blinks) immer aktiv
+                               # Boot LEDs (3 blue blinks) always active
 
-set board.soc <percent>        # SOC manuell setzen
-                               # Bereich: 0-100
-                               # Hinweis: INA228 muss initialisiert sein
+set board.soc <percent>        # Manually set SOC
+                               # Range: 0-100
+                               # Note: INA228 must be initialized
 ```
 
-## Diagnose & Fehlersuche
+## Diagnostics & Troubleshooting
 
-### BQ25798-Registerverifikation
-Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register gegen das Datenblatt:
+### BQ25798 Register Verification
+The diagnostic functions enable precise verification of BQ25798 registers against the datasheet:
 
-**Wichtige Register:**
+**Key Registers:**
 - **0x0F (CHARGER_CONTROL_0)**: EN_CHG (Bit 5)
 - **0x15 (MPPT_CONTROL)**: EN_MPPT (Bit 0), VOC_PCT (Bits 7-5), VOC_DLY (Bits 4-3), VOC_RATE (Bits 2-1)
 - **0x1B (CHARGER_STATUS_0)**: PG_STAT (Bit 3), VINDPM (Bit 6), IINDPM (Bit 7)
 - **0x1C (CHARGER_STATUS_1)**: CHG_STAT (Bits 7-5), VBUS_STAT (Bits 4-1)
 - **0x1F (CHARGER_STATUS_4)**: Temperature status (Bits 3-0)
 
-**Bekannte Probleme:**
-1. **MPPT deaktiviert**: BQ25798 setzt MPPT=0 automatisch bei PG=0
-   - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1
-2. **PG-Stuck bei Sonnenaufgang**: VBUS steigt langsam, BQ qualifiziert die Quelle nicht
-   - Lösung: `checkAndFixSolarLogic()` toggled HIZ bei VBUS ≥ 4.5V + PG=0 (5min Cooldown)
+**Known Issues:**
+1. **MPPT disabled**: BQ25798 automatically sets MPPT=0 when PG=0
+   - Solution: `checkAndFixSolarLogic()` re-enables MPPT on PG=1
+2. **PG stuck at sunrise**: VBUS rises slowly, BQ fails to qualify the source
+   - Solution: `checkAndFixSolarLogic()` toggles HIZ when VBUS ≥ 4.5V + PG=0 (5min cooldown)
 
-## Siehe auch
+## See Also
 
-- [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - Alle board-spezifischen CLI-Befehle auf einen Blick
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
+- [QUICK_START.md](QUICK_START.md) - Quick start for commissioning and CLI setup
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - All board-specific CLI commands at a glance
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Complete technical documentation

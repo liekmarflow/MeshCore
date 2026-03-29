@@ -1,123 +1,125 @@
 # Inhero MR2 – CLI Cheat-Sheet
 
-Alle board-spezifischen CLI-Befehle auf einen Blick.
-Praefix ist immer `board.` – also `get board.<cmd>` bzw. `set board.<cmd> <wert>`.
+> 🇩🇪 [Deutsche Version](de/CLI_CHEAT_SHEET.md)
+
+All board-specific CLI commands at a glance.
+Prefix is always `board.` — i.e. `get board.<cmd>` or `set board.<cmd> <value>`.
 
 ---
 
-## Setter (Konfiguration aendern)
+## Setters (Change Configuration)
 
 ```bash
-# Akkuchemie
+# Battery chemistry
 set board.bat liion1s          # Li-Ion 1S (3.7V nominal)
 set board.bat lifepo1s         # LiFePO4 1S (3.2V nominal)
 set board.bat lto2s            # LTO 2S (2x 2.3V nominal)
-set board.bat none             # Kein Akku / unbekannt (Laden deaktiviert)
+set board.bat none             # No battery / unknown (charging disabled)
 
-# Akkukapazitaet (100–100000 mAh)
+# Battery capacity (100–100000 mAh)
 set board.batcap 10000
 
-# Maximaler Ladestrom (50–1500 mA)
+# Maximum charge current (50–1500 mA)
 set board.imax 500
 
-# Frost-Ladestromabsenkung (T-Cool 0°C bis -5°C)
-set board.fmax 0%              # Laden gesperrt
-set board.fmax 20%             # max. 20% von imax
-set board.fmax 40%             # max. 40% von imax
-set board.fmax 100%            # keine Reduktion
-# Hinweis: Bei LTO ohne Wirkung (JEITA deaktiviert)
+# Frost charge current reduction (T-Cool 0°C to -5°C)
+set board.fmax 0%              # Charging blocked
+set board.fmax 20%             # max. 20% of imax
+set board.fmax 40%             # max. 40% of imax
+set board.fmax 100%            # no reduction
+# Note: No effect on LTO (JEITA disabled)
 
-# MPPT ein/aus
-set board.mppt 1               # MPPT aktivieren
-set board.mppt 0               # MPPT deaktivieren
+# MPPT on/off
+set board.mppt 1               # Enable MPPT
+set board.mppt 0               # Disable MPPT
 
-# LEDs ein/aus (Heartbeat + BQ-Stat)
-set board.leds on              # LEDs aktivieren  (on/1)
-set board.leds off             # LEDs deaktivieren (off/0)
+# LEDs on/off (Heartbeat + BQ Stat)
+set board.leds on              # Enable LEDs  (on/1)
+set board.leds off             # Disable LEDs (off/0)
 
-# SOC manuell setzen (0–100%)
+# Manually set SOC (0–100%)
 set board.soc 85.0
 ```
 
-### Kalibrierung
+### Calibration
 
 ```bash
-# NTC-Temperatur-Kalibrierung
-set board.tccal                # Auto-Kalibrierung via BME280
-set board.tccal reset          # Offset auf 0.00 zuruecksetzen
+# NTC temperature calibration
+set board.tccal                # Auto-calibration via BME280
+set board.tccal reset          # Reset offset to 0.00
 ```
 
 ---
 
-## Getter (Status abfragen)
+## Getters (Query Status)
 
 ```bash
-# Konfiguration & Hardware
-get board.bat                  # Aktueller Batterietyp
-get board.batcap               # Batteriekapazitaet in mAh (set/default)
-get board.imax                 # Maximaler Ladestrom in mA
-get board.fmax                 # Frost-Ladeverhalten (0%/20%/40%/100% oder N/A)
-get board.mppt                 # MPPT-Status (0/1)
-get board.leds                 # LED-Status (ON/OFF)
-get board.conf                 # Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0)
+# Configuration & Hardware
+get board.bat                  # Current battery type
+get board.batcap               # Battery capacity in mAh (set/default)
+get board.imax                 # Maximum charge current in mA
+get board.fmax                 # Frost charge behavior (0%/20%/40%/100% or N/A)
+get board.mppt                 # MPPT status (0/1)
+get board.leds                 # LED status (ON/OFF)
+get board.conf                 # Summary of all configs (B, F, M, I, Vco, V0)
 
-# Echtzeit-Telemetrie
+# Real-time telemetry
 get board.telem                # Battery+Solar: V, I, T, SOC
 
-# Energie & Statistik
-get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
-                               #   TTL = Time To Live (Stunden bis Akku leer)
-                               #   Basis: 7-Tage-Durchschnitt des taegl. Netto-Defizits
-                               #   aus stuendlichen INA228-Coulomb-Counter-Samples (168h-Ringpuffer)
-                               #   Formel: (SOC% × Kapazitaet) / |7d-Avg-Deficit| × 24
-                               #   TTL erscheint nur im BAT-Modus (Netto-Defizit)
-                               #   Voraussetzung: mind. 24h Daten + Kapazitaet bekannt
+# Energy & Statistics
+get board.stats                # Energy balance (24h/3d/7d), C/D, MPPT%, TTL
+                               #   TTL = Time To Live (hours until battery empty)
+                               #   Basis: 7-day average of daily net deficit
+                               #   from hourly INA228 coulomb counter samples (168h ring buffer)
+                               #   Formula: (SOC% × capacity) / |7d-avg-deficit| × 24
+                               #   TTL only shown in BAT mode (net deficit)
+                               #   Prerequisite: min. 24h data + capacity known
 
-# Ladegeraet & Diagnose
-get board.cinfo                # Charger-Status + letzter PG-Stuck HIZ-Toggle
+# Charger & Diagnostics
+get board.cinfo                # Charger status + last PG-stuck HIZ toggle
 
-# Kalibrierung
-get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
+# Calibration
+get board.tccal                # NTC temperature offset in °C (0.00 = default)
 ```
 
 ---
 
-## Getter-Kurzinfos
+## Getter Quick Reference
 
-| Befehl | Beschreibung |
+| Command | Description |
 |---|---|
-| `get board.bat` | Batterietyp (`liion1s`, `lifepo1s`, `lto2s`, `none`) |
-| `get board.batcap` | Batteriekapazitaet in mAh (set/default) |
-| `get board.imax` | Maximaler Ladestrom in mA |
-| `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO: `N/A`) |
-| `get board.mppt` | MPPT-Status (`0`/`1`) |
-| `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
-| `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
-| `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC |
-| `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
-| `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
-| `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
+| `get board.bat` | Battery type (`liion1s`, `lifepo1s`, `lto2s`, `none`) |
+| `get board.batcap` | Battery capacity in mAh (set/default) |
+| `get board.imax` | Maximum charge current in mA |
+| `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`, LTO: `N/A`) |
+| `get board.mppt` | MPPT status (`0`/`1`) |
+| `get board.leds` | LED status Heartbeat + BQ Stat (`ON`/`OFF`) |
+| `get board.conf` | Summary: B(at) F(max) M(ppt) I(max) Vco V0 |
+| `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC |
+| `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, TTL (7d-avg-based) |
+| `get board.cinfo` | Charger status + PG-stuck HIZ toggle (e.g. "PG / CC HIZ:3m ago") |
+| `get board.tccal` | NTC temperature offset in °C (`0.00` = default) |
 
 ---
 
-## Setter-Kurzinfos
+## Setter Quick Reference
 
-| Befehl | Wertebereich | Beschreibung |
+| Command | Range | Description |
 |---|---|---|
-| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `none` | Akkuchemie waehlen |
-| `set board.batcap` | `100`–`100000` (mAh) | Akkukapazitaet setzen |
-| `set board.imax` | `50`–`1500` (mA) | Max. Ladestrom setzen |
-| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO) |
-| `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
-| `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
-| `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
-| `set board.tccal` | `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zuruecksetzen |
+| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `none` | Set battery chemistry |
+| `set board.batcap` | `100`–`100000` (mAh) | Set battery capacity |
+| `set board.imax` | `50`–`1500` (mA) | Set max charge current |
+| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (not for LTO) |
+| `set board.mppt` | `0`/`1` · `true`/`false` | Enable/disable MPPT |
+| `set board.leds` | `on`/`off` · `1`/`0` | Enable/disable LEDs |
+| `set board.soc` | `0`–`100` (%) | Manually set SOC |
+| `set board.tccal` | `reset` · *(empty = auto)* | Calibrate or reset NTC temperature |
 
 ---
 
-## Schnellstart-Rezepte
+## Quick-Start Recipes
 
-### Li-Ion 1S mit 10Ah und Solar
+### Li-Ion 1S with 10Ah and Solar
 ```bash
 set board.bat liion1s
 set board.batcap 10000
@@ -127,7 +129,7 @@ set board.mppt 1
 set board.leds off
 ```
 
-### LiFePO4 1S mit 6Ah und Solar
+### LiFePO4 1S with 6Ah and Solar
 ```bash
 set board.bat lifepo1s
 set board.batcap 6000
@@ -137,7 +139,7 @@ set board.mppt 1
 set board.leds off
 ```
 
-### LTO 2S mit 18Ah und Solar
+### LTO 2S with 18Ah and Solar
 ```bash
 set board.bat lto2s
 set board.batcap 18000
@@ -146,7 +148,7 @@ set board.mppt 1
 set board.leds off
 ```
 
-### Status-Check (alles auf einen Blick)
+### Status Check (everything at a glance)
 ```bash
 get board.conf
 get board.telem
@@ -156,8 +158,8 @@ get board.cinfo
 
 ---
 
-## Siehe auch
+## See Also
 
-- [README.md](README.md) - Übersicht, Feature-Matrix und Diagnose
-- [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
+- [README.md](README.md) - Overview, feature matrix and diagnostics
+- [QUICK_START.md](QUICK_START.md) - Quick start for commissioning and CLI setup
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Complete technical documentation

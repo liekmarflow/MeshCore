@@ -1,75 +1,77 @@
 # Inhero MR2 Quick-Start
 
-Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
+> 🇩🇪 [Deutsche Version](de/QUICK_START.md)
 
-## 1) Temperaturfuehler (TS/NTC) vorbereiten
-- Entweder den 3-poligen Akkuanschluss mit TS/NTC nutzen oder die Onboard-NTC-Loetbruecke auf der Rueckseite schliessen.
-- Firmware-NTC-Typ: NCP15XH103F03RC (10k @ 25C, Beta 3380).
-- Zweck: Der Charger nutzt den TS-Pin fuer JEITA/Frost-Logik.
+This guide walks you through commissioning and the most important CLI commands.
 
-## 2) Antennen anschliessen
-- Nie ohne Antenne betreiben, sonst Gefahr fuer das RF-Frontend.
+## 1) Prepare Temperature Sensor (TS/NTC)
+- Either use the 3-pin battery connector with TS/NTC, or close the onboard NTC solder bridge on the back side.
+- Firmware NTC type: NCP15XH103F03RC (10k @ 25C, Beta 3380).
+- Purpose: The charger uses the TS pin for JEITA/frost logic.
 
-## 3) Akku anschliessen
-- Ein Ladestand >90% wird empfohlen, damit die SOC-Berechnung stabil startet.
+## 2) Connect Antennas
+- Never operate without an antenna — risk of damage to the RF frontend.
 
-## 4) Repeater per USB konfigurieren
-- Repeater per USB-Kabel mit dem Rechner verbinden.
-- Auf https://flasher.meshcore.co.uk/ -> Repeater-Setup konfigurieren (LoRa-Settings, Name, Admin-Passwort usw.).
-- Dadurch werden die Grundparameter im Geraet gesetzt.
+## 3) Connect Battery
+- A charge level >90% is recommended so the SOC calculation starts reliably.
 
-## 5) CLI oeffnen
+## 4) Configure Repeater via USB
+- Connect the repeater to a computer via USB cable.
+- Go to https://flasher.meshcore.co.uk/ -> Repeater Setup to configure (LoRa settings, name, admin password, etc.).
+- This sets the basic parameters on the device.
+
+## 5) Open CLI
 - https://flasher.meshcore.co.uk/ -> Console
-- oder MeshCore-App -> Manage -> Command-Line
-- Hier werden die Board-spezifischen Commands gesetzt.
+- or MeshCore App -> Manage -> Command-Line
+- Board-specific commands are set here.
 
-## 6) Akkuchemie setzen
+## 6) Set Battery Chemistry
 - Command:
   - set board.bat liion1s
-  - oder set board.bat lifepo1s
-  - oder set board.bat lto2s
-- Legt Ladeparameter und Low-Voltage-Schwellen fest.
+  - or set board.bat lifepo1s
+  - or set board.bat lto2s
+- Defines charge parameters and low-voltage thresholds.
 
-## 7) Akkukapazitaet setzen
+## 7) Set Battery Capacity
 - Command: set board.batcap <mAh>
-- Beispiel: set board.batcap 10000
-- Wichtig fuer korrekte SOC-Berechnung.
+- Example: set board.batcap 10000
+- Important for accurate SOC calculation.
 
-## 8) Maximalen Ladestrom setzen
+## 8) Set Maximum Charge Current
 - Command: set board.imax <mA>
-- Bereich laut Firmware: 50 bis 1500 mA (BQ25798-Minimum: 50mA).
-- Passend zum Solar-Setup waehlen, damit die Stroeme zum PG-Check passen.
-- Faustformel: Panelleistung / Panelspannung * 1.2
+- Firmware range: 50 to 1500 mA (BQ25798 minimum: 50mA).
+- Choose to match your solar setup so currents fit the PG check.
+- Rule of thumb: panel power / panel voltage * 1.2
 
-## 9) Frost-Ladestromabsenkung einstellen
+## 9) Set Frost Charge Current Reduction
 - Command: set board.fmax <0%|20%|40%|100%>
-- Begrenzt den maximalen Ladestrom im T-Cool-Bereich (0°C bis -5°C) auf X% von board.imax.
-- 0% = Laden im T-Cool-Bereich gesperrt.
-- 20% = max. 20% von imax (z.B. 500mA → 100mA bei 0°C bis -5°C).
-- 40% = max. 40% von imax (z.B. 500mA → 200mA bei 0°C bis -5°C).
-- 100% = keine Reduktion, voller Ladestrom auch bei Kaelte.
-- Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
-- Wichtig: Nur das Laden wird eingeschraenkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO ist JEITA deaktiviert (fmax ohne Wirkung, laedt auch bei Frost).
+- Limits the maximum charge current in the T-Cool range (0°C to -5°C) to X% of board.imax.
+- 0% = Charging blocked in T-Cool range.
+- 20% = max. 20% of imax (e.g. 500mA → 100mA at 0°C to -5°C).
+- 40% = max. 40% of imax (e.g. 500mA → 200mA at 0°C to -5°C).
+- 100% = no reduction, full charge current even in cold conditions.
+- Below -5°C (T-Cold): Charging always completely blocked by JEITA.
+- Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
+- Note: For LTO, JEITA is disabled (fmax has no effect, charges even in frost).
 
-## 10) MPPT aktivieren
+## 10) Enable MPPT
 - Command: set board.mppt <0|1>
-- 1 = MPPT an, 0 = MPPT aus.
-- Fuer Solar-Eingang typischerweise aktivieren.
+- 1 = MPPT on, 0 = MPPT off.
+- Typically enable for solar input.
 
-## 11) LEDs aktivieren/deaktivieren
-- Command: set board.leds <on|off> oder set board.leds <1|0>
-- Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
+## 11) Enable/Disable LEDs
+- Command: set board.leds <on|off> or set board.leds <1|0>
+- Controls heartbeat LED and BQ status LED (boot LEDs remain active).
 
-## 12) Akku voll laden (SOC-Sync)
-- Den Akku einmal komplett ueber USB aufladen, damit der SOC sauber synchronisiert.
+## 12) Fully Charge Battery (SOC Sync)
+- Fully charge the battery once via USB so the SOC synchronizes cleanly.
 
-## Zusatzhinweise (Praxis)
-- Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
-- Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
+## Additional Notes (Practical)
+- After setting the battery chemistry, a quick check with `get board.bat` confirms the setting was saved.
+- For solar operation, `set board.mppt 1` is recommended; for USB-only operation, MPPT can stay off.
 
-## Beispielwerte je Akkuchemie (Startpunkt)
-Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
+## Example Values per Battery Chemistry (Starting Point)
+These values are safe starting points and should be adjusted to match battery, panel, and usage profile.
 
 ### Li-Ion 1S (3.7V nominal)
 ```bash
@@ -92,38 +94,38 @@ set board.imax 700
 set board.fmax 0%
 ```
 
-Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
+Note: `set board.fmax` has no effect on LTO (JEITA disabled).
 
-## Solarpanel-Hinweise
-- Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
-- Typische Panels sind 5V oder 6V (MPP darunter).
-- Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung hoehere Akkuspannungen laden.
-- 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
-- Wattklasse: mindestens 1W, typisch 2W.
-- Bei 1W-Panels wird eine Akkukapazitaet von >7Ah empfohlen.
-- Gilt nur bei Suedausrichtung, vertikaler Montage und unverschattetem Standort.
-- Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazitaet fuer "Winterueberleben" erhoehen.
+## Solar Panel Notes
+- Maximum open-circuit voltage (Voc) for the input: 25V.
+- Typical panels are 5V or 6V (MPP below that).
+- The board has buck/boost and can charge higher battery voltages from lower panel voltages.
+- 24V panels or series connections may exceed the 25V Voc limit and are not suitable.
+- Wattage class: at least 1W, typically 2W.
+- For 1W panels, a battery capacity of >7Ah is recommended.
+- This applies only with south-facing, vertical mounting, and an unshaded location.
+- In worse solar conditions, either use 2W or increase battery capacity for "winter survival".
 
-## Spannungsschwellen je Akkuchemie
-Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
+## Voltage Thresholds per Battery Chemistry
+Thresholds are optimized for maximum lifespan and stable operation.
 
-| Akkuchemie | lowv_sleep_mv (System-Off) | lowv_wake_mv (0% SOC) | Hysterese |
+| Battery Chemistry | lowv_sleep_mv (System-Off) | lowv_wake_mv (0% SOC) | Hysteresis |
 |---|---|---|---|
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
 
-## Verhalten bei Low-Voltage
-- **Low-Voltage System-Off:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware setzt CE HIGH (Laden bleibt aktiv über FET-Schaltung), konfiguriert den RTC-Wake-Timer und geht in System-Off (~15µA). Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
-- **Solar-Recovery:** Im System-Off bleibt der CE-Pin über den DMN2004TK-7 FET aktiv (GPIO High-Z → ext. Pull-Up → CE HIGH → Laden an). Solar-Laden läuft autonom weiter bis die Batterie über `lowv_wake_mv` geladen ist.
+## Low-Voltage Behavior
+- **Low-Voltage System-Off:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware sets CE HIGH (charging remains active via FET circuit), configures the RTC wake timer, and enters System-Off (~15µA). Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
+- **Solar Recovery:** In System-Off, the CE pin remains active via the DMN2004TK-7 FET (GPIO High-Z → ext. pull-up → CE HIGH → charging on). Solar charging continues autonomously until the battery charges above `lowv_wake_mv`.
 
-## CLI-Beispiele (kompakt)
+## CLI Examples (Compact)
 ```bash
-# Akkuchemie und Kapazitaet
+# Battery chemistry and capacity
 set board.bat liion1s
 set board.batcap 10000
 
-# Ladeparameter
+# Charge parameters
 set board.imax 500
 set board.fmax 20%
 set board.mppt 1
@@ -131,7 +133,7 @@ set board.mppt 1
 # LEDs
 set board.leds off
 
-# Statuschecks
+# Status checks
 get board.bat
 get board.imax
 get board.fmax
@@ -144,23 +146,23 @@ get board.cinfo
 get board.conf
 ```
 
-## Getter-Kurzinfos (alle relevanten Board-Getter)
-- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, none).
-- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
-- `get board.imax` - Maximaler Ladestrom in mA.
-- `get board.mppt` - MPPT-Status (0/1).
-- `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
-- `get board.batcap` - Batteriekapazität in mAh (set/default).
-- `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T).
-- `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
-- `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
-- `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
-- `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
+## Getter Quick Reference (all relevant board getters)
+- `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, none).
+- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%).
+- `get board.imax` - Maximum charge current in mA.
+- `get board.mppt` - MPPT status (0/1).
+- `get board.leds` - LED status (Heartbeat + BQ Stat).
+- `get board.batcap` - Battery capacity in mAh (set/default).
+- `get board.telem` - Real-time telemetry (Battery/Solar incl. SOC, V/I/T).
+- `get board.stats` - Energy balance (24h/3d/7d), charge/discharge breakdown and MPPT ratio.
+- `get board.cinfo` - Charger status (Charger State + Flags).
+- `get board.conf` - Summary of all configs (B, F, M, I, Vco, V0).
+- `get board.tccal` - NTC temperature calibration offset in °C (0.00 = default).
 
 ---
 
-## Siehe auch
+## See Also
 
-- [README.md](README.md) — Übersicht, Feature-Matrix und Diagnose
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation
+- [README.md](README.md) — Overview, feature matrix and diagnostics
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All CLI commands at a glance
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
