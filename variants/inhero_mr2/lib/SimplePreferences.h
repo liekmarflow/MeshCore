@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Inhero GmbH
+ *
+ * SPDX-License-Identifier: MIT
+ */
 #pragma once
 #include <Adafruit_LittleFS.h>
 #include <Arduino.h>
@@ -15,7 +20,7 @@ private:
   /// Helper function: Builds filename "/namespace/key.txt"
   String getFilePath(const char* key) {
     String path = "/" + _namespace;
-    // Ordner erstellen (versuchen), falls nicht existiert
+    // Create namespace folder if it doesn't exist
     InternalFS.mkdir(path.c_str());
     path += "/";
     path += key;

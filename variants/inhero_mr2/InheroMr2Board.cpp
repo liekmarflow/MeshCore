@@ -108,7 +108,7 @@ void InheroMr2Board::begin() {
       }
 
       // BQ25798 — Disable ADC (saves ~500µA continuous draw)
-      Wire.beginTransmission(0x6B);
+      Wire.beginTransmission(BQ25798_I2C_ADDR);
       Wire.write(0x2E);  // ADC_CONTROL register
       Wire.write(0x00);  // ADC_EN=0, ADC disabled
       Wire.endTransmission();
@@ -117,17 +117,17 @@ void InheroMr2Board::begin() {
       // Without this, any pending flag holds INT LOW and INPUT_PULLUP wastes ~254µA.
       { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
         for (uint8_t r : mask_regs) {
-          Wire.beginTransmission(0x6B);
+          Wire.beginTransmission(BQ25798_I2C_ADDR);
           Wire.write(r);
           Wire.write(0xFF);  // Mask all
           Wire.endTransmission();
         }
         const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
         for (uint8_t r : flag_regs) {
-          Wire.beginTransmission(0x6B);
+          Wire.beginTransmission(BQ25798_I2C_ADDR);
           Wire.write(r);
           Wire.endTransmission(false);
-          Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+          Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
           while (Wire.available()) Wire.read();
         }
       }
@@ -332,7 +332,7 @@ void InheroMr2Board::begin() {
 #endif
 
         // BQ25798 — Disable ADC (saves ~500µA continuous draw)
-        Wire.beginTransmission(0x6B);
+        Wire.beginTransmission(BQ25798_I2C_ADDR);
         Wire.write(0x2E);  // ADC_CONTROL
         Wire.write(0x00);  // ADC_EN=0
         Wire.endTransmission();
@@ -340,17 +340,17 @@ void InheroMr2Board::begin() {
         // BQ25798 — Mask all interrupts + clear flags to de-assert INT
         { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
           for (uint8_t r : mask_regs) {
-            Wire.beginTransmission(0x6B);
+            Wire.beginTransmission(BQ25798_I2C_ADDR);
             Wire.write(r);
             Wire.write(0xFF);
             Wire.endTransmission();
           }
           const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
           for (uint8_t r : flag_regs) {
-            Wire.beginTransmission(0x6B);
+            Wire.beginTransmission(BQ25798_I2C_ADDR);
             Wire.write(r);
             Wire.endTransmission(false);
-            Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+            Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
             while (Wire.available()) Wire.read();
           }
         }
@@ -1117,9 +1117,9 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
 #endif
 
-    // 5b. BQ25798 @ 0x6B — Disable ADC (saves ~500µA continuous draw)
+    // 5b. BQ25798 — Disable ADC (saves ~500µA continuous draw)
     // Must be AFTER CE=HIGH — charge enable may re-enable ADC internally.
-    Wire.beginTransmission(0x6B);
+    Wire.beginTransmission(BQ25798_I2C_ADDR);
     Wire.write(0x2E);  // ADC_CONTROL register
     Wire.write(0x00);  // ADC_EN=0, ADC disabled
     Wire.endTransmission();
@@ -1130,7 +1130,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     { // Mask all interrupts
       const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
       for (uint8_t r : mask_regs) {
-        Wire.beginTransmission(0x6B);
+        Wire.beginTransmission(BQ25798_I2C_ADDR);
         Wire.write(r);
         Wire.write(0xFF);
         Wire.endTransmission();
@@ -1138,10 +1138,10 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
       // Read-to-clear all flag registers
       const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
       for (uint8_t r : flag_regs) {
-        Wire.beginTransmission(0x6B);
+        Wire.beginTransmission(BQ25798_I2C_ADDR);
         Wire.write(r);
         Wire.endTransmission(false);
-        Wire.requestFrom((uint8_t)0x6B, (uint8_t)1);
+        Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
         while (Wire.available()) Wire.read();
       }
     }

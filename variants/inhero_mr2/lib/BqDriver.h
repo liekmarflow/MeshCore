@@ -252,31 +252,6 @@ private:
   bool getIBUSADCDisable();
   bool setIBUSADCDisable(bool disable);
 
-  bool getVBUSADCDisable();
-  bool setVBUSADCDisable(bool disable);
-
-  bool getVSYSADCDisable();
-  bool setVSYSADCDisable(bool disable);
-
-  bool getTSADCDisable();
-  bool setTSADCDisable(bool disable);
-
-  bool getTDIEADCDisable();
-  bool setTDIEADCDisable(bool disable);
-
-  // ADC Function Disable 1 (0x30)
-  bool getDPADCDisable();
-  bool setDPADCDisable(bool disable);
-
-  bool getDMADCDisable();
-  bool setDMADCDisable(bool disable);
-
-  bool getVAC2ADCDisable();
-  bool setVAC2ADCDisable(bool disable);
-
-  bool getVAC1ADCDisable();
-  bool setVAC1ADCDisable(bool disable);
-
   int16_t getIBUS();
   uint16_t getVSYS();
 

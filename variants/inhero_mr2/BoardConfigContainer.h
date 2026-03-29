@@ -210,16 +210,12 @@ public:
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %
-  uint32_t getAvgDailyEnergy3Day() const;      ///< Get average daily energy over last 3 days (mWh)
-  void getMpptStatsString(char* buffer, uint32_t bufferSize) const; ///< Get formatted stats string
   
   // Battery SOC & Coulomb Counter methods
   float getStateOfCharge() const;              ///< Get current SOC in % (0-100)
   float getBatteryCapacity() const;            ///< Get battery capacity in mAh
   bool setBatteryCapacity(float capacity_mah); ///< Set battery capacity manually via CLI (converts to mWh internally)
   bool isBatteryCapacitySet() const;           ///< Check if battery capacity was explicitly set (vs default)
-  void getBatterySOCString(char* buffer, uint32_t bufferSize) const; ///< Get formatted SOC string
-  void getDailyBalanceString(char* buffer, uint32_t bufferSize) const; ///< Get daily balance stats
   uint16_t getTTL_Hours() const;               ///< Get Time To Live in hours (0 = not calculated)
   bool isLivingOnBattery() const;              ///< True if net deficit over last 24h
   static void syncSOCToFull();                 ///< Sync SOC to 100% after "Charging Done" (resets INA228 baseline)

@@ -524,7 +524,7 @@ bool BqDriver::startADCOneShot(bool ts_enabled) {
   return ok;
 }
 
-// Implementierungen fÃ¼r ADC Control (0x2E)
+// ADC Control register (0x2E) implementations
 bool BqDriver::getADCEnabled() {
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
   Adafruit_BusIO_RegisterBits adc_en_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 7);
@@ -587,7 +587,7 @@ bool BqDriver::setADCAvgInit(bool init) {
   return adc_avg_init_bits.write((uint8_t)init);
 }
 
-// Implementierungen fÃ¼r ADC Function Disable 0 (0x2F)
+// ADC Function Disable 0 register (0x2F) implementations
 bool BqDriver::getIBUSADCDisable() {
   Adafruit_BusIO_Register disable0_reg =
       Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_FUNCTION_DISABLE_0);
@@ -602,10 +602,10 @@ bool BqDriver::setIBUSADCDisable(bool disable) {
   return ibus_dis_bits.write((uint8_t)disable);
 }
 
-// FÃ¼r ADC Function Disable 1 (0x30): Bit 7: DP, 6: DM, 5: VAC2, 4: VAC1
-// Ã„hnlich implementieren.
+// ADC Function Disable 1 (0x30): Bit 7: DP, 6: DM, 5: VAC2, 4: VAC1
+// Implement similarly.
 
-// Implementierungen fÃ¼r ADC Readings (Beispiel fÃ¼r getIBUS() - signed float in A)
+// ADC Reading implementations (e.g. getIBUS() - signed float in A)
 int16_t BqDriver::getIBUS() {
   Adafruit_BusIO_Register ibus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
   uint16_t raw;

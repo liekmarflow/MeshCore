@@ -54,6 +54,7 @@
 #define RTC_INT_PIN                  17   // GPIO17 (WB_IO1) - RTC Interrupt from RV-3028
 #define RTC_I2C_ADDR                 0x52 // RV-3028-C7 I2C address
 #define INA228_I2C_ADDR              0x40 // INA228 I2C address (A0=GND, A1=GND)
+#define BQ25798_I2C_ADDR             0x6B // BQ25798 Battery Charger I2C address
 // Note: INA228 ALERT pin (P1.02) triggers low-voltage sleep via interrupt
 // TPS62840 EN tied to VDD (always on) — no hardware UVLO cutoff
 
@@ -73,8 +74,7 @@
 // Power management state flags (stored in GPREGRET2 bits [7:2])
 #define GPREGRET2_LOW_VOLTAGE_SLEEP  0x04 // Bit 2: In low-voltage sleep (RTC wake cycle)
 
-// Low-voltage sleep duration (used by Early Boot and socUpdateTask)
-//#define LOW_VOLTAGE_SLEEP_MINUTES    (1) // 1 minute — testing value
+// Low-voltage sleep duration (used by Early Boot and SOC update)
 #define LOW_VOLTAGE_SLEEP_MINUTES    (60) // 1 hour
 
 class InheroMr2Board : public NRF52BoardDCDC {

@@ -156,3 +156,11 @@ get board.conf
 - `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
 - `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
+
+---
+
+## Siehe auch
+
+- [README.md](README.md) — Übersicht, Feature-Matrix und Diagnose
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation

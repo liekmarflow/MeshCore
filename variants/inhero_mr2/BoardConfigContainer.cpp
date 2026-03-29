@@ -1230,76 +1230,6 @@ float BoardConfigContainer::getMpptEnabledPercentage7Day() const {
   return (enabledMinutes * 100.0f) / totalMinutes;
 }
 
-/// @brief Calculates average daily energy over last 3 days (72 hours)
-/// @return Average daily harvested energy in mWh
-uint32_t BoardConfigContainer::getAvgDailyEnergy3Day() const {
-  // Return 0 if MPPT is disabled in config
-  bool mpptEnabled;
-  loadMpptEnabled(mpptEnabled);
-  if (!mpptEnabled) {
-    return 0;
-  }
-  
-  uint32_t totalEnergy = 0;
-  uint32_t validHours = 0;
-  
-  // Look back 72 hours (3 days)
-  const int HOURS_72 = 72;
-  
-  for (int i = 0; i < HOURS_72 && i < MPPT_STATS_HOURS; i++) {
-    int index = (mpptStats.currentIndex - 1 - i + MPPT_STATS_HOURS) % MPPT_STATS_HOURS;
-    
-    // Skip entries that haven't been filled yet
-    if (mpptStats.hours[index].timestamp == 0) {
-      continue;
-    }
-    
-    totalEnergy += mpptStats.hours[index].harvestedEnergy_mWh;
-    validHours++;
-  }
-  
-  if (validHours == 0) {
-    return 0; // No data
-  }
-  
-  // Calculate average daily energy
-  // Total energy over X hours, normalized to 24h
-  return (totalEnergy * 24) / validHours;
-}
-
-/// @brief Formats MPPT statistics into a string buffer
-/// @param buffer Destination buffer for formatted string
-/// @param bufferSize Size of destination buffer
-void BoardConfigContainer::getMpptStatsString(char* buffer, uint32_t bufferSize) const {
-  if (!buffer || bufferSize == 0) {
-    return;
-  }
-  
-  // Check if MPPT is disabled in config
-  bool mpptEnabled;
-  loadMpptEnabled(mpptEnabled);
-  if (!mpptEnabled) {
-    snprintf(buffer, bufferSize, "MPPT disabled in configuration");
-    return;
-  }
-  
-  float percentage = getMpptEnabledPercentage7Day();
-  uint32_t avgDailyEnergy = getAvgDailyEnergy3Day();
-  
-  // Count how many hours of data we actually have
-  uint32_t validHours = 0;
-  for (int i = 0; i < MPPT_STATS_HOURS; i++) {
-    if (mpptStats.hours[i].timestamp != 0) {
-      validHours++;
-    }
-  }
-  
-  float days = validHours / 24.0f;
-  
-  snprintf(buffer, bufferSize, "7d:%.1f%% 3d:%dmWh (%.1fd)", 
-           percentage, avgDailyEnergy, days);
-}
-
 // ===== Battery SOC & Coulomb Counter Methods =====
 
 /// @brief Get current State of Charge in percent
@@ -1363,41 +1293,6 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV", 
                      capacity_mah, v_nominal);
   return true;
-}
-
-/// @brief Get formatted SOC string
-/// @param buffer Output buffer
-/// @param bufferSize Buffer size
-void BoardConfigContainer::getBatterySOCString(char* buffer, uint32_t bufferSize) const {
-  if (!socStats.soc_valid) {
-    snprintf(buffer, bufferSize, "SOC:N/A (load bat fully to sync)");
-  } else {
-    snprintf(buffer, bufferSize, "SOC:%.1f%% Cap:%.0fmAh", 
-             socStats.current_soc_percent, 
-             socStats.capacity_mah);
-  }
-}
-
-/// @brief Get formatted daily balance string (mWh-based)
-/// @param buffer Output buffer
-/// @param bufferSize Buffer size
-void BoardConfigContainer::getDailyBalanceString(char* buffer, uint32_t bufferSize) const {
-  // Last 24h net balance (mAh)
-  float last_24h_net = socStats.last_24h_net_mah;
-  float last_24h_charged = socStats.last_24h_charged_mah;
-  float last_24h_discharged = socStats.last_24h_discharged_mah;
-  float avg3d_charged = socStats.avg_3day_daily_charged_mah;
-  float avg3d_discharged = socStats.avg_3day_daily_discharged_mah;
-  const char* status = socStats.living_on_battery ? "BATTERY" : "SOLAR";
-  
-  snprintf(buffer, bufferSize, "24h:%+.1fmAh C:%.1f D:%.1f %s 3d:%+.1fmAh C:%.1f D:%.1f",
-           last_24h_net,
-           last_24h_charged,
-           last_24h_discharged,
-           status,
-           socStats.avg_3day_daily_net_mah,
-           avg3d_charged,
-           avg3d_discharged);
 }
 
 /// @brief Get Time To Live in hours

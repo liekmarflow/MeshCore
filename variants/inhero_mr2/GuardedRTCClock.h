@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Inhero GmbH
+ *
+ * SPDX-License-Identifier: MIT
+ */
 #pragma once
 
 #include <helpers/AutoDiscoverRTCClock.h>
