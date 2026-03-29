@@ -97,32 +97,14 @@ The Inhero MR-2 is the second generation mesh repeater with improved power manag
 
 ### Solar Power Management 🆕
 
-> **⚠️ Solar Panel Recommendation: Use 5-6V panels, NOT 12V panels!**
->
-> Small 12V solar panels (e.g. 5W/12V) are **poorly suited** for the BQ25798 charger.
-> In low light (sunrise, clouds, dusk) they deliver high open-circuit voltage
-> (Voc ~17V) but barely any current. The buck converter must step down from 17V to ~3.7V
-> (ratio 4.6:1, efficiency ~75%), where the BQ25798's own consumption (~10-20mA)
-> plus switching losses consume the entire panel output. **Result: The battery is
-> DISCHARGED despite active charging.**
->
-> A **5-6V panel of equal area** delivers **3x the current** at 1/3 the voltage
-> at the same irradiance. The buck ratio drops to ~1.6:1 (efficiency ~90%) — the panel
-> delivers useful power even in low light.
->
-> | Panel | Voc | Isc (low light) | Buck Ratio | Efficiency | BQ Loss |
-> |-------|-----|-----------------|------------|------------|---------|
-> | 6V/5W | ~7V | ~150mA | 1.9:1 | ~90% | ~3mA |
-> | 12V/5W | ~17V | ~50mA | 4.6:1 | ~75% | ~12mA |
-
 - **Solar current display:** The BQ25798 IBUS ADC is inaccurate at low currents (~±30mA error). Therefore solar current is displayed in steps:
   - `0mA` — ADC reports exactly 0 (no solar current)
   - `<50mA` — 1–49mA (ADC unreliable in this range)
   - `~72mA` — 50–100mA with rounding symbol `~` (limited accuracy)
   - `385mA` — >100mA without rounding symbol (sufficiently accurate)
   - Always integer without decimal places (no pseudo-precision)
-- **PFM Forward Mode:** Permanently enabled. Improves efficiency at low currents (optimized for 5-6V panels).
-- **MPPT VOC_PCT 81.25%:** The BQ25798 MPPT is configured to VOC_PCT=81.25% (instead of chip default 87.5% or former 75%). This value matches the typical Vmp/Voc ratio of crystalline silicon solar cells (~80-83%) and works for both 5-6V and 12V panels.
+- **PFM Forward Mode:** Permanently enabled. Improves efficiency at low currents.
+- **MPPT VOC_PCT 81.25%:** The BQ25798 MPPT is configured to VOC_PCT=81.25% (instead of chip default 87.5% or former 75%). This value matches the typical Vmp/Voc ratio of crystalline silicon solar cells (~80-83%).
 - **MPPT Recovery:** Re-enables MPPT on PowerGood=1 (readback check: only on actual change)
 - **BQ INT pin not used:** No interrupt — pure polling every 60s in `runMpptCycle()`
 - **Error monitoring:** Diagnostic commands show FAULT_STATUS registers (0x20, 0x21) for detailed analysis incl. VBAT_OVP, VBUS_OVP and temperature conditions

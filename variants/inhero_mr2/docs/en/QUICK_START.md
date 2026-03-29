@@ -96,7 +96,7 @@ Note: `set board.fmax` has no effect on LTO (JEITA disabled).
 
 ## Solar Panel Notes
 - Maximum open-circuit voltage (Voc) for the input: 25V.
-- Typical panels are 5V or 6V (MPP below that); 12V panels are not necessary.
+- Typical panels are 5V or 6V (MPP below that).
 - The board has buck/boost and can charge higher battery voltages from lower panel voltages.
 - 24V panels or series connections may exceed the 25V Voc limit and are not suitable.
 - Wattage class: at least 1W, typically 2W.

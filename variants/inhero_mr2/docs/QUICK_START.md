@@ -96,7 +96,7 @@ Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
-- Typische Panels sind 5V oder 6V (MPP darunter); 12V-Panels sind nicht notwendig.
+- Typische Panels sind 5V oder 6V (MPP darunter).
 - Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung hoehere Akkuspannungen laden.
 - 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
 - Wattklasse: mindestens 1W, typisch 2W.

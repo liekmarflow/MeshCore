@@ -97,32 +97,14 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 
 ### Solar-Energieverwaltung 🆕
 
-> **⚠️ Solarpanel-Empfehlung: 5-6V Panels verwenden, KEINE 12V Panels!**
->
-> Kleine 12V-Solarpanels (z.B. 5W/12V) sind für den BQ25798-Charger **schlecht geeignet**.
-> Bei schwachem Licht (Sonnenaufgang, Bewölkung, Dämmerung) liefern sie hohe Leerlaufspannung
-> (Voc ~17V) aber kaum Strom. Der Buck-Konverter muss von 17V auf ~3.7V herunterregeln
-> (Verhältnis 4.6:1, Effizienz ~75%), wobei der Eigenverbrauch des BQ25798 (~10-20mA)
-> plus Schaltverluste die gesamte Panelleistung auffressen. **Ergebnis: Der Akku wird
-> ENTLADEN trotz aktivem Ladevorgang.**
->
-> Ein **5-6V Panel gleicher Fläche** liefert bei gleicher Einstrahlung den **3-fachen Strom**
-> bei 1/3 der Spannung. Der Buck-Ratio sinkt auf ~1.6:1 (Effizienz ~90%) — das Panel
-> liefert selbst bei schwachem Licht nützliche Leistung.
->
-> | Panel | Voc | Isc (schwach) | Buck-Ratio | Effizienz | BQ-Verlust |
-> |-------|-----|---------------|------------|-----------|------------|
-> | 6V/5W | ~7V | ~150mA | 1.9:1 | ~90% | ~3mA |
-> | 12V/5W | ~17V | ~50mA | 4.6:1 | ~75% | ~12mA |
-
 - **Solarstrom-Anzeige:** Der BQ25798 IBUS-ADC ist bei niedrigen Strömen ungenau (~±30mA Fehler). Daher wird der Solarstrom abgestuft angezeigt:
   - `0mA` — ADC meldet exakt 0 (kein Solarstrom)
   - `<50mA` — 1–49mA (ADC in diesem Bereich unzuverlässig)
   - `~72mA` — 50–100mA mit Rundungszeichen `~` (eingeschränkte Genauigkeit)
   - `385mA` — >100mA ohne Rundungszeichen (hinreichend genau)
   - Immer ganzzahlig ohne Dezimalstellen (keine Pseudopräzision)
-- **PFM Forward Mode:** Permanent aktiviert. Verbessert Effizienz bei niedrigen Strömen (optimiert für 5-6V Panels).
-- **MPPT VOC_PCT 81.25%:** Der BQ25798-MPPT ist auf VOC_PCT=81.25% konfiguriert (statt Chip-Default 87.5% oder vormals 75%). Dieser Wert entspricht dem typischen Vmp/Voc-Verhältnis kristalliner Silizium-Solarzellen (~80-83%) und passt sowohl für 5-6V als auch 12V Panels.
+- **PFM Forward Mode:** Permanent aktiviert. Verbessert Effizienz bei niedrigen Strömen.
+- **MPPT VOC_PCT 81.25%:** Der BQ25798-MPPT ist auf VOC_PCT=81.25% konfiguriert (statt Chip-Default 87.5% oder vormals 75%). Dieser Wert entspricht dem typischen Vmp/Voc-Verhältnis kristalliner Silizium-Solarzellen (~80-83%).
 - **MPPT-Recovery:** Aktiviert MPPT wieder bei PowerGood=1 (Readback-Check: nur bei tatsächlicher Änderung)
 - **BQ INT-Pin nicht genutzt:** Kein Interrupt — reines Polling alle 60s in `runMpptCycle()`
 - **Fehlerüberwachung:** Diagnosebefehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Analyse inkl. VBAT_OVP, VBUS_OVP und Temperaturbedingungen
