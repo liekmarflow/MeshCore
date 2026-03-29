@@ -35,7 +35,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
 | INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
-| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 15 min (periodisch) |
+| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 60 min (periodisch) |
 | BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
 | System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
@@ -390,11 +390,11 @@ TTL_hours = remaining_capacity_mah / daily_deficit_mah × 24
 
 **CLI-Ausgabe**: `board.stats`
 ```
-+150.0/+120.0/+90.0mAh SOL M:85%           ← Solar-Überschuss, keine TTL
++150/+120/+90mAh C:200 D:50 3C:180 3D:60 7C:160 7D:70 SOL M:85% T:N/A   ← Solar-Überschuss
 ```
 oder
 ```
--80.0/-100.0/-110.0mAh BAT M:45% TTL:288h  ← 288h bis leer (7d-Avg-Basis)
+-80/-100/-110mAh C:10 D:90 3C:15 3D:115 7C:20 7D:130 BAT M:45% T:12d0h  ← 12 Tage bis leer
 ```
 
 ---
@@ -416,7 +416,7 @@ oder
 
 **Register**:
 ```cpp
-RV3028_CTRL1 (0x00):     TE=1, TD=11 (1/60 Hz), TRPT=0 (Single shot)
+RV3028_CTRL1 (0x0F):     TE=1, TD=11 (1/60 Hz), TRPT=0 (Single shot)
 RV3028_CTRL2 (0x10):     TIE=1 (Timer Interrupt Enable, bit 4)
 RV3028_STATUS (0x0E):    TF (Timer Flag, bit 3) — nach Wake clearen!
 RV3028_TIMER_VALUE_0 (0x0A): Countdown value LSB
@@ -687,64 +687,73 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 
 ## 13. CLI-Befehle
 
-### Getter (Implemented)
+### Getter
 ```bash
-board.telem     # Full telemetry with SOC
-                # Output: "B:3.85V/125.432mA/22.3C SOC:68.5% S:5.12V/245mA"
-                # Output: "B:3.85V/125.432mA/22.3C SOC:N/A S:5.12V/245mA" (if not synced)
-                # Code: InheroMr2Board.cpp - getCustomGetter()
+board.bat       # Batterietyp abfragen
+                # Ausgabe: liion1s | lifepo1s | lto2s | none
 
-board.stats     # Combined energy statistics (balance + MPPT)
-                # Output: "+1250/+450mWh SOL M:85%" oder
-                #         "-300/-450mWh BAT M:45% TTL:72h"
-                # Components: Today/Avg3d Status MPPT% [TTL]
-                # SOL = Solar sufficient (self-sufficient)
-                # BAT = Battery deficit (living on battery)
-                # Code: InheroMr2Board.cpp - getCustomGetter()
+board.fmax      # Frost-Ladeverhalten abfragen
+                # Ausgabe: 0% | 20% | 40% | 100% (LTO: N/A)
 
-board.cinfo     # Charger info + letzter PG-Stuck HIZ-Toggle
-                # Output: "PG / CC HIZ:never" oder "!PG / !CHG HIZ:3m ago"
-                # Code: InheroMr2Board.cpp → BoardConfigContainer::getChargerInfo()
+board.imax      # Maximaler Ladestrom abfragen
+                # Ausgabe: <strom>mA (z.B. 500mA)
 
-board.conf      # Gesamte Konfiguration
-                # Output: "B:liion1s F:0% M:1 I:500 Vco:4.10"
-                # Code: InheroMr2Board.cpp - getCustomGetter()
+board.mppt      # MPPT-Status abfragen
+                # Ausgabe: MPPT=1 | MPPT=0
 
-board.leds      # LED enable status
-                # Output: "LEDs: ON (Heartbeat + BQ Stat)"
-                # Code: InheroMr2Board.cpp - getCustomGetter()
+board.telem     # Echtzeit-Telemetrie mit SOC
+                # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<SolarStrom>
+                # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA
+                # Beispiel: B:3.85V/-8.2mA/N/A SOC:N/A S:0.00V/0mA
+
+board.stats     # Energie-Statistiken (Bilanz + MPPT + TTL)
+                # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
+                # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
+                # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:12d0h
+                # SOL = Solar-Überschuss, BAT = Energiedefizit
+                # T: Time To Live (N/A bei Solar-Überschuss oder <24h Daten)
+
+board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
+                # Ausgabe: "PG / CC HIZ:never" oder "!PG / !CHG HIZ:3m ago"
+
+board.conf      # Alle Konfigurationswerte
+                # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<V> V0:<V>
+                # Beispiel: B:liion1s F:0% M:1 I:500mA Vco:4.10 V0:3.30
+
+board.tccal     # NTC-Temperatur-Kalibrieroffset
+                # Ausgabe: TC offset: +0.00 C (0.00=default)
+
+board.leds      # LED-Aktivstatus (Heartbeat + BQ Stat)
+                # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)"
+
+board.batcap    # Batteriekapazität
+                # Ausgabe: 10000 mAh (set) oder 2200 mAh (default)
 ```
 
-### Setter (Implemented)
+### Setter
 ```bash
-set board.batcap <mAh>      # Set battery capacity
-                            # Range: 100-100000 mAh
-                            # Example: set board.batcap 2200
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.bat <type>        # Batteriechemie setzen
+                            # Optionen: liion1s | lifepo1s | lto2s | none
 
-set board.bat <type>        # Set battery chemistry
-                            # Options: liion1s | lifepo1s | lto2s | none
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.fmax <wert>       # Frost-Ladestromabsenkung setzen
+                            # Optionen: 0% | 20% | 40% | 100%
+                            # Begrenzt Ladestrom im T-Cool-Bereich (0°C bis -5°C)
+                            # Bei LTO ohne Wirkung (JEITA deaktiviert)
 
-set board.imax <mA>         # Set max charge current
-                            # Range: 50-1500 mA
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.imax <mA>         # Maximalen Ladestrom setzen
+                            # Bereich: 50-1500 mA
 
-set board.mppt <0|1>        # Enable/disable MPPT
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.mppt <0|1>        # MPPT ein-/ausschalten
 
-set board.frost <mode>      # Set frost charge behavior
-                            # Options: 0% | 20% | 40% | 100%
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.batcap <mAh>      # Batteriekapazität setzen
+                            # Bereich: 100-100000 mAh
 
-set board.leds <on|off>     # Enable/disable heartbeat + BQ stat LED
-                            # Options: on/1 | off/0
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.tccal             # NTC-Temperatur kalibrieren (auto via BME280)
+set board.tccal reset       # Offset auf 0.00 zurücksetzen
 
-set board.soc <percent>     # Manually set SOC percentage
-                            # Range: 0-100 (INA228 must be ready)
-                            # Code: InheroMr2Board.cpp - setCustomSetter()
+set board.leds <on|off>     # LEDs ein-/ausschalten (on/1, off/0)
 
+set board.soc <percent>     # SOC manuell setzen (0-100, INA228 muss bereit sein)
 ```
 
 ---
@@ -806,29 +815,13 @@ void Ina228Driver::wakeup() {
 }
 ```
 
-### RTC Interrupt Handler Fix
+### RTC Interrupt Handler
 ```cpp
-// InheroMr2Board.cpp
+// InheroMr2Board.cpp — ISR setzt nur Flag, kein I2C!
 void InheroMr2Board::rtcInterruptHandler() {
-  // Read current CTRL2 register
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL2);  // 0x01
-  Wire.endTransmission(false);
-  Wire.requestFrom(RTC_I2C_ADDR, (uint8_t)1);
-  
-  if (Wire.available()) {
-    uint8_t ctrl2 = Wire.read();
-    
-    // Clear TF bit (bit 3) by writing 0 to it
-    ctrl2 &= ~(1 << 3);  // Clear bit 3 (TF - Timer Flag)
-    
-    // Write back to clear the flag and release INT pin
-    Wire.beginTransmission(RTC_I2C_ADDR);
-    Wire.write(RV3028_REG_CTRL2);
-    Wire.write(ctrl2);
-    Wire.endTransmission();
-  }
+  rtc_irq_pending = true;
 }
+// TF-Clear passiert im Main-Loop-Kontext (tick())
 ```
 
 ### INA228 Driver Zugriff
@@ -936,7 +929,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
           deficit = |-37.5| = 37.5 mAh/day
           TTL = (630 / 37.5) × 24 = 403.2 hours ≈ 16.8 days
           
-          CLI output: "Today:-350mAh BATTERY 7dAvg:-38mAh TTL:403h"
+          CLI output: "-350/-167/-38mAh C:150 D:500 3C:.. 3D:.. 7C:.. 7D:.. BAT M:45% T:16d23h"
 ```
 
 ---

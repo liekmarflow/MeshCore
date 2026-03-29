@@ -27,7 +27,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
 | INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
-| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 15 min (periodisch) |
+| RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 60 min (periodisch) |
 | BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
 | System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
 | SOC 0% nach Low-Voltage-Recovery | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
@@ -92,7 +92,7 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 - **Formel:** `TTL_hours = (SOC% × capacity_mah / 100) / |avg_7day_daily_net_mah| × 24`
 - **Voraussetzungen:** `living_on_battery == true` (24h-Defizit), mind. 24h Daten, Kapazität bekannt
 - **TTL = 0:** Solar-Überschuss, keine 24h Daten vorhanden, oder Kapazität unbekannt
-- **CLI:** TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `TTL:288h`)
+- **CLI:** TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `T:12d0h`)
 - **Telemetrie:** Wird als Tage via CayenneLPP Distance-Feld übertragen (max. 990 Tage für "unendlich")
 
 ### Solar-Energieverwaltung 🆕
@@ -131,7 +131,26 @@ Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Po
 ## Firmware-Build
 
 ```bash
+# Repeater (Standard)
 platformio run -e Inhero_MR2_repeater
+
+# Repeater mit RS232-Bridge (Serial2 an P0.19/P0.20)
+platformio run -e Inhero_MR2_repeater_bridge_rs232
+
+# Room Server
+platformio run -e Inhero_MR2_room_server
+
+# Companion Radio (USB, mit Extra-Filesystem)
+platformio run -e Inhero_MR2_companion_radio_usb
+
+# Terminal Chat
+platformio run -e Inhero_MR2_terminal_chat
+
+# Sensor
+platformio run -e Inhero_MR2_sensor
+
+# KISS Modem
+platformio run -e Inhero_MR2_kiss_modem
 ```
 
 ## CLI-Befehle
@@ -171,20 +190,21 @@ get board.telem     # Echtzeit-Telemetrie mit SOC abfragen 🆕
                     # - S: Solar (Voltage/Strom — Genauigkeit abhängig vom BQ25798 IBUS-ADC)
 
 get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen 🆕
-                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3dC:<3d> 3dD:<3d> 7dC:<7d> 7dD:<7d> <SOL|BAT> M:<mppt>% [TTL:<Stunden>h]
-                    # Beispiel: +125.0/+45.0/+38.0mAh C:200.0 D:75.0 3dC:150.0 3dD:105.0 7dC:140.0 7dD:102.0 SOL M:85%
-                    # Beispiel: -30.0/-45.0/-40.0mAh C:10.0 D:40.0 3dC:5.0 3dD:50.0 7dC:8.0 7dD:48.0 BAT M:45% TTL:72h
+                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
+                    # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
+                    # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
                     # Komponenten:
-                    # - +125.0: Last 24h net balance (charge - discharge) in mAh
-                    # - +45.0: 3-day average net balance in mAh
-                    # - +38.0: 7-day average net balance in mAh
+                    # - +125: Last 24h net balance (charge - discharge) in mAh
+                    # - +45: 3-day average net balance in mAh
+                    # - +38: 7-day average net balance in mAh
                     # - C/D: Charged/Discharged mAh (24h)
-                    # - 3dC/3dD: 3-day average charged/discharged mAh
-                    # - 7dC/7dD: 7-day average charged/discharged mAh
+                    # - 3C/3D: 3-day average charged/discharged mAh
+                    # - 7C/7D: 7-day average charged/discharged mAh
                     # - SOL: Running on solar (self-sufficient)
                     # - BAT: Living on battery (deficit mode)
                     # - M:85%: MPPT enabled percentage (7-day average)
-                    # - TTL:72h: Time To Live (hours until empty, only shown if BAT mode, 7d-avg basis)
+                    # - T:72h: Time To Live (only shown if BAT mode, 7d-avg basis)
+                    #   Format: T:12d5h (≥24h) oder T:72h (<24h) oder T:N/A
 
 get board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                     # Ausgabe: <state> + flags
