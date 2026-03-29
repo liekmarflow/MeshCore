@@ -171,6 +171,82 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+### Board-Specific Commands (Inhero MR-2)
+For boards with advanced power management features (e.g., Inhero MR-2 v0.2):
+
+#### View battery capacity auto-learning status
+**Usage:** `board.learning`
+
+**Output Examples:**
+- `Learning IDLE Cap:2150mAh(learned)` - Learning complete, capacity known
+- `M1 ACTIVE (100%→0%, 850 mAh) Cap:2000mAh(manual)` - Method 1 in progress
+- `M2 ACTIVE (0%→100%, 1850 mAh) Cap:2000mAh(manual)` - Method 2 in progress
+
+**Note:** Two auto-learning methods available:
+- **Method 1:** Full discharge cycle (100% → 0% danger zone)
+- **Method 2:** USB-C charging from danger zone (0% → 100%)
+
+---
+
+#### Reset learned capacity flag
+**Usage:** `board.relearn`
+
+**Output:** `Learning reset - auto-learning enabled`
+
+**Note:** Enables auto-learning to run again. Useful after battery replacement.
+
+---
+
+#### Get LED enable state (Inhero MR2 v0.2)
+**Usage:** `board.leds`
+
+**Description:**
+Shows whether the heartbeat LED (blue, flashes every 5s) and BQ25798 stat LED are enabled.
+
+**Output:**
+- `LEDs: ON (Heartbeat + BQ Stat)` - LEDs enabled (default)
+- `LEDs: OFF (Heartbeat + BQ Stat)` - LEDs disabled (stealth mode)
+
+---
+
+#### Enable/disable heartbeat and BQ stat LEDs (Inhero MR2 v0.2)
+**Usage:** `set board.leds <on|off>`
+
+**Parameters:**
+- `on` or `1` - Enable LEDs
+- `off` or `0` - Disable LEDs
+
+**Description:**
+Controls heartbeat LED (blue, 5s interval) and BQ25798 stat LED. Boot LEDs remain active.
+
+**Example:**
+```bash
+set board.leds off    # Stealth mode
+set board.leds on     # Re-enable
+```
+
+---
+
+#### View battery State of Charge
+**Usage:** `board.soc`
+
+**Output Example:** `SOC:67.5% Cap:2000mAh(learned)`
+
+**Note:** Available on boards with Coulomb Counter (e.g., INA228)
+
+---
+
+#### View daily energy balance
+**Usage:** `board.balance`
+
+**Output Examples:**
+- `Today:+150mAh SOLAR 3dAvg:+120mAh` - Net positive (solar charging)
+- `Today:-80mAh BATTERY 3dAvg:-75mAh TTL:120h` - Net negative (discharging)
+
+**Note:** Shows energy balance and Time-To-Live forecast
+
+---
+
 ## Configuration
 
 ### Radio

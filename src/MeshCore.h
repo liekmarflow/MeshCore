@@ -1,5 +1,7 @@
 #pragma once
 
+class CayenneLPP;
+
 #include <stdint.h>
 #include <math.h>
 
@@ -65,6 +67,12 @@ public:
   virtual const char* getResetReasonString(uint32_t reason) { return "Not available"; }
   virtual uint8_t getShutdownReason() const { return 0; }
   virtual const char* getShutdownReasonString(uint8_t reason) { return "Not available"; }
+
+  // Custom board commands and telemetry (boards can override these)
+  virtual void tick() {}  // Board-specific periodic tasks (e.g., watchdog feeding)
+  virtual bool getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) { return false; }
+  virtual const char* setCustomSetter(const char* setCommand) { return nullptr; }
+  virtual bool queryBoardTelemetry(CayenneLPP& telemetry) { return false; }
 };
 
 /**

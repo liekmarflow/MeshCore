@@ -407,6 +407,14 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
       #else
           strcpy(reply, "ERROR: unsupported");
       #endif
+      } else if (memcmp(config, "board.", 6) == 0) {
+        char res[100];
+        memset(res, 0, sizeof(res));
+        if (_board->getCustomGetter(&config[6], res, sizeof(res))) {
+          strcpy(reply, res);
+        } else {
+          strcpy(reply, "Error: unknown board command");
+        }
       } else if (memcmp(config, "adc.multiplier", 14) == 0) {
         float adc_mult = _board->getAdcMultiplier();
         if (adc_mult == 0.0f) {
@@ -685,6 +693,13 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, const char* command, ch
         savePrefs();
         strcpy(reply, "OK");
 #endif
+      } else if (memcmp(config, "board.", 6) == 0) {
+        const char* result = _board->setCustomSetter(&config[6]);
+        if (result != nullptr) {
+          strcpy(reply, result);
+        } else {
+          strcpy(reply, "Error: unknown board command");
+        }
       } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
         _prefs->adc_multiplier = atof(&config[15]);
         if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
