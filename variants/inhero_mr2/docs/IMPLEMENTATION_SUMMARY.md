@@ -1,4 +1,4 @@
-# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.0)
+# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.1)
 
 ## Inhaltsverzeichnis
 
@@ -14,14 +14,14 @@
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
 - [Siehe auch](#siehe-auch)
 
-> ✅ **STATUS: IMPLEMENTIERT (Rev 1.0)** ✅
+> ✅ **STATUS: IMPLEMENTIERT (Rev 1.1)** ✅
 > 
 > Diese Dokumentation beschreibt die vollständige Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
-> Hardware Rev 1.0: INA228 ALERT auf P1.02, TPS62840 EN an VDD, CE-Pin via DMN2004TK-7 FET (invertiert).
+> Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN an VDD, CE-Pin via DMN2004TK-7 FET (invertiert).
 > Hinweis: Konkrete Zeilennummern können durch Refactorings abweichen.
 > 
 > Datum: 02. Juni 2026
-> Version: 3.0 (Rev 1.0 Architektur)
+> Version: 3.0 (Rev 1.1 Architektur)
 > Hardware: INA228 + RTC + DMN2004TK-7 CE-FET
 
 ---
@@ -37,9 +37,9 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
 6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
 
-### Architektur-Unterschiede v0.2 → Rev 1.0
+### Architektur-Unterschiede v0.2 → Rev 1.1
 
-| Aspekt | v0.2 | Rev 1.0 |
+| Aspekt | v0.2 | Rev 1.1 |
 |--------|------|---------|
 | Low-Voltage-Erkennung | Software-Polling (60s) + Hardware-UVLO (INA228→TPS EN) | INA228 ALERT ISR auf P1.02 (Hardware-Interrupt) |
 | Shutdown-Modus | System ON Idle (__WFI-Loop, ~0.6mA) | System-Off (~15µA) |
@@ -79,7 +79,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 
 ## 1. Low-Voltage-Erkennung (INA228 ALERT ISR)
 
-### Implementierung (Rev 1.0 — Flag/Tick-Architektur)
+### Implementierung (Rev 1.1 — Flag/Tick-Architektur)
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT auf P1.02
 - **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
 - **Verarbeitung**: `tickPeriodic()` prüft Flag im Main-Loop-Kontext → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
@@ -468,7 +468,7 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 
 ## 7. Energieverwaltungsablauf
 
-### Shutdown-Sequenz (Rev 1.0 — System-Off)
+### Shutdown-Sequenz (Rev 1.1 — System-Off)
 **Methode**: `initiateShutdown()` in `InheroMr2Board.cpp`
 
 **Bei Low-Voltage → System-Off** (~15µA, CE-FET hält Zustand):
@@ -506,7 +506,7 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
     - RTC-Interrupt auf GPIO17 weckt System nach Timer-Ablauf
 
 **Warum System-Off statt System ON Idle (v0.2)?**
-- Rev 1.0 nutzt DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
+- Rev 1.1 nutzt DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
 - System ON Idle war nur nötig um GPIO-Latches für CE-Pin LOW zu halten (v0.2 ohne FET)
 - System-Off: **~15µA** vs. System ON Idle: **~0.6mA** → **40× effizienter**
 
@@ -567,14 +567,14 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 
 ---
 
-## 8. INA228 ALERT-Pin (Rev 1.0)
+## 8. INA228 ALERT-Pin (Rev 1.1)
 
 ### Verdrahtung
 **Pin**: INA228 ALERT → P1.02 (nRF52840 GPIO, mit ext. Pull-Up)
 **TPS62840 EN**: An VDD gebunden (immer an) — kein Hardware-UVLO-Cutoff
 
-### Funktionsweise (Rev 1.0)
-Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pin in Rev 1.0 als
+### Funktionsweise (Rev 1.1)
+Im Gegensatz zu v0.2 (ALERT→TPS EN, latched hardware cutoff) wird der ALERT-Pin in Rev 1.1 als
 **Software-Interrupt** genutzt:
 
 1. `armLowVoltageAlert()` konfiguriert INA228 BUVL (Bus Under-Voltage Limit) auf `lowv_sleep_mv`
@@ -640,16 +640,16 @@ radio.std_init(&SPI);  // → setDio2AsRfSwitch(true) → DIO2 steuert TX/RX
 
 ---
 
-## 10. (Entfernt — UVLO CLI war v0.2-Feature, in Rev 1.0 nicht mehr vorhanden)
+## 10. (Entfernt — UVLO CLI war v0.2-Feature, in Rev 1.1 nicht mehr vorhanden)
 
 ---
 
-## 11. BQ25798 CE-Pin Safety (Rev 1.0 — FET-invertiert)
+## 11. BQ25798 CE-Pin Safety (Rev 1.1 — FET-invertiert)
 
 ### Problem
 Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). Wenn eine LiFePO4-Batterie (3.5V max) verbunden ist und der RAK noch nicht gebootet hat, würde der BQ25798 die Batterie überladen → **Brandgefahr**.
 
-### Hardware-Design (Rev 1.0 — FET-invertiert)
+### Hardware-Design (Rev 1.1 — FET-invertiert)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
 - **DMN2004TK-7 N-FET**: Gate ← GPIO4, Drain → CE, Source → GND
 - **Externer Pull-Up**: 10kΩ zu VSYS → CE HIGH = **Laden aktiv** (wenn FET OFF)
@@ -657,9 +657,9 @@ Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). We
 - **GPIO LOW** → FET OFF → ext. Pull-Up → CE HIGH → Laden aktiv
 - **GPIO High-Z** (System-Off) → FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
 
-**Kernpunkt Rev 1.0**: Egal ob GPIO HIGH, LOW oder High-Z — CE ist immer HIGH → **Laden immer aktiv** (bei bekannter Chemie). Die FET-Schaltung stellt sicher, dass Solar-Laden auch in System-Off funktioniert.
+**Kernpunkt Rev 1.1**: Egal ob GPIO HIGH, LOW oder High-Z — CE ist immer HIGH → **Laden immer aktiv** (bei bekannter Chemie). Die FET-Schaltung stellt sicher, dass Solar-Laden auch in System-Off funktioniert.
 
-### 3-Schicht-Sicherung (Rev 1.0)
+### 3-Schicht-Sicherung (Rev 1.1)
 
 | Schicht | Ort | Mechanismus | Wann |
 |---|---|---|---|
@@ -674,7 +674,7 @@ Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). We
 bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
-  // Rev 1.0 FET-invertiert: HIGH → FET ON → CE LOW → Laden aktiv (BQ25798: CE active-low)
+  // Rev 1.1 FET-invertiert: HIGH → FET ON → CE LOW → Laden aktiv (BQ25798: CE active-low)
   // Aber ext. Pull-Up → CE HIGH → Laden auch aktiv (BQ25798 CE ist active-low internally)
   digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);  // HIGH=an, LOW=aus (FET-invertiert)
 #endif
@@ -684,9 +684,9 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 - `BAT_UNKNOWN` → `charge_enable = false` → CE HIGH + Register disabled
 - Bekannte Chemie → `charge_enable = true` → CE LOW + Register enabled
 
-### Verhalten im System-Off (Rev 1.0)
+### Verhalten im System-Off (Rev 1.1)
 
-In Rev 1.0 wird **System-Off** verwendet (via `initiateShutdown()`):
+In Rev 1.1 wird **System-Off** verwendet (via `initiateShutdown()`):
 - Alle GPIOs werden High-Z → DMN2004TK-7 FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
 - Stromverbrauch: **~15µA** (nRF52840 System-Off + RTC + quiescent currents)
@@ -921,9 +921,9 @@ t=+5h:    RTC weckt → System bootet → Early Boot Check
           - Daily balance baut sich neu auf
 ```
 
-### Szenario B: Kritische Entladung (Rev 1.0 — kein Hardware-UVLO)
+### Szenario B: Kritische Entladung (Rev 1.1 — kein Hardware-UVLO)
 ```
-In Rev 1.0 gibt es kein Hardware-UVLO (TPS62840 EN an VDD, immer an).
+In Rev 1.1 gibt es kein Hardware-UVLO (TPS62840 EN an VDD, immer an).
 Der INA228 ALERT auf P1.02 dient als Software-Interrupt für System-Off.
 
 t=0:      VBAT = 3.15V → INA228 ALERT feuert
@@ -943,7 +943,7 @@ t=+∞:     Bei ~15µA kann die Batterie monatelang überleben
           
 Vergleich v0.2: Dort hätte INA228 ALERT → TPS EN=LOW das System
 permanent abgeschaltet (latched) — manuelles Eingreifen nötig.
-Rev 1.0 ist hier resilienter — Solar-Recovery immer möglich.
+Rev 1.1 ist hier resilienter — Solar-Recovery immer möglich.
 ```
 
 ### Szenario C: Daily Balance Tracking - LiFePO4
@@ -1146,15 +1146,15 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - 🔧 **`InheroMr2Board::tick()`**: Vereinfacht auf RTC-Clear + `tickPeriodic()` + `feedWatchdog()`
 - 📝 Dokumentation für Flag/Tick-Architektur aktualisiert
 
-### v3.0 - 02. Juni 2026 (Rev 1.0 Architektur)
-- 🔧 **Architektur-Umstellung**: System ON Idle (v0.2) → System-Off (Rev 1.0) — 40× effizienter (~15µA vs. ~0.6mA)
+### v3.0 - 02. Juni 2026 (Rev 1.1 Architektur)
+- 🔧 **Architektur-Umstellung**: System ON Idle (v0.2) → System-Off (Rev 1.1) — 40× effizienter (~15µA vs. ~0.6mA)
 - 🔧 **INA228 ALERT auf P1.02**: ISR-basierte Low-Voltage-Erkennung statt Software-Polling + Hardware-UVLO
 - 🔧 **TPS62840 EN an VDD**: Immer an, kein Hardware-UVLO-Cutoff — System recovert immer selbstständig
 - 🔧 **CE-Pin FET-invertiert**: DMN2004TK-7 N-FET ermöglicht Solar-Laden in System-Off (GPIO High-Z → Pull-Up → CE HIGH → Laden aktiv)
 - 🔧 **1-Stufen-Schwellenmodell**: lowv_sleep_mv / lowv_wake_mv mit einheitlicher 200mV Hysterese für alle Chemien
 - ❌ **Entfernt**: UVLO CLI (board.uvlo getter/setter), uvloEn Preference, runVoltageMonitor(), voltageMonitorTask()
 - ❌ **Entfernt**: Hardware-UVLO (INA228 Alert → TPS62840 EN), Danger Zone System ON Idle, __WFI Loop
-- 📝 Dokumentation komplett für Rev 1.0 überarbeitet
+- 📝 Dokumentation komplett für Rev 1.1 überarbeitet
 
 ### v2.2 - 25. Februar 2026 (Code-Fix + Dokumentation an Code-Stand angepasst)
 - 🐛 **Code-Fix**: `runVoltageMonitor()` delegiert jetzt an `board.initiateShutdown(LOW_VOLTAGE)` statt inline `sd_power_system_off()` — CE-Pin bleibt LOW, Solar-Laden in Danger Zone möglich

@@ -155,7 +155,7 @@ bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
 
 // Battery voltage thresholds moved to BatteryProperties structure (see .h file)
-// Rev 1.0: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
+// Rev 1.1: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
 // No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
 
 // Watchdog state
@@ -303,7 +303,7 @@ void BoardConfigContainer::stopBackgroundTasks() {
     MESH_DEBUG_PRINTLN("Heartbeat task stopped");
   }
   
-  // Disarm INA228 low-voltage alert (Rev 1.0)
+  // Disarm INA228 low-voltage alert (Rev 1.1)
   disarmLowVoltageAlert();
   
   delay(200);
@@ -579,7 +579,7 @@ bool BoardConfigContainer::begin() {
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
   
-  // === MR2 Hardware (Rev 1.0): INA228 Power Monitor with ALERT-based low-voltage sleep ===
+  // === MR2 Hardware (Rev 1.1): INA228 Power Monitor with ALERT-based low-voltage sleep ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
   MESH_DEBUG_PRINTLN("=== INA228 Detection @ 0x40 ===");
   delay(10);  // Let serial output flush
@@ -638,7 +638,7 @@ bool BoardConfigContainer::begin() {
       }
       
       // Arm INA228 low-voltage alert for this battery chemistry
-      // Rev 1.0: Always active when battery type is configured (no CLI toggle)
+      // Rev 1.1: Always active when battery type is configured (no CLI toggle)
       // ISR on ALERT pin → task notification → System-Off with latched CE
       armLowVoltageAlert();
 
@@ -1017,7 +1017,7 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   bq.setChargeEnable(props->charge_enable);
 
   // CE-Pin hardware safety: Only pull CE HIGH (enable charging via FET) when chemistry is known
-  // Rev 1.0: DMN2004TK-7 N-FET inverts CE logic — HIGH=enable, LOW=disable
+  // Rev 1.1: DMN2004TK-7 N-FET inverts CE logic — HIGH=enable, LOW=disable
   // External pull-down ensures CE stays LOW (charging disabled) when RAK is off or unbooted
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);

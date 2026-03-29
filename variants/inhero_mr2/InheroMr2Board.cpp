@@ -176,7 +176,7 @@ void InheroMr2Board::begin() {
   pinMode(PIN_VBAT_READ, INPUT);
 
   // BQ25798 CE pin: Drive LOW (charging disabled) on every boot.
-  // Rev 1.0: DMN2004TK-7 FET inverts logic — LOW on GPIO = FET off = CE pulled HIGH by ext. pull-up = charge disabled.
+  // Rev 1.1: DMN2004TK-7 FET inverts logic — LOW on GPIO = FET off = CE pulled HIGH by ext. pull-up = charge disabled.
   // configureChemistry() will drive HIGH only after successful I2C configuration with a known battery type.
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
@@ -242,8 +242,8 @@ void InheroMr2Board::begin() {
   Wire.begin();
   delay(50); // Give I2C bus time to stabilize
 
-  // MR2 Rev 1.0 hardware — no detection needed
-  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.0 (INA228 ALERT + RTC + CE-FET)");
+  // MR2 Rev 1.1 hardware — no detection needed
+  MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.1 (INA228 ALERT + RTC + CE-FET)");
 
   // === CRITICAL: Configure RTC INT pin for wake-up from SYSTEMOFF ===
   // attachInterrupt() alone is NOT sufficient for SYSTEMOFF wake-up!
@@ -382,7 +382,7 @@ void InheroMr2Board::begin() {
   // === Normal boot path: Initialize board hardware ===
   // Only reached when voltage is OK (or unreadable) — resleep paths exit above.
   // boardConfig.begin() initializes BQ25798, INA228, CE pin, alerts, LEDs, etc.
-  MESH_DEBUG_PRINTLN("Initializing Rev 1.0 features (BQ25798, INA228, RTC, CE-FET)");
+  MESH_DEBUG_PRINTLN("Initializing Rev 1.1 features (BQ25798, INA228, RTC, CE-FET)");
   boardConfig.begin();
 
   // Handle low-voltage recovery (deferred until after boardConfig.begin())
@@ -923,7 +923,7 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   return ret;
 }
 
-// ===== Power Management Methods (Rev 1.0) =====
+// ===== Power Management Methods (Rev 1.1) =====
 
 /// @brief Get low-voltage sleep threshold (chemistry-specific)
 /// @return Sleep threshold in millivolts (INA228 ALERT fires here)
@@ -1076,10 +1076,10 @@ void InheroMr2Board::disconnectLeakyPullups() {
   }
 }
 
-/// @brief Initiate controlled shutdown with filesystem protection (Rev 1.0)
+/// @brief Initiate controlled shutdown with filesystem protection (Rev 1.1)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
 ///
-/// Rev 1.0 low-voltage shutdown uses true System-Off (~15µA total):
+/// Rev 1.1 low-voltage shutdown uses true System-Off (~15µA total):
 /// - INA228 enters shutdown mode (~3.5µA)
 /// - BQ CE pin latched HIGH via FET (solar charging continues autonomously)
 /// - RTC countdown timer configured for periodic wake

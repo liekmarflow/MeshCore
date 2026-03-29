@@ -239,7 +239,7 @@ public:
   float performTcCalibration(float* bme_temp_out = nullptr); ///< Calibrate NTC using BME280 as auto-reference
   static float readBmeTemperature();               ///< Read BME280 temperature directly via I2C
   
-  // Low-voltage alert methods (Rev 1.0 — INA228 ALERT on P1.02)
+  // Low-voltage alert methods (Rev 1.1 — INA228 ALERT on P1.02)
   void armLowVoltageAlert();    ///< Arm INA228 BUVL alert at lowv_sleep_mv (called on battery config)
   static void disarmLowVoltageAlert(); ///< Disarm INA228 BUVL alert and detach ISR
   static void lowVoltageAlertISR(); ///< ISR for INA228 ALERT pin — sets flag (checked in tickPeriodic)
