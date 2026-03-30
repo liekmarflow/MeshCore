@@ -17,17 +17,17 @@
 - [Siehe auch](#siehe-auch)
 
 > Diese Dokumentation beschreibt die Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
-> Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN an VDD, CE-Pin via DMN2004TK-7 FET (invertiert).
+> Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN via 3.3V_off-Schalter, CE-Pin via DMN2004TK-7 FET (invertiert).
 
 ---
 
 ## Überblick
 
-Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System-Off** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin FET-Safety** für maximale Energie-Effizienz:
+Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System Sleep mit GPIO-Latch** + **Coulomb Counter** + **tägliche Energiebilanz** + **CE-Pin FET-Safety** für maximale Energie-Effizienz:
 
 1. **INA228 ALERT ISR** (P1.02) - Low-Voltage-Erkennung via Hardware-Interrupt
-2. **System-Off** (~15µA) mit RTC-Wake - Minimaler Stromverbrauch bei Low-Voltage
-3. **CE-Pin FET-Safety** (DMN2004TK-7) - Invertierte Logik, Solar-Laden in System-Off möglich
+2. **System Sleep mit GPIO-Latch** (< 500µA) mit RTC-Wake - Minimaler Stromverbrauch bei Low-Voltage
+3. **CE-Pin FET-Safety** (DMN2004TK-7) - Invertierte Logik, Solar-Laden in System Sleep möglich
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
 6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
@@ -36,10 +36,10 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 
 | Funktion | Status | Hinweis |
 |---------|--------|---------|
-| INA228 ALERT → Low-Voltage System-Off | Aktiv | ISR auf P1.02 → Task-Notification → System-Off + RTC-Wake |
+| INA228 ALERT → Low-Voltage System Sleep | Aktiv | ISR auf P1.02 → Task-Notification → System Sleep mit GPIO-Latch + RTC-Wake |
 | RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 60 min (periodisch) |
-| BQ CE-Pin Safety (FET-invertiert) | Aktiv | HIGH=Laden an (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
-| System-Off mit gelatchtem CE | Aktiv | ~15µA, CE-Pin bleibt aktiv → Solar-Laden möglich |
+| BQ CE-Pin Safety (FET-invertiert) | Aktiv | GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
+| System Sleep mit gelatchtem CE | Aktiv | < 500µA, GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Solar-Laden möglich |
 | SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
 | SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
@@ -52,12 +52,13 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 ### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
 |------------|----------|-----|-----|---------|
+| **RAK4630** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa Transceiver |
 | **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ Shunt, 1.6A max, Coulomb Counter, BUVL Alert |
-| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown-Timer, Wake-up |
+| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-batteriespannungen)) |
-| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: HIGH=enable, ext. Pull-Up zu VSYS |
-| **TPS62840** | Buck Converter | - | EN←VDD (immer an) | 750mA, kein Software-UVLO-Cutoff |
-| **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 | N-FET, invertiert CE-Logik: GPIO HIGH → CE LOW → Laden an |
+| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
+| **TPS62840** | Buck Converter | - | EN via 3.3V_off-Schalter | 750mA, 3.3V Rail |
+| **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 (ext. Pull-Down) | N-FET, Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → Laden an. Pull-Down zieht Gate LOW wenn floating. |
 
 ---
 
@@ -82,12 +83,12 @@ tickPeriodic()  [Main-Loop-Kontext, nächster tick()]
         │ Prüft lowVoltageAlertFired == true
         ▼
 board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
-        │ CE HIGH (FET-invertiert: Laden bleibt aktiv in System-Off)
+        │ CE gelatcht HIGH (GPIO-Latch erhalten → FET ON → CE LOW → Laden bleibt AN)
         │ RTC-Wake konfiguriert (LOW_VOLTAGE_SLEEP_MINUTES = 60)
         │ SOC → 0%
         │ GPREGRET2 → LOW_VOLTAGE_SLEEP flag
         ▼
-sd_power_system_off() → System-Off (~15µA)
+sd_power_system_off() → System Sleep mit GPIO-Latch (< 500µA)
 ```
 
 ### Chemie-spezifische Schwellen (1-Level System, einheitliche 200mV Hysterese)
@@ -99,7 +100,7 @@ sd_power_system_off() → System-Off (~15µA)
 | **LTO 2S** | 3900 | 4100 | 200mV |
 
 **Implementierung**: `BoardConfigContainer` — `battery_properties[]` Lookup-Tabelle
-- `lowv_sleep_mv` → INA228 BUVL Alert-Schwelle, löst System-Off aus
+- `lowv_sleep_mv` → INA228 BUVL Alert-Schwelle, löst System Sleep aus
 - `lowv_wake_mv` → RTC-Wake-Schwelle (Early Boot prüft VBAT, entscheidet ob Boot oder erneut Sleep)
 - Statische Methoden: `getLowVoltageSleepThreshold(type)`, `getLowVoltageWakeThreshold(type)`
 
@@ -134,7 +135,6 @@ SOC_new = SOC_old + SOC_delta
 
 #### Konfiguration erforderlich
 Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark variiert:
-- **Typischer Bereich**: 4000-24000mAh (4-24Ah)
 - **CLI-Befehl**: `set board.batcap <mAh>`
 - **Erlaubter Bereich**: 100-100000mAh
 
@@ -156,7 +156,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 - **Validierung**: Range-Check 100-100000mAh
 
 **Persistenz-Eigenschaften**:
-- ✅ **Überlebt** Software-Shutdowns (System-Off)
+- ✅ **Überlebt** Software-Shutdowns (System Sleep)
 - ✅ **Überlebt** Power-Cycle und Low-Voltage-Recovery
 - ✅ **Überlebt** Power-Cycle
 - ✅ **Überlebt** Firmware-Update (LittleFS bleibt erhalten)
@@ -217,8 +217,8 @@ Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s I
 
 ### PFM Forward Mode
 
-- Permanent aktiviert (optimiert für 5-6V Panels)
-- PFM verbessert Effizienz bei niedrigen Strömen
+- Permanent aktiviert
+- PFM verbessert Effizienz bei niedrigen Solarströmen
 
 ### MPPT Recovery + PG-Stuck
 
@@ -444,10 +444,10 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
 
 ## 7. Energieverwaltungsablauf
 
-### Shutdown-Sequenz (Rev 1.1 — System-Off)
+### Shutdown-Sequenz (Rev 1.1 — System Sleep mit GPIO-Latch)
 **Methode**: `initiateShutdown()` in `InheroMr2Board.cpp`
 
-**Bei Low-Voltage → System-Off** (~15µA, CE-FET hält Zustand):
+**Bei Low-Voltage → System Sleep mit GPIO-Latch** (< 500µA, CE-FET hält Zustand):
 
 **Ablauf:** INA228 ALERT ISR → Flag → tickPeriodic() → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`:
 
@@ -457,12 +457,12 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
    
 2. **INA228 ALERT disarmen**: `BoardConfigContainer::disarmLowVoltageAlert()` → ISR detachen, BUVL deaktivieren
 
-3. **CE-Pin HIGH setzen** (FET-invertiert: HIGH = Laden aktiv):
-   - `digitalWrite(BQ_CE_PIN, HIGH)` → DMN2004TK-7 ON → CE an GND → Laden aktiv
-   - In System-Off werden alle GPIOs High-Z → FET OFF → ext. Pull-Up → CE HIGH → **Laden bleibt aktiv**
+3. **CE-Pin HIGH latchen** (GPIO-Output-Latch für P0.04 erhalten):
+   - `digitalWrite(BQ_CE_PIN, HIGH)` → DMN2004TK-7 ON → CE LOW → Laden aktiv
+   - P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Latch bleibt HIGH im System Sleep
+   - Ohne Latch: ext. Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
    
 4. **SX1262 Sleep**: `radio_driver.powerOff()` → `radio.sleep(false)` (Cold Sleep via SPI, ~0.16µA)
-   - MUSS vor PE4259-Abschaltung passieren — SPI braucht stabile Stromversorgung
 
 5. **PE4259 RF-Switch aus**: `digitalWrite(SX126X_POWER_EN, LOW)` (VDD abschalten)
    
@@ -472,20 +472,20 @@ Der ISR setzt nur das Flag, der Idle-Loop prüft es nach `__WFI()` Return.
    
 8. **Shutdown-Grund speichern**: `NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason`
    
-9. **BQ INT-Pin**: `detachInterrupt(BQ_INT_PIN)` — nicht als Interrupt genutzt (Polling), aber Safety-Detach vor System-Off
+9. **BQ INT-Pin**: `detachInterrupt(BQ_INT_PIN)` — nicht als Interrupt genutzt (Polling), aber Safety-Detach vor System Sleep
 
 10. **SOC auf 0% setzen**: `setSOCManually(0.0)` — SOC wird bei Recovery bei 0% starten
 
-11. **System-Off**: `sd_power_system_off()` → nRF52840 System-Off (~15µA)
-    - Alle GPIOs werden High-Z → CE-FET: GPIO High-Z → ext. Pull-Up → CE HIGH → **Laden aktiv**
+11. **System Sleep mit GPIO-Latch**: `sd_power_system_off()` → nRF52840 System-Off (< 500µA gesamt)
+    - GPIO4-Latch erhalten (von disconnectLeakyPullups ausgeschlossen) → FET bleibt ON → CE LOW → **Laden aktiv**
     - RAM-Inhalt geht verloren (168h-Statistiken, SOC, etc.)
     - RTC-Interrupt auf GPIO17 weckt System nach Timer-Ablauf
 
-**Warum System-Off?**
-- DMN2004TK-7 FET für CE-Pin → In System-Off floaten alle GPIOs → ext. Pull-Up → CE HIGH → Laden aktiv
-- System-Off: **~15µA** Gesamtverbrauch (nRF52840 System-Off + RTC + quiescent currents)
+**Warum System Sleep mit GPIO-Latch?**
+- DMN2004TK-7 FET für CE-Pin → GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Laden aktiv
+- Gesamtverbrauch: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
 
-**168h-Statistiken gehen bei System-Off verloren** — es existiert kein Persistenzmechanismus für die Ring-Buffer-Daten. Nach Recovery starten die Statistiken bei Null.
+**168h-Statistiken gehen bei System Sleep verloren** — es existiert kein Persistenzmechanismus für die Ring-Buffer-Daten. Nach Recovery starten die Statistiken bei Null.
 
 ### Wake-up-Check (Anti-Motorboating)
 **Methode**: `InheroMr2Board::begin()`
@@ -535,9 +535,9 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 
 **Anti-Motorboating**: Der Early-Boot-Check in `begin()` verhindert, dass das System bei knapper Spannung immer wieder bootet und sofort abstürzt. Erst wenn VBAT über `lowv_wake_mv` liegt, wird normal gebootet.
 
-**Stromverbrauch im System-Off (Low-Voltage Sleep)**:
-- **Gesamt: ~15µA** (nRF52840 System-Off + RTC + quiescent currents)
-- CE-FET: GPIO High-Z → ext. Pull-Up → CE HIGH → **Solar-Laden aktiv**
+**Stromverbrauch im System Sleep mit GPIO-Latch (Low-Voltage Sleep)**:
+- **Gesamt: < 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
+- CE-FET: GPIO4-Latch HIGH erhalten → FET ON → CE LOW → **Solar-Laden aktiv**
 
 ---
 
@@ -545,7 +545,7 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 
 ### Verdrahtung
 **Pin**: INA228 ALERT → P1.02 (nRF52840 GPIO, mit ext. Pull-Up)
-**TPS62840 EN**: An VDD gebunden (immer an) — kein Hardware-UVLO-Cutoff
+**TPS62840 EN**: Via 3.3V_off-Schalter geschaltet
 
 ### Funktionsweise
 Der ALERT-Pin wird als **Software-Interrupt** genutzt:
@@ -553,7 +553,7 @@ Der ALERT-Pin wird als **Software-Interrupt** genutzt:
 1. `armLowVoltageAlert()` konfiguriert INA228 BUVL (Bus Under-Voltage Limit) auf `lowv_sleep_mv`
 2. ALERT feuert als FALLING-Edge-Interrupt auf P1.02
 3. ISR (`lowVoltageAlertISR()`) setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
-4. `tickPeriodic()` prüft Flag im nächsten Main-Loop-Tick und ruft `initiateShutdown()` → System-Off
+4. `tickPeriodic()` prüft Flag im nächsten Main-Loop-Tick und ruft `initiateShutdown()` → System Sleep
 
 **Kein Latch-Problem**: Da der ALERT nicht an TPS62840 EN geht, gibt es kein latched-off-Verhalten.
 Das System kann nach RTC-Wake normal booten und die Spannung in `begin()` prüfen.
@@ -581,9 +581,9 @@ digitalWrite(SX126X_POWER_EN, LOW);  // VDD weg → PE4259 aus
 ```
 
 **Warum diese Reihenfolge?**
-- `radio.sleep(false)` sendet einen SPI-Befehl an den SX1262 → SPI braucht stabile Stromversorgung
+- `radio.sleep(false)` sendet einen SPI-Befehl an den SX1262 → sauberer Radio-Shutdown
 - PE4259 VDD (GPIO 37) versorgt den RF-Switch, NICHT den SX1262 direkt
-- Wenn PE4259 zuerst abgeschaltet wird, ist SPI noch möglich, aber der RF-Switch ist bereits aus
+- SPI wird über den nRF52840 3.3V Rail versorgt, nicht über PE4259
 - Sicherheitshalber: Erst SX1262 schlafen legen, dann PE4259 abschalten
 
 ### Boot-Sequenz (in `begin()`)
@@ -612,21 +612,22 @@ Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). We
 
 ### Hardware-Design (Rev 1.1 — FET-invertiert)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
-- **DMN2004TK-7 N-FET**: Gate ← GPIO4, Drain → CE, Source → GND
-- **Externer Pull-Up**: 10kΩ zu VSYS → CE HIGH = **Laden aktiv** (wenn FET OFF)
-- **GPIO HIGH** → FET ON → CE an GND → Laden aktiv (gleiche Wirkung wie Pull-Up)
-- **GPIO LOW** → FET OFF → ext. Pull-Up → CE HIGH → Laden aktiv
-- **GPIO High-Z** (System-Off) → FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
+- **DMN2004TK-7 N-FET**: Gate ← GPIO4 (ext. Pull-Down), Drain → CE, Source → GND
+- **Externer Pull-Down am Gate**: Zieht Gate LOW wenn GPIO floated → FET OFF
+- **Externer Pull-Up am CE**: 10kΩ zu VSYS → CE HIGH wenn FET OFF → **Laden AUS** (BQ25798 CE active-low)
+- **GPIO HIGH** → FET ON → CE an GND (LOW) → **Laden AN**
+- **GPIO LOW** → Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
+- **GPIO High-Z** (stromlos/Reset) → Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
 
-**Kernpunkt Rev 1.1**: Egal ob GPIO HIGH, LOW oder High-Z — CE ist immer HIGH → **Laden immer aktiv** (bei bekannter Chemie). Die FET-Schaltung stellt sicher, dass Solar-Laden auch in System-Off funktioniert.
+**Kernpunkt Rev 1.1**: Laden ist nur aktiv, wenn GPIO4 HIGH getrieben wird (durch Firmware oder GPIO-Output-Latch im System Sleep). Wenn der RAK stromlos oder ungeflasht ist, sorgt der externe Pull-Down für FET OFF → CE HIGH → **Laden deaktiviert** — ein bewusstes Safety-Feature.
 
 ### 3-Schicht-Sicherung (Rev 1.1)
 
 | Schicht | Ort | Mechanismus | Wann |
 |---|---|---|---|
-| **1. Hardware (passiv)** | Pull-Up + FET | CE HIGH wenn RAK stromlos (FET OFF, Pull-Up) → **Laden aktiv** | Immer |
-| **2. Early Boot** | `InheroMr2Board::begin()` | CE bleibt HIGH via Pull-Up, Laden noch nicht konfiguriert | Vor I2C-Init |
-| **3. Chemie-Konfiguration** | `configureChemistry()` | CE HIGH explizit (FET-invertiert) + I2C Register bei bekannter Chemie | Nach BQ25798-Konfiguration |
+| **1. Hardware (passiv)** | Pull-Down + Pull-Up | RAK stromlos → Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS** | Immer (Safety-Default) |
+| **2. Early Boot** | `InheroMr2Board::begin()` | GPIO4 noch nicht getrieben → FET OFF → CE HIGH → **Laden AUS** bis Firmware konfiguriert | Vor I2C-Init |
+| **3. Chemie-Konfiguration** | `configureChemistry()` | GPIO HIGH → FET ON → CE LOW → **Laden AN** + I2C Register bei bekannter Chemie | Nach BQ25798-Konfiguration |
 
 ### Dual-Layer Safety (Hardware + Software)
 
@@ -636,29 +637,31 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
   // Rev 1.1 FET-invertiert: HIGH → FET ON → CE LOW → Laden aktiv (BQ25798: CE active-low)
-  // Aber ext. Pull-Up → CE HIGH → Laden auch aktiv (BQ25798 CE ist active-low internally)
-  digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);  // HIGH=an, LOW=aus (FET-invertiert)
+  // FET OFF → Pull-Up am CE → CE HIGH → Laden deaktiviert (Safety-Default)
+  digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);  // HIGH=FET ON=CE LOW=Laden an
 #endif
 ```
 
 - `charge_enable` ist Teil der `BatteryProperties`-Tabelle
-- `BAT_UNKNOWN` → `charge_enable = false` → CE HIGH + Register disabled
-- Bekannte Chemie → `charge_enable = true` → CE LOW + Register enabled
+- `BAT_UNKNOWN` → `charge_enable = false` → GPIO LOW → FET OFF → CE HIGH → **Laden deaktiviert** + Register disabled
+- Bekannte Chemie → `charge_enable = true` → GPIO HIGH → FET ON → CE LOW → **Laden aktiviert** + Register enabled
 
-### Verhalten im System-Off (Rev 1.1)
+### Verhalten im System Sleep mit GPIO-Latch (Rev 1.1)
 
-In Rev 1.1 wird **System-Off** verwendet (via `initiateShutdown()`):
-- Alle GPIOs werden High-Z → DMN2004TK-7 FET OFF → ext. Pull-Up → CE HIGH → **Laden aktiv**
+In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown()`):
+- `digitalWrite(BQ_CE_PIN, HIGH)` wird vor System Sleep aufgerufen
+- P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Output-Latch bleibt HIGH
+- GPIO4 gelatcht HIGH → DMN2004TK-7 FET ON → CE LOW → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
-- Stromverbrauch: **~15µA** (nRF52840 System-Off + RTC + quiescent currents)
+- Stromverbrauch: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
 
 | Zustand | CE-Pin | Laden | Solar-Recovery |
 |---|---|---|---|
-| RAK stromlos (kein Akku) | HIGH (Pull-Up) | Aktiv (aber kein Akku) | N/A |
-| Early Boot | HIGH (Pull-Up) | Aktiv (BQ Default-Config) | Ja |
-| BAT_UNKNOWN | LOW (FET OFF, kein Pull-Up-Override) | Gesperrt (I2C Register) | Nein |
-| Chemie konfiguriert | HIGH (FET ON) | **Aktiv** | **Ja** |
-| System-Off (Low-Voltage) | HIGH (Pull-Up, FET OFF/High-Z) | **Aktiv** | **Ja** |
+| RAK stromlos (kein Akku) | HIGH (Pull-Up, FET OFF) | **Deaktiviert** (Safety-Default) | N/A |
+| Early Boot | HIGH (Pull-Up, GPIO nicht getrieben) | **Deaktiviert** (noch nicht konfiguriert) | Nein |
+| BAT_UNKNOWN | HIGH (GPIO LOW → FET OFF) | **Deaktiviert** (CE + I2C Register) | Nein |
+| Chemie konfiguriert | LOW (GPIO HIGH → FET ON) | **Aktiv** | **Ja** |
+| System Sleep (Low-Voltage) | LOW (GPIO-Latch HIGH → FET ON) | **Aktiv** | **Ja** |
 
 ---
 
@@ -666,7 +669,7 @@ In Rev 1.1 wird **System-Off** verwendet (via `initiateShutdown()`):
 
 ### Aktueller Stand
 
-Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System-Off oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
+Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System Sleep oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
 
 **Persistente Daten** (überleben Reboots via LittleFS):
 - Batterietyp (`batType`)
@@ -774,7 +777,7 @@ set board.soc <percent>     # SOC manuell setzen (0-100, INA228 muss bereit sein
 | Methode | Datei | Funktion |
 |---------|-------|----------|
 | `begin()` | InheroMr2Board.cpp | Board-Initialisierung, Wake-up-Check, Early-Boot Low-Voltage Check |
-| `initiateShutdown()` | InheroMr2Board.cpp | System-Off Shutdown (aufgerufen von tickPeriodic nach ALERT) |
+| `initiateShutdown()` | InheroMr2Board.cpp | System Sleep Shutdown (aufgerufen von tickPeriodic nach ALERT) |
 | `configureRTCWake()` | InheroMr2Board.cpp | RTC Countdown Timer |
 | `rtcInterruptHandler()` | InheroMr2Board.cpp | RTC INT ISR (setzt Flag) |
 | `queryBoardTelemetry()` | InheroMr2Board.cpp | CayenneLPP Telemetry Collection |
@@ -838,7 +841,7 @@ if (boardConfig.getIna228Driver() != nullptr) {
 
 ## Szenarien
 
-### Szenario A: Normale Entladung (Low-Voltage System-Off) - Li-Ion
+### Szenario A: Normale Entladung (Low-Voltage System Sleep) - Li-Ion
 ```
 t=0:      VBAT = 3.7V → Normal (60s checks, Coulomb Counter läuft)
           Daily balance: Today +150mAh SOLAR
@@ -850,18 +853,18 @@ t=+2h:    VBAT = 3.15V → INA228 ALERT feuert (< 3100mV lowv_sleep_mv)
           - lowVoltageAlertISR() → setzt lowVoltageAlertFired Flag
           - tickPeriodic() erkennt Flag im nächsten tick()
           - board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
-          - CE HIGH (FET-invertiert → Laden bleibt aktiv)
+          - CE gelatcht (GPIO4-Latch HIGH → FET ON → CE LOW → Laden aktiv)
           - RTC: Wake in 1h (LOW_VOLTAGE_SLEEP_MINUTES = 60)
           - SOC → 0%
-          - sd_power_system_off() → System-Off (~15µA)
+          - sd_power_system_off() → System Sleep mit GPIO-Latch (< 500µA)
           
 t=+3h:    RTC weckt → System bootet → Early Boot Check
           - Ina228Driver::readVBATDirect() → VBAT = 3.15V
-          - VBAT < lowv_wake_mv (3300mV) → sofort wieder System-Off
+          - VBAT < lowv_wake_mv (3300mV) → sofort wieder schlafen
           - configureRTCWake(60) + sd_power_system_off()
           
 t=+4h:    RTC weckt → System bootet → Early Boot Check
-          - VBAT = 3.20V → noch unter 3300mV → wieder System-Off
+          - VBAT = 3.20V → noch unter 3300mV → wieder schlafen
           
 t=+5h:    RTC weckt → System bootet → Early Boot Check
           - VBAT = 3.45V (Solar-Recovery!)
@@ -873,21 +876,21 @@ t=+5h:    RTC weckt → System bootet → Early Boot Check
 
 ### Szenario B: Kritische Entladung (Rev 1.1 — kein Hardware-UVLO)
 ```
-In Rev 1.1 gibt es kein Hardware-UVLO (TPS62840 EN an VDD, immer an).
-Der INA228 ALERT auf P1.02 dient als Software-Interrupt für System-Off.
+In Rev 1.1 gibt es kein Hardware-UVLO (TPS62840 EN via 3.3V_off-Schalter).
+Der INA228 ALERT auf P1.02 dient als Software-Interrupt für System Sleep.
 
 t=0:      VBAT = 3.15V → INA228 ALERT feuert
           - tickPeriodic() → initiateShutdown()
-          - System-Off (~15µA), CE aktiv, RTC-Wake 1h
+          - System Sleep mit GPIO-Latch (< 500µA), CE gelatcht LOW (Laden aktiv), RTC-Wake 1h
           
 t=+1h:    RTC-Wake → Early Boot → VBAT = 3.05V (noch unter 3300mV)
-          - Sofort wieder System-Off (CE bleibt aktiv → Solar-Laden möglich)
+          - Sofort wieder schlafen (CE bleibt gelatcht LOW → Solar-Laden möglich)
           
 t=+2h:    RTC-Wake → VBAT = 2.95V (weiter gesunken, kein Solar)
-          - Sofort wieder System-Off
-          - Board pendelt weiter mit ~15µA + stündlichem Boot (~0.03mAh)
+          - Sofort wieder schlafen
+          - Board pendelt weiter mit < 500µA + stündlichem Boot (~0.03mAh)
           
-t=+∞:     Bei ~15µA kann die Batterie monatelang überleben
+t=+∞:     Bei < 500µA kann die Batterie monatelang überleben
           - Sobald Solar verfügbar → VBAT steigt → normaler Boot bei >3300mV
           - KEIN Latching: System kann IMMER von selbst recovern
 ```
