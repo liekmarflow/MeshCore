@@ -24,7 +24,8 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 | **RTC** | RV-3028-C7 (wake-up timer) |
 | **Buck Converter** | TPS62840 (750 mA, always on) |
 | **System-Off Current** | ~15 µA |
-| **PCB Size** | ~42 × 38 mm (4 × M2.5 mounting holes) |
+| **PCB Size** | 45 × 40 mm |
+| **Mounting Holes** | 4× M2.5, Lochabstand 40 × 35 mm |
 | **Operating Temperature** | –40 °C to +85 °C (MCU spec) |
 
 ---
@@ -32,6 +33,8 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 ## PCB – Front Side (Component Side)
 
 ![Inhero MR2 Front](img/front.jpg)
+
+![Inhero MR2 Front – Annotated](img/front-annotated_.png)
 
 ### Component Map – Front
 
@@ -61,43 +64,57 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
   └──────────────────────────────────────────────────────┘
 ```
 
-### Components – Front Side
+### Connectors, Buttons & LEDs – Front Side
 
-| Nr. | Bezeichnung | Beschreibung |
-|-----|-------------|--------------|
-| 1 | **RAK4630** | Core-Modul: nRF52840 SoC + SX1262 LoRa-Transceiver |
-| 2 | **U.FL – BLE** | Antennenanschluss für Bluetooth Low Energy (links oben am RAK4630) |
-| 3 | **U.FL – LoRa** | Antennenanschluss für LoRa Sub-GHz (rechts oben am RAK4630) |
-| 4 | **USB-C** | USB-Schnittstelle für Stromversorgung, Firmware-Flash und CLI-Zugang |
-| 5 | **BME280** | Umweltsensor (Temperatur, Luftfeuchtigkeit, Luftdruck) – I2C, oben rechts (Markierung „38P UP") |
-| 6 | **SS34** | Schottky-Diode (3A, 40V) – Verpolungsschutz / Sperrdiode |
-| 7 | **LED1** | Status-LED 1 – Heartbeat / Boot-Indikator (rechte Seite) |
-| 8 | **LED2** | Status-LED 2 – BQ25798 STAT-Ausgang / Ladezustand (rechte Seite) |
-| 9 | **J8** | Stecker / Anschluss (linke Seite) |
-| 10 | **R100** | 100 mΩ Shunt-Widerstand für INA228 Strommessung (max. 1,6 A) |
-| 11 | **BQ25798** | Akku-Laderegler mit MPPT, JEITA-Temperaturschutz und 15-Bit-ADC (I2C: 0x6B) |
-| 12 | **INA228** | Power Monitor / Coulomb Counter mit ALERT-Interrupt (I2C: 0x40, ALERT → P1.02) |
-| 13 | **TPS62840** | DC/DC Buck Converter, 750 mA, EN an VDD (immer aktiv) |
-| 14 | **DMN2004TK-7** | N-FET für BQ CE-Pin (invertierte Logik: GPIO HIGH = Laden aktiv) |
-| 15 | **C222 (220 µF / 25 V)** | Elektrolytkondensator – Pufferung des Solareingangs (SM534-Bauform) |
-| 16 | **3.3V_OFF (Schalter)** | Schiebeschalter zum Trennen der 3,3 V-Versorgung (Board-Abschaltung) |
-| 17 | **Battery/Solar Connector** | 5-poliger JST-Stecker (unten) – Pinout: **Batt+**, **Batt−**, **TS**, **Solar+**, **Solar−** |
+| Label (→ Bild) | Bezeichnung | Beschreibung |
+|----------------|-------------|--------------|
+| **Ble-Conn** | U.FL – BLE | Antennenanschluss für Bluetooth Low Energy (links oben am RAK4630) |
+| **LoRa-Conn** | U.FL – LoRa | Antennenanschluss für LoRa Sub-GHz (links mittig am RAK4630) |
+| **USB-C** | USB-C Port | USB-Schnittstelle für Stromversorgung, Firmware-Flash und CLI-Zugang (rechts oben) |
+| **Reset** | Reset-Taster | Taster zum Neustart des nRF52840 (rechts, unterhalb USB-C) |
+| **Led 1+2** | Status-LEDs | LED1 = Heartbeat / Boot-Indikator, LED2 = BQ25798 STAT (rechte Seite, übereinander) |
+| **Chrg. Led** | Charge-LED | Lade-Status-LED (rechts unten, neben Solar-Connector) |
+| **3.3V off** | Power-Schalter | Schiebeschalter zum Trennen der 3,3 V-Versorgung (links unten) |
+| **Bat-Conn** (JST PH2.0-3P) | Battery-Connector | 3-poliger JST PH2.0 Stecker: **Batt+**, **Batt−**, **TS** (unten links) |
+| **Solar-Conn** (JST PH2.0-2P) | Solar-Connector | 2-poliger JST PH2.0 Stecker: **Solar+**, **Solar−** (unten rechts) |
+| **Ø 2.5mm** | Montagebohrungen | 4× M2.5 Befestigungslöcher in den Ecken |
 
-### Steckerbelegung – Battery/Solar Connector (von links nach rechts)
+### Key Components – Front Side
+
+| Bauteil | Bezeichnung | Beschreibung |
+|---------|-------------|--------------|
+| **RAK4630** | Core-Modul | nRF52840 SoC + SX1262 LoRa-Transceiver (Mitte, mit Abschirmung) |
+| **BME280** | Umweltsensor | Temperatur, Luftfeuchtigkeit, Luftdruck – I2C (rechts, Markierung „38P UP") |
+| **SS34** | Schottky-Diode | 3 A / 40 V – Verpolungsschutz / Sperrdiode |
+| **R100** | Shunt-Widerstand | 100 mΩ für INA228 Strommessung (max. 1,6 A) |
+| **BQ25798** | Akku-Laderegler | MPPT, JEITA-Temperaturschutz, 15-Bit-ADC (I2C: 0x6B) |
+| **INA228** | Power Monitor | Coulomb Counter mit ALERT-Interrupt (I2C: 0x40, ALERT → P1.02) |
+| **TPS62840** | Buck Converter | DC/DC, 750 mA, EN an VDD (immer aktiv) |
+| **DMN2004TK-7** | CE-FET | N-FET für BQ CE-Pin (invertierte Logik: GPIO HIGH = Laden aktiv) |
+| **C222** | Elektrolytkondensator | 220 µF / 25 V – Pufferung Solareingang (SM534-Bauform) |
+
+### Steckerbelegung – Battery Connector (JST PH2.0-3P, von links nach rechts)
 
 | Pin | Signal | Beschreibung |
 |-----|--------|-------------|
 | 1 | **Batt +** | Batterie-Pluspol |
 | 2 | **Batt −** | Batterie-Minuspol (GND) |
 | 3 | **TS** | Temperatursensor (NTC) für JEITA-Ladeschutz |
-| 4 | **Solar +** | Solarpanel-Pluspol (3,6 V – 24 V, max. Voc 25 V) |
-| 5 | **Solar −** | Solarpanel-Minuspol (GND) |
+
+### Steckerbelegung – Solar Connector (JST PH2.0-2P, von links nach rechts)
+
+| Pin | Signal | Beschreibung |
+|-----|--------|-------------|
+| 1 | **Solar +** | Solarpanel-Pluspol (3,6 V – 24 V, max. Voc 25 V) |
+| 2 | **Solar −** | Solarpanel-Minuspol (GND) |
 
 ---
 
 ## PCB – Back Side (Rückseite)
 
 ![Inhero MR2 Back](img/back.jpg)
+
+![Inhero MR2 Back – Annotated](img/back-annotated_.png)
 
 ### Component Map – Back
 
@@ -131,7 +148,7 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 
 ### Header & Pads – Back Side
 
-#### Header Row 1 – UART / I2C (obere Reihe, Castellated Pads)
+#### UART/Ic2 – Header Row 1 (obere Reihe, Castellated Pads)
 
 | Pin | Signal | Beschreibung |
 |-----|--------|-------------|
@@ -142,7 +159,7 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 | 5 | **SCL** | I2C Clock |
 | 6 | **3.3V** | 3,3 V Ausgang |
 
-#### Header Row 2 – SWD / Debug (untere Reihe, Castellated Pads)
+#### SWD – Header Row 2 (untere Reihe, Castellated Pads)
 
 | Pin | Signal | Beschreibung |
 |-----|--------|-------------|
@@ -152,15 +169,11 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 | 4 | **SWDIO** | SWD Data (Debug-Interface) |
 | 5 | **3.3V** | 3,3 V Ausgang |
 
-#### TS Solder Bridge (unten rechts)
+#### Solder-Bridge – Onboard Temperature Sensor (unten rechts)
 
-| Element | Beschreibung |
-|---------|-------------|
-| **TS Solder Bridge** | Lötbrücke für den Onboard-NTC-Temperatursensor. **Geschlossen** = Onboard-NTC aktiv (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Offen** = externer NTC über TS-Pin des Battery-Connectors. |
-
-#### Mounting Holes
-
-4× M2.5 Montagebohrungen in den Ecken der Platine.
+| Label (→ Bild) | Beschreibung |
+|----------------|-------------|
+| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC über TS-Pin des Battery-Connectors. |
 
 ---
 
