@@ -1,5 +1,7 @@
 # Inhero MR-2
 
+![Inhero MR2](img/front.jpg)
+
 > 🇩🇪 [Deutsche Version](de/README.md)
 
 ## Table of Contents
@@ -20,23 +22,24 @@ The Inhero MR-2 is the second generation mesh repeater with improved power manag
 **Key Features:**
 - INA228 Power Monitor with Coulomb Counter + ALERT interrupt on P1.02
 - RV-3028-C7 RTC for wake-up management
-- TPS62840 Buck Converter (EN tied to VDD — always on)
+- TPS62840 Buck Converter (EN via 3.3V_off switch)
 - BQ25798 Battery Charger with MPPT
 - BQ CE pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (inverted logic: HIGH=charging on)
+- USB-C charging via SS34 Schottky diode to BQ25798 VBUS input (same input as solar)
 
 ## Current Feature Matrix
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| INA228 ALERT → Low-Voltage System-Off | Active | ISR on P1.02 → Task Notification → System-Off + RTC Wake |
+| INA228 ALERT → Low-Voltage System Sleep | Active | ISR on P1.02 → Task Notification → System Sleep with GPIO latch + RTC Wake |
 | RTC Wakeup (Low-Voltage Recovery) | Active | 60 min (periodic) |
-| BQ CE Pin Safety (FET-inverted) | Active | HIGH=charging on (via DMN2004TK-7), Dual-Layer: GPIO + I2C |
-| System-Off with latched CE | Active | ~15µA, CE pin remains active → solar charging possible |
+| BQ CE Pin Safety (FET-inverted) | Active | GPIO HIGH → FET ON → CE LOW → charge ON (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
+| System Sleep with latched CE | Active | < 500µA, GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging possible |
 | SOC 0% after Low-Voltage Recovery | Active | SOC initialized to 0% on recovery, auto-sync on "Charging Done" |
 | SOC via INA228 + manual battery capacity | Active | `set board.batcap` available |
 | SOC→Li-Ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
 | MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
-| PFM Forward Mode | Permanently active | Always enabled (optimized for 5-6V panels) |
+| PFM Forward Mode | Permanently active | Always enabled (improves efficiency at low solar currents) |
 
 ## Power Management Features
 
@@ -45,21 +48,24 @@ The Inhero MR-2 is the second generation mesh repeater with improved power manag
 1. **INA228 ALERT** fires at `lowv_sleep_mv` (hardware interrupt on P1.02)
 2. **ISR** sets `lowVoltageAlertFired = true` (volatile flag only, no FreeRTOS call)
 3. **`tickPeriodic()`** (main loop, next `tick()`) checks flag → shutdown:
-   - CE pin → HIGH (charging on, since FET-inverted — solar charging remains possible)
+   - CE pin → HIGH (FET ON → CE LOW → charging active)
+   - P0.04 excluded from `disconnectLeakyPullups()` → GPIO latch preserved in sleep
    - RTC wake configured (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
    - SOC set to 0%
-   - `sd_power_system_off()` → **System-Off** (~15µA)
+   - `sd_power_system_off()` → **System Sleep with GPIO latch** (< 500µA)
 4. **RTC Wake** (hourly) → system boots, early-boot checks VBAT:
-   - Below `lowv_wake_mv` → immediately back to System-Off (CE remains latched)
+   - Below `lowv_wake_mv` → immediately back to System Sleep (CE remains latched LOW)
    - Above `lowv_wake_mv` → normal boot, SOC starts at 0%
 
 > **Note**: All I2C operations (MPPT, SOC, Hourly Stats) run in main loop context
 > via `tickPeriodic()` — no FreeRTOS tasks for I2C, no mutex needed.
 
 ### BQ CE Pin (Rev 1.1 — FET-inverted)
-- **DMN2004TK-7 N-FET**: GPIO HIGH → FET ON → CE to GND → charging active
-- **GPIO LOW** → FET OFF → CE floats → ext. pull-up → CE HIGH → charging blocked
-- **Advantage**: In System-Off (all GPIOs High-Z) CE floats → ext. pull-up → CE HIGH → **charging remains active** → solar recovery possible
+- **DMN2004TK-7 N-FET**: Gate ← GPIO4 (ext. pull-down), Drain → CE, Source → GND
+- **GPIO HIGH** → FET ON → CE LOW → **charging ON** (BQ25798 CE active-low)
+- **GPIO LOW / High-Z** → ext. pull-down on gate → FET OFF → pull-up on CE → CE HIGH → **charging OFF**
+- **System Sleep**: GPIO4 latch preserved HIGH (excluded from `disconnectLeakyPullups()`) → FET ON → CE LOW → **solar charging active**
+- **Safety default**: RAK unpowered/unflashed → pull-down on gate → FET OFF → CE HIGH → **charging disabled**
 - **Dual-Layer**: CE pin (hardware FET) + `setChargeEnable()` (I2C register)
 
 ### Voltage Thresholds (all chemistries)
@@ -70,12 +76,12 @@ The Inhero MR-2 is the second generation mesh repeater with improved power manag
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
 
-- **lowv_sleep_mv**: INA228 ALERT threshold → triggers System-Off
+- **lowv_sleep_mv**: INA228 ALERT threshold → triggers System Sleep with GPIO latch
 - **lowv_wake_mv**: RTC wake threshold → boot only when VBAT is above, also 0% SOC marker
 
-### System-Off Power Consumption
-- **~15µA** total consumption (nRF52840 System-Off + RTC + quiescent currents)
-- CE pin remains active via FET circuit → solar charging possible
+### System Sleep Power Consumption
+- **< 500µA** total consumption (nRF52840 System-Off + RTC + quiescent currents of all components)
+- GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging active
 
 ### Coulomb Counter & SOC Tracking
 - **Real-time SOC tracking** via INA228 (±0.1% accuracy)

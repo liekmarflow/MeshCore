@@ -42,12 +42,14 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Versorgungsspannung** | 1S Li-Ion / 1S LiFePO4 / 2S LTO (per Firmware konfigurierbar) |
 | **Solareingang** | 3,6 V – 24 V (MPPT) |
 | **Max. Solar-Voc** | 25 V |
+| **USB-Laden** | 5 V über USB-C (SS34-Diode auf VBUS-BQ, gleicher Ladepfad wie Solar) |
 | **Laderegler** | BQ25798 (MPPT, JEITA) |
 | **Max. Ladestrom** | 50 – 1500 mA (konfigurierbar) |
 | **Leistungsmonitor** | INA228 (Coulomb Counter, ALERT) |
 | **RTC** | RV-3028-C7 (Zeitbasis/Aufweck-Timer) |
 | **Buck Converter** | TPS62840 (3.3V-Rail, max. 750 mA) |
 | **System-Off-Strom** | via 3.3V off Switch ~15 µA |
+| **System-Sleep-Strom** | < 500 µA (Firmware-Sleep mit GPIO-Latch, CE aktiv, RTC-Wake) |
 | **Platinengröße** | 45 × 40 mm |
 | **Montagebohrungen** | 4× M2.5, Lochabstand 40 × 35 mm |
 | **Betriebstemperatur** | –40 °C bis +85 °C (MCU-Spezifikation) |
@@ -67,7 +69,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 |----------------|-------------|--------------|
 | **Ble-Conn** | U.FL – BLE | Antennenanschluss für Bluetooth Low Energy (links oben am RAK4630) |
 | **LoRa-Conn** | U.FL – LoRa | Antennenanschluss für LoRa Sub-GHz (links mittig am RAK4630) |
-| **USB-C** | USB-C-Anschluss | USB-Schnittstelle für Stromversorgung, Firmware-Flash und CLI-Zugang (rechts oben) |
+| **USB-C** | USB-C-Anschluss | USB-Schnittstelle für Stromversorgung, Laden, Firmware-Flash und CLI-Zugang (rechts oben). CC1/CC2 über 4,7 kΩ auf GND (USB-Sink). VBUS-USB ist über SS34-Schottky-Diode mit VBUS-BQ (Solareingang) verbunden — USB-Strom speist denselben Charger-Eingang wie das Solarpanel. |
 | **Reset** | Reset-Taster | Einfachklick: Neustart des nRF52840. Doppelklick: USB-Mass-Storage-Mode für UF2-Firmware-Updates (rechts, unterhalb USB-C) |
 | **Led 1+2** | Status-LEDs | LED1 + LED2 = RAK4630 User-LEDs (Heartbeat / Boot-Indikator, rechte Seite, übereinander) |
 | **Chrg. Led** | Lade-LED | BQ25798 STAT-Ausgang – zeigt Ladezustand an (rechts unten, neben Solar-Connector) |
@@ -100,6 +102,12 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 |-----|--------|-------------|
 | 1 | **Solar +** | Solarpanel-Pluspol (3,6 V – 24 V, max. Voc 25 V) |
 | 2 | **Solar −** | Solarpanel-Minuspol (GND) |
+
+### USB-Ladepfad
+
+USB-C VBUS ist über eine **SS34-Schottky-Diode** mit dem BQ25798-VBUS-Eingang (derselbe einzelne Eingang wie Solar) verbunden. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar. CC1 und CC2 sind über 4,7 kΩ Widerstände auf GND gezogen und melden das Board als USB-Power-Sink (5 V Standard). Die SS34-Diode verhindert einen Rückfluss vom Solarpanel zum USB-Bus, allerdings **kann** Strom von USB-VBUS über den Solarstecker abfließen.
+
+> **⚠ Warnung:** Da VBUS-USB und VBUS-BQ (Solareingang) über die SS34-Diode verbunden sind, führt ein **Kurzschluss am Solarstecker** auch zum Kurzschluss von VBUS-USB. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 
 ---
 

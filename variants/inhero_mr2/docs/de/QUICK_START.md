@@ -13,7 +13,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Nie ohne Antenne betreiben, sonst Gefahr fuer das RF-Frontend.
 
 ## 3) Akku anschliessen
-- Ein Ladestand >90% wird empfohlen, damit die SOC-Berechnung stabil startet.
+- Ein Ladestand >90% wird empfohlen, damit der Akku per USB voll geladen werden kann und damit die SOC-Berechnung stabil startet.
 
 ## 4) Repeater per USB konfigurieren
 - Repeater per USB-Kabel mit dem Rechner verbinden.
@@ -98,13 +98,19 @@ Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
-- Typische Panels sind 5V oder 6V (MPP darunter).
 - Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung hoehere Akkuspannungen laden.
 - 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
 - Wattklasse: mindestens 1W, typisch 2W.
-- Bei 1W-Panels wird eine Akkukapazitaet von >7Ah empfohlen.
+- Bei 1W-Panels wird eine Akkukapazitaet von >9Ah empfohlen.
 - Gilt nur bei Suedausrichtung, vertikaler Montage und unverschattetem Standort.
 - Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazitaet fuer "Winterueberleben" erhoehen.
+
+## USB-Laden
+- Das Board kann auch ueber USB-C (5V) geladen werden.
+- USB-C VBUS wird ueber eine **SS34-Schottky-Diode** auf den BQ25798 VBUS-Eingang gefuehrt — derselbe einzelne Eingang wie das Solarpanel. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar.
+- Die SS34-Diode verhindert einen Rueckfluss vom Solarpanel zum USB-Bus. Allerdings **kann** Strom von USB-VBUS ueber den Solarstecker abfliessen.
+- CC1/CC2 sind ueber 4,7kΩ auf GND gezogen (USB-Sink, 5V Standard).
+- **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (via SS34-Diode), fuehrt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschliessen, waehrend USB angeschlossen ist.
 
 ## Spannungsschwellen je Akkuchemie
 Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
@@ -116,8 +122,8 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 | LTO 2S | 3900 | 4100 | 200mV |
 
 ## Verhalten bei Low-Voltage
-- **Low-Voltage System-Off:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware setzt CE HIGH (Laden bleibt aktiv über FET-Schaltung), konfiguriert den RTC-Wake-Timer und geht in System-Off (~15µA). Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
-- **Solar-Recovery:** Im System-Off bleibt der CE-Pin über den DMN2004TK-7 FET aktiv (GPIO High-Z → ext. Pull-Up → CE HIGH → Laden an). Solar-Laden läuft autonom weiter bis die Batterie über `lowv_wake_mv` geladen ist.
+- **Low-Voltage System Sleep:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware latcht CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → Laden aktiv), konfiguriert den RTC-Wake-Timer und geht in System Sleep mit GPIO-Latch (< 500µA). P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen, damit der GPIO-Latch HIGH bleibt. Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
+- **Solar-Recovery:** Im System Sleep bleibt der GPIO4-Latch HIGH erhalten → DMN2004TK-7 FET ON → CE LOW → Laden aktiv. Solar-Laden läuft autonom weiter bis die Batterie über `lowv_wake_mv` geladen ist. Ohne GPIO-Latch (RAK stromlos): ext. Pull-Down am Gate → FET OFF → CE HIGH → Laden AUS (Safety-Default).
 
 ## CLI-Beispiele (kompakt)
 ```bash

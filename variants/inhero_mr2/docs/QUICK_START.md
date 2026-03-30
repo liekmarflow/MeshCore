@@ -106,6 +106,13 @@ Note: `set board.fmax` has no effect on LTO (JEITA disabled).
 - This applies only with south-facing, vertical mounting, and an unshaded location.
 - In worse solar conditions, either use 2W or increase battery capacity for "winter survival".
 
+## USB Charging
+- The board can also be charged via USB-C (5V).
+- USB-C VBUS is routed to the BQ25798 VBUS input via an **SS34 Schottky diode** — the same single input as the solar panel. The BQ25798 has only one VBUS input and does not distinguish between USB and solar.
+- The SS34 diode prevents backflow from the solar panel to the USB bus. However, current **can** flow from USB-VBUS out through the solar connector.
+- CC1/CC2 are pulled to GND via 4.7kΩ (USB sink, 5V default).
+- **⚠ Warning:** Since VBUS-USB and VBUS-BQ share the same bus (via SS34 diode), a **short circuit on the solar connector will also short VBUS-USB**. Never short-circuit the solar input while USB is connected.
+
 ## Voltage Thresholds per Battery Chemistry
 Thresholds are optimized for maximum lifespan and stable operation.
 
@@ -116,8 +123,8 @@ Thresholds are optimized for maximum lifespan and stable operation.
 | LTO 2S | 3900 | 4100 | 200mV |
 
 ## Low-Voltage Behavior
-- **Low-Voltage System-Off:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware sets CE HIGH (charging remains active via FET circuit), configures the RTC wake timer, and enters System-Off (~15µA). Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
-- **Solar Recovery:** In System-Off, the CE pin remains active via the DMN2004TK-7 FET (GPIO High-Z → ext. pull-up → CE HIGH → charging on). Solar charging continues autonomously until the battery charges above `lowv_wake_mv`.
+- **Low-Voltage System Sleep:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware latches CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → charging active), configures the RTC wake timer, and enters System Sleep with GPIO latch (< 500µA). P0.04 is excluded from `disconnectLeakyPullups()` so the GPIO latch stays HIGH. Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
+- **Solar Recovery:** In System Sleep, GPIO4 latch is preserved HIGH → DMN2004TK-7 FET ON → CE LOW → charging active. Solar charging continues autonomously until the battery charges above `lowv_wake_mv`. Without GPIO latch (RAK unpowered): ext. pull-down on gate → FET OFF → CE HIGH → charging OFF (safety default).
 
 ## CLI Examples (Compact)
 ```bash

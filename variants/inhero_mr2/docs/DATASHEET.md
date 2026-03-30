@@ -42,12 +42,14 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Supply Voltage** | 1S Li-Ion / 1S LiFePO4 / 2S LTO (via firmware config) |
 | **Solar Input** | 3.6 V – 24 V (MPPT) |
 | **Max. Solar Voc** | 25 V |
+| **USB Charging** | 5 V via USB-C (SS34 diode to VBUS-BQ, same charger path as solar) |
 | **Charger** | BQ25798 (MPPT, JEITA) |
 | **Max. Charge Current** | 50 – 1500 mA (configurable) |
 | **Power Monitor** | INA228 (Coulomb Counter, ALERT) |
 | **RTC** | RV-3028-C7 (time base / wake-up timer) |
 | **Buck Converter** | TPS62840 (3.3 V rail, max. 750 mA) |
 | **System-Off Current** | via 3.3V off switch ~15 µA |
+| **System Sleep Current** | < 500 µA (firmware sleep with GPIO latch, CE active, RTC wake) |
 | **PCB Size** | 45 × 40 mm |
 | **Mounting Holes** | 4× M2.5, hole spacing 40 × 35 mm |
 | **Operating Temperature** | –40 °C to +85 °C (MCU spec) |
@@ -67,7 +69,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 |-----------------|------|-------------|
 | **Ble-Conn** | U.FL – BLE | Antenna connector for Bluetooth Low Energy (top left on RAK4630) |
 | **LoRa-Conn** | U.FL – LoRa | Antenna connector for LoRa Sub-GHz (left center on RAK4630) |
-| **USB-C** | USB-C Port | USB interface for power supply, firmware flashing and CLI access (top right) |
+| **USB-C** | USB-C Port | USB interface for power supply, charging, firmware flashing and CLI access (top right). CC1/CC2 pulled to GND via 4.7 kΩ (USB sink). VBUS-USB is connected to VBUS-BQ (solar input) via SS34 Schottky diode — USB power feeds the same charger input as the solar panel. |
 | **Reset** | Reset Button | Single click: reset the nRF52840. Double click: enter USB mass storage mode for UF2 firmware updates (right side, below USB-C) |
 | **Led 1+2** | Status LEDs | LED1 + LED2 = RAK4630 user LEDs (heartbeat / boot indicator, right side, stacked) |
 | **Chrg. Led** | Charge LED | BQ25798 STAT output – indicates charge status (bottom right, next to solar connector) |
@@ -100,6 +102,12 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 |-----|--------|-------------|
 | 1 | **Solar +** | Solar panel positive (3.6 V – 24 V, max. Voc 25 V) |
 | 2 | **Solar −** | Solar panel negative (GND) |
+
+### USB Charging Path
+
+USB-C VBUS is connected to the BQ25798 VBUS input (same single input as solar) via an **SS34 Schottky diode**. The BQ25798 has only one VBUS input and does not distinguish between USB and solar. CC1 and CC2 are pulled to GND via 4.7 kΩ resistors, advertising the board as a USB power sink (5 V default). The SS34 diode prevents backflow from the solar panel to the USB bus, but current **can** flow from USB-VBUS out through the solar connector.
+
+> **⚠ Warning:** Since VBUS-USB and VBUS-BQ (solar input) are connected via the SS34 diode, a **short circuit on the solar connector** will also short VBUS-USB. Never short-circuit the solar input while USB is connected.
 
 ---
 
