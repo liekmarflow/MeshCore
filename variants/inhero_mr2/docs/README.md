@@ -1,6 +1,6 @@
 # Inhero MR-2
 
-![Inhero MR2](img/front.jpg)
+<img src="img/front.jpg" alt="Inhero MR2" width="400">
 
 > 🇩🇪 [Deutsche Version](de/README.md)
 
