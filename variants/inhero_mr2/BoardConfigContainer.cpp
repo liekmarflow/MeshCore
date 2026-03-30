@@ -979,6 +979,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setTsIgnore(false);
   bq.setWDT(BQ25798_WDT_DISABLE);
   bq.setInputLimitA(1);
+  bq.setICOEnable(false);  // Disable ICO — IINDPM is explicitly managed, ICO must not overwrite it
 
   bq.setVOCdelay(BQ25798_VOC_DLY_2S);
   bq.setVOCrate(BQ25798_VOC_RATE_2MIN);
@@ -1184,14 +1185,52 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
   return true;
 }
 
-/// @brief Sets maximum charge current
+/// @brief Sets maximum charge current and adjusts input current limit accordingly
 /// @param maxChrgI Maximum charge current in mA
 /// @return true if successful
+/// @details Dynamically calculates IINDPM from ICHG and battery charge voltage:
+///          IINDPM = (ICHG × V_charge) / (V_BUS_min × η) with 10% headroom.
+///          Clamped to [0.5A, 3.3A]. Ensures requested ICHG is actually achievable.
 bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
   prefs.putInt(MAXCHARGECURRENTKEY, maxChrgI);
-  return bq.setChargeLimitA(maxChrgI / 1000.0f);
+
+  // Calculate required IINDPM from requested ICHG and battery chemistry
+  // Formula: I_IN = (I_CHG × V_CHG) / (V_BUS_min × η)
+  // V_BUS_min = 4.5V (USB spec minimum), η = 0.9 (BQ25798 typical)
+  const float V_BUS_MIN = 4.5f;
+  const float ETA = 0.9f;
+  const float HEADROOM = 1.1f;  // 10% headroom for transients
+
+  const BatteryProperties* props = getBatteryProperties(getBatteryType());
+  float v_charge = props ? props->charge_voltage : 4.2f;  // Fallback to Li-Ion
+
+  float iindpm_required = (maxChrgI / 1000.0f * v_charge * HEADROOM) / (V_BUS_MIN * ETA);
+
+  // Clamp to BQ25798 safe range: min 0.5A (prevent brownout), max 3.3A (register limit)
+  if (iindpm_required < 0.5f) iindpm_required = 0.5f;
+  if (iindpm_required > 3.3f) iindpm_required = 3.3f;
+
+  bq.setICOEnable(false);
+  bq.setInputLimitA(iindpm_required);
+
+  bool ok = bq.setChargeLimitA(maxChrgI / 1000.0f);
+
+  // Readback verification — detect silent I2C failures
+  float readback = bq.getChargeLimitA();
+  uint16_t readback_mA = (uint16_t)(readback * 1000.0f + 0.5f);
+  float iindpm_readback = bq.getInputLimitA();
+  uint16_t iindpm_mA = (uint16_t)(iindpm_readback * 1000.0f + 0.5f);
+
+  MESH_DEBUG_PRINTLN("ICHG: set=%dmA, readback=%dmA, IINDPM=%dmA (required=%.0fmA), ok=%d",
+                     maxChrgI, readback_mA, iindpm_mA, iindpm_required * 1000.0f, ok);
+
+  if (readback_mA != maxChrgI) {
+    MESH_DEBUG_PRINTLN("WARNING: ICHG readback mismatch! Expected %d, got %d", maxChrgI, readback_mA);
+  }
+
+  return ok;
 }
 
 /// @brief Calculates 7-day moving average of MPPT enabled percentage
