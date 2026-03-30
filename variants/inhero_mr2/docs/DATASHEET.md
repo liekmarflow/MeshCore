@@ -3,11 +3,35 @@
 > **Inhero MR2 – Smart Solar Mesh Board**
 > Hardware Revision 1.1
 
+> 🇩🇪 [Deutsche Version](de/DATASHEET.md)
+
 ---
 
 ## Board Overview
 
-The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nRF52840 + SX1262) with integrated smart solar charging, power monitoring, and low-voltage protection.
+The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nRF52840 + SX1262) with integrated smart solar charging, power monitoring, and low-voltage protection. Supported battery configurations are 1S Li-Ion, 1S LiFePO4, and 2S LTO. The board was specifically designed for autonomous long-term deployment at remote or hard-to-reach locations. In Central Europe, uninterrupted continuous repeater operation is possible with unshaded solar panels ≥ 1 W and battery capacities ≥ 9 Ah.
+
+The charge and discharge cutoff voltages (see table [Supported Battery Chemistries](#supported-battery-chemistries)) are chosen to avoid excessive stress on the batteries during summer while ensuring that sleep mode can be reliably initiated when energy is low.
+
+In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage has risen above the respective low-V wake threshold (see table [Supported Battery Chemistries](#supported-battery-chemistries)) through solar charging, the board boots normally. The 200 mV hysteresis between sleep and wake thresholds prevents motorboating – an uncontrolled, rapid on/off cycling of the system that would occur if the sleep and wake thresholds were too close together.
+
+### Safety & Protection Features
+
+| Feature | Description |
+|---------|-------------|
+| **Watchdog Timer (WDT)** | nRF52840 hardware watchdog. Automatically reboots the board if the firmware hangs – essential for unattended long-term operation. |
+| **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled system-off with RTC wake. Solar charging remains active during sleep (CE pin latched). |
+| **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
+| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO. |
+
+### Solar Power Management
+
+| Feature | Description |
+|---------|-------------|
+| **MPPT (Maximum Power Point Tracking)** | The BQ25798 optimizes solar harvesting via MPPT (VOC_PCT = 81.25%, matched for crystalline silicon solar cells). Automatic recovery on power-good loss and stuck-PGOOD detection with HIZ toggle. |
+| **PFM Forward Mode** | Permanently enabled – improves efficiency at low solar currents. |
+
+### Specifications
 
 | Parameter | Value |
 |---|---|
@@ -21,12 +45,13 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 | **Charger** | BQ25798 (MPPT, JEITA) |
 | **Max. Charge Current** | 50 – 1500 mA (configurable) |
 | **Power Monitor** | INA228 (Coulomb Counter, ALERT) |
-| **RTC** | RV-3028-C7 (wake-up timer) |
-| **Buck Converter** | TPS62840 (750 mA, always on) |
-| **System-Off Current** | ~15 µA |
+| **RTC** | RV-3028-C7 (time base / wake-up timer) |
+| **Buck Converter** | TPS62840 (3.3 V rail, max. 750 mA) |
+| **System-Off Current** | via 3.3V off switch ~15 µA |
 | **PCB Size** | 45 × 40 mm |
-| **Mounting Holes** | 4× M2.5, Lochabstand 40 × 35 mm |
+| **Mounting Holes** | 4× M2.5, hole spacing 40 × 35 mm |
 | **Operating Temperature** | –40 °C to +85 °C (MCU spec) |
+| **Bootloader** | Adafruit nRF52 OTA-Fix Bootloader (factory-installed), UF2-capable |
 
 ---
 
@@ -36,209 +61,146 @@ The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nR
 
 ![Inhero MR2 Front – Annotated](img/front-annotated_.png)
 
-### Component Map – Front
-
-```
-  ┌──────────────────────────────────────────────────────┐
-  │  (BLE)              RAK4630            (LoRa)        │
-  │   ○                 Module               ○       ┌──┤ ← USB-C
-  │  U.FL            ┌──────────┐          U.FL      └──┤
-  │                   │ RAK4630  │                       │
-  │                   │ nRF52840 │                       │
-  │                   │ +SX1262  │              BME280   │
-  │                   └──────────┘                       │
-  │                                    SS34       LED1 ○ │
-  │  ┌──┐                                        LED2 ○ │
-  │  │J8│                    ICs                         │
-  │  └──┘              (BQ25798 etc.)                    │
-  │                                                      │
-  │  R100                                                │
-  │ (Shunt)           TPS62840                  C222     │
-  │                                            (Elko)    │
-  │  3.3V_OFF                                   220µF    │
-  │  (Schalter)                                 25V      │
-  │             ┌──┬──┬──┬──┬──┐                         │
-  │             │B+│B-│TS│S+│S-│                         │
-  │             └──┴──┴──┴──┴──┘                         │
-  │              Battery / Solar Connector                │
-  └──────────────────────────────────────────────────────┘
-```
-
 ### Connectors, Buttons & LEDs – Front Side
 
-| Label (→ Bild) | Bezeichnung | Beschreibung |
-|----------------|-------------|--------------|
-| **Ble-Conn** | U.FL – BLE | Antennenanschluss für Bluetooth Low Energy (links oben am RAK4630) |
-| **LoRa-Conn** | U.FL – LoRa | Antennenanschluss für LoRa Sub-GHz (links mittig am RAK4630) |
-| **USB-C** | USB-C Port | USB-Schnittstelle für Stromversorgung, Firmware-Flash und CLI-Zugang (rechts oben) |
-| **Reset** | Reset-Taster | Taster zum Neustart des nRF52840 (rechts, unterhalb USB-C) |
-| **Led 1+2** | Status-LEDs | LED1 = Heartbeat / Boot-Indikator, LED2 = BQ25798 STAT (rechte Seite, übereinander) |
-| **Chrg. Led** | Charge-LED | Lade-Status-LED (rechts unten, neben Solar-Connector) |
-| **3.3V off** | Power-Schalter | Schiebeschalter zum Trennen der 3,3 V-Versorgung (links unten) |
-| **Bat-Conn** (JST PH2.0-3P) | Battery-Connector | 3-poliger JST PH2.0 Stecker: **Batt+**, **Batt−**, **TS** (unten links) |
-| **Solar-Conn** (JST PH2.0-2P) | Solar-Connector | 2-poliger JST PH2.0 Stecker: **Solar+**, **Solar−** (unten rechts) |
-| **Ø 2.5mm** | Montagebohrungen | 4× M2.5 Befestigungslöcher in den Ecken |
+| Label (→ image) | Name | Description |
+|-----------------|------|-------------|
+| **Ble-Conn** | U.FL – BLE | Antenna connector for Bluetooth Low Energy (top left on RAK4630) |
+| **LoRa-Conn** | U.FL – LoRa | Antenna connector for LoRa Sub-GHz (left center on RAK4630) |
+| **USB-C** | USB-C Port | USB interface for power supply, firmware flashing and CLI access (top right) |
+| **Reset** | Reset Button | Single click: reset the nRF52840. Double click: enter USB mass storage mode for UF2 firmware updates (right side, below USB-C) |
+| **Led 1+2** | Status LEDs | LED1 + LED2 = RAK4630 user LEDs (heartbeat / boot indicator, right side, stacked) |
+| **Chrg. Led** | Charge LED | BQ25798 STAT output – indicates charge status (bottom right, next to solar connector) |
+| **3.3V off** | Power Switch | Slide switch to disconnect the 3.3 V supply (bottom left). **⚠ Caution: Inverted logic!** Switch position "ON" = EN pin low = board **off**. Switch position "OFF" = EN pin high = board **on**. |
+| **Bat-Conn** (JST PH2.0-3P) | Battery Connector | 3-pin JST PH2.0 connector: **Batt+**, **Batt−**, **TS** (bottom left) |
+| **Solar-Conn** (JST PH2.0-2P) | Solar Connector | 2-pin JST PH2.0 connector: **Solar+**, **Solar−** (bottom right) |
+| **Ø 2.5mm** | Mounting Holes | 4× M2.5 mounting holes in the corners |
 
 ### Key Components – Front Side
 
-| Bauteil | Bezeichnung | Beschreibung |
-|---------|-------------|--------------|
-| **RAK4630** | Core-Modul | nRF52840 SoC + SX1262 LoRa-Transceiver (Mitte, mit Abschirmung) |
-| **BME280** | Umweltsensor | Temperatur, Luftfeuchtigkeit, Luftdruck – I2C (rechts, Markierung „38P UP") |
-| **SS34** | Schottky-Diode | 3 A / 40 V – Verpolungsschutz / Sperrdiode |
-| **R100** | Shunt-Widerstand | 100 mΩ für INA228 Strommessung (max. 1,6 A) |
-| **BQ25798** | Akku-Laderegler | MPPT, JEITA-Temperaturschutz, 15-Bit-ADC (I2C: 0x6B) |
-| **INA228** | Power Monitor | Coulomb Counter mit ALERT-Interrupt (I2C: 0x40, ALERT → P1.02) |
-| **TPS62840** | Buck Converter | DC/DC, 750 mA, EN an VDD (immer aktiv) |
-| **DMN2004TK-7** | CE-FET | N-FET für BQ CE-Pin (invertierte Logik: GPIO HIGH = Laden aktiv) |
-| **C222** | Elektrolytkondensator | 220 µF / 25 V – Pufferung Solareingang (SM534-Bauform) |
+| Component | Name | Description |
+|-----------|------|-------------|
+| **RAK4630** | Core Module | nRF52840 SoC + SX1262 LoRa transceiver (center, shielded) |
+| **BME280** | Environmental Sensor | Temperature, humidity, pressure |
+| **BQ25798** | Battery Charger | MPPT, JEITA temperature protection, 15-bit ADC |
+| **INA228** | Power Monitor | Coulomb counter with ALERT interrupt |
+| **TPS62840** | Buck Converter | DC/DC, 750 mA, EN switched via 3.3V off switch |
 
-### Steckerbelegung – Battery Connector (JST PH2.0-3P, von links nach rechts)
+### Pinout – Battery Connector (JST PH2.0-3P, left to right)
 
-| Pin | Signal | Beschreibung |
+| Pin | Signal | Description |
 |-----|--------|-------------|
-| 1 | **Batt +** | Batterie-Pluspol |
-| 2 | **Batt −** | Batterie-Minuspol (GND) |
-| 3 | **TS** | Temperatursensor (NTC) für JEITA-Ladeschutz |
+| 1 | **Batt +** | Battery positive terminal |
+| 2 | **Batt −** | Battery negative terminal (GND) |
+| 3 | **TS** | Temperature sensor (NTC) for JEITA charge protection. Required type: NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) or compatible |
 
-### Steckerbelegung – Solar Connector (JST PH2.0-2P, von links nach rechts)
+### Pinout – Solar Connector (JST PH2.0-2P, left to right)
 
-| Pin | Signal | Beschreibung |
+| Pin | Signal | Description |
 |-----|--------|-------------|
-| 1 | **Solar +** | Solarpanel-Pluspol (3,6 V – 24 V, max. Voc 25 V) |
-| 2 | **Solar −** | Solarpanel-Minuspol (GND) |
+| 1 | **Solar +** | Solar panel positive (3.6 V – 24 V, max. Voc 25 V) |
+| 2 | **Solar −** | Solar panel negative (GND) |
 
 ---
 
-## PCB – Back Side (Rückseite)
+## PCB – Back Side
 
 ![Inhero MR2 Back](img/back.jpg)
 
 ![Inhero MR2 Back – Annotated](img/back-annotated_.png)
 
-### Component Map – Back
+### Headers & Pads – Back Side
 
-```
-  ┌──────────────────────────────────────────────────────┐
-  │  Rev. 1.1                                    QR Code │
-  │                                                      │
-  │  ○ (M2.5)       Header Row 1             ○ (M2.5)   │
-  │          GND  RX  TX  SDA  SCL  3.3V                 │
-  │           ●    ●   ●    ●    ●    ●                  │
-  │                                                      │
-  │          RESET GND SWCLK SWDIO 3.3V                  │
-  │           ●    ●    ●     ●     ●                    │
-  │              Header Row 2 (SWD/Debug)                │
-  │                                                      │
-  │            Inhero  MR2                               │
-  │         Smart Solar Mesh Board                       │
-  │                                                      │
-  │  ┌────────────────────────────────────┐              │
-  │  │  🔋 1S-LiFePO4 / Li-Ion           │    QR Code   │
-  │  │     2S-LTO                         │              │
-  │  │     via Firmware →                 │              │
-  │  │  ☀  3.6V – 24V (MPPT)            │              │
-  │  └────────────────────────────────────┘              │
-  │                                                      │
-  │  ○ (M2.5)                             ○ (M2.5)      │
-  │             Close for Onboard →  (○)                 │
-  │           Bat Temperature Sensor (TS)                │
-  └──────────────────────────────────────────────────────┘
-```
+#### UART/I2C – Header Row 1 (top row, castellated pads)
 
-### Header & Pads – Back Side
-
-#### UART/Ic2 – Header Row 1 (obere Reihe, Castellated Pads)
-
-| Pin | Signal | Beschreibung |
+| Pin | Signal | Description |
 |-----|--------|-------------|
-| 1 | **GND** | Masse |
+| 1 | **GND** | Ground |
 | 2 | **RX** | UART Receive |
 | 3 | **TX** | UART Transmit |
 | 4 | **SDA** | I2C Data |
 | 5 | **SCL** | I2C Clock |
-| 6 | **3.3V** | 3,3 V Ausgang |
+| 6 | **3.3V** | 3.3 V output (max. 500 mA, shared with board consumption) |
 
-#### SWD – Header Row 2 (untere Reihe, Castellated Pads)
+#### SWD – Header Row 2 (bottom row, castellated pads)
 
-| Pin | Signal | Beschreibung |
+| Pin | Signal | Description |
 |-----|--------|-------------|
 | 1 | **RESET** | nRF52840 Reset |
-| 2 | **GND** | Masse |
-| 3 | **SWCLK** | SWD Clock (Debug-Interface) |
-| 4 | **SWDIO** | SWD Data (Debug-Interface) |
-| 5 | **3.3V** | 3,3 V Ausgang |
+| 2 | **GND** | Ground |
+| 3 | **SWCLK** | SWD Clock (debug interface) |
+| 4 | **SWDIO** | SWD Data (debug interface) |
+| 5 | **3.3V** | 3.3 V output (max. 500 mA, shared with board consumption) |
 
-#### Solder-Bridge – Onboard Temperature Sensor (unten rechts)
+#### Solder Bridge – Onboard Temperature Sensor (bottom right)
 
-| Label (→ Bild) | Beschreibung |
-|----------------|-------------|
-| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC über TS-Pin des Battery-Connectors. |
+| Label (→ image) | Description |
+|-----------------|-------------|
+| **Solder-Bridge** (close for onboard Temp-Sensor) | Solder bridge for the onboard NTC temperature sensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Closed** = onboard NTC active. **Open** = external NTC of type NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) or compatible required via TS pin on the battery connector. |
 
 ---
 
-## I2C Bus – Adressübersicht
+## I2C Bus – Address Map
 
-| Adresse | Bauteil | Funktion |
-|---------|---------|----------|
+| Address | Component | Function |
+|---------|-----------|----------|
 | 0x40 | INA228 | Power Monitor / Coulomb Counter |
-| 0x52 | RV-3028-C7 | Echtzeituhr (RTC) |
-| 0x6B | BQ25798 | Akku-Laderegler (MPPT, JEITA) |
-| 0x76/0x77 | BME280 | Umweltsensor (T, H, P) |
+| 0x52 | RV-3028-C7 | Real-Time Clock (RTC) |
+| 0x6B | BQ25798 | Battery Charger (MPPT, JEITA) |
+| 0x76/0x77 | BME280 | Environmental Sensor (T, H, P) |
 
 ---
 
-## Pin-Zuordnung (Key GPIOs)
+## Pin Assignment (Key GPIOs)
 
-| GPIO | nRF52840 Pin | Funktion |
+| GPIO | nRF52840 Pin | Function |
 |------|-------------|----------|
-| P0.04 | WB_IO4 | BQ CE Pin (via DMN2004TK-7 N-FET, invertiert) |
-| P1.02 | — | INA228 ALERT (Low-Voltage Interrupt) |
-| GPIO17 | WB_IO1 | RV-3028 RTC Interrupt |
+| P0.04 | WB_IO4 | BQ CE pin (via DMN2004TK-7 N-FET, inverted) |
+| P1.02 | — | INA228 ALERT (low-voltage interrupt) |
+| GPIO17 | WB_IO1 | RV-3028 RTC interrupt |
 | GPIO21 | — | BQ25798 INT |
-| P1.05 | — | PE4259 RF Switch VDD (SX126X Power Enable) |
 
 ---
 
 ## Supported Battery Chemistries
 
-| Typ | Nennspannung | Ladeendspannung | Low-V Sleep | Low-V Wake | Hysterese |
-|-----|-------------|----------------|-------------|------------|-----------|
-| **Li-Ion 1S** | 3,7 V | 4,2 V | 3100 mV | 3300 mV | 200 mV |
-| **LiFePO4 1S** | 3,2 V | 3,6 V | 2700 mV | 2900 mV | 200 mV |
-| **LTO 2S** | 4,6 V (2× 2,3 V) | 5,6 V | 3900 mV | 4100 mV | 200 mV |
+| Type | Nominal Voltage | Charge Voltage | Low-V Sleep | Low-V Wake | Hysteresis |
+|------|----------------|----------------|-------------|------------|------------|
+| **Li-Ion 1S** | 3.7 V | 4.2 V | 3100 mV | 3300 mV | 200 mV |
+| **LiFePO4 1S** | 3.2 V | 3.6 V | 2700 mV | 2900 mV | 200 mV |
+| **LTO 2S** | 4.6 V (2× 2.3 V) | 5.6 V | 3900 mV | 4100 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 ---
 
 ## Firmware Environments
 
-| Build Target | Beschreibung |
+| Build Target | Description |
 |---|---|
-| `Inhero_MR2_repeater` | Standard-Repeater |
-| `Inhero_MR2_repeater_bridge_rs232` | Repeater mit RS232-Brücke (Serial2 auf P0.19/P0.20) |
+| `Inhero_MR2_repeater` | Standard repeater |
+| `Inhero_MR2_repeater_bridge_rs232` | Repeater with RS232 bridge (Serial2 on P0.19/P0.20) |
 | `Inhero_MR2_room_server` | Room Server |
-| `Inhero_MR2_companion_radio_usb` | Companion Radio (USB, extra Filesystem) |
+| `Inhero_MR2_companion_radio_usb` | Companion Radio (USB, extra filesystem) |
 | `Inhero_MR2_terminal_chat` | Terminal Chat |
-| `Inhero_MR2_sensor` | Sensor-Firmware |
+| `Inhero_MR2_sensor` | Sensor firmware |
 | `Inhero_MR2_kiss_modem` | KISS Modem |
 
 ---
 
 ## Absolute Maximum Ratings
 
-| Parameter | Min | Max | Einheit |
+| Parameter | Min | Max | Unit |
 |---|---|---|---|
-| Solar-Eingangsspannung (Voc) | — | 25 | V |
-| Ladestrom (konfigurierbar) | 50 | 1500 | mA |
-| Shunt-Strom (INA228, 100 mΩ) | — | 1600 | mA |
-| Umgebungstemperatur (Betrieb) | –40 | +85 | °C |
+| Solar input voltage (Voc) | — | 25 | V |
+| Charge current (configurable) | 50 | 1500 | mA |
+| Shunt current (INA228, 100 mΩ) | — | 1600 | mA |
+| Ambient temperature (operating) | –40 | +85 | °C |
 
 ---
 
 ## See Also
 
-- [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose
-- [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – Alle board-spezifischen CLI-Kommandos
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Vollständige technische Dokumentation
+- [README.md](README.md) – Overview, feature matrix and diagnostics
+- [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – All board-specific CLI commands at a glance
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Complete technical documentation
