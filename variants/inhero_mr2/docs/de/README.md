@@ -16,16 +16,17 @@
 
 ## Übersicht
 
-Das Inhero MR-2 ist die zweite Generation des Mesh-Repeaters mit verbessertem Power-Management.
+Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4 sowie LTO und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget“-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
-- INA228 Power Monitor mit Coulomb Counter + ALERT-Interrupt auf P1.02
-- RV-3028-C7 RTC für Wake-up Management
-- TPS62840 Buck Converter (EN via 3.3V_off-Schalter)
-- BQ25798 Battery Charger mit MPPT
-- BQ CE-Pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (invertierte Logik: HIGH=Laden an)
-- USB-C-Laden via SS34-Schottky-Diode auf BQ25798 VBUS-Eingang (gleicher Eingang wie Solar)
+- **Core:** Basierend auf RAK4630 (nRF52840 + SX1262).
+- **Power-Path:** BQ25798 Buck/Boost Charger. Ermöglicht Energiegewinnung auch dann, wenn die Solarspannung unter der Akkuspannung liegt (wichtig für Schwachlicht-Phasen).
+- **High-Efficiency Rail:** 3.3V-Rail via TPS62840 für maximale Effizienz.
+- **Robustes Monitoring:** INA228 Coulomb-Counter für präzises SOC-Tracking (essenziell für LiFePO4-Chemie) und Langzeit-Energiestatistiken.
+- **Universeller Solareingang:** 3.6V – 24V mit autonomem MPPT-Tracking und integriertem Schutz gegen „Stuck-States“ (Hardware-Watchdog-Logik).
+- **Umweltsensorik & Zeit:** Integrierter BME280 und RV-3028 RTC für autonomes Wake-up Management und präzise Zeitbasis.
+- **Formfaktor:** Nur 45 × 40 mm – optimiert für unauffällige Gehäuse und geringe mechanische Belastung.
 
 ## Aktuelle Feature-Matrix
 

@@ -16,16 +16,17 @@
 
 ## Overview
 
-The Inhero MR-2 is the second generation mesh repeater with improved power management.
+The Inhero MR-2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4 and LTO batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
-- INA228 Power Monitor with Coulomb Counter + ALERT interrupt on P1.02
-- RV-3028-C7 RTC for wake-up management
-- TPS62840 Buck Converter (EN via 3.3V_off switch)
-- BQ25798 Battery Charger with MPPT
-- BQ CE pin (P0.04/WB_IO4) via DMN2004TK-7 N-FET (inverted logic: HIGH=charging on)
-- USB-C charging via SS34 Schottky diode to BQ25798 VBUS input (same input as solar)
+- **Core:** Based on RAK4630 (nRF52840 + SX1262).
+- **Power Path:** BQ25798 Buck/Boost Charger. Enables energy harvesting even when solar voltage is below battery voltage (critical for low-light conditions).
+- **High-Efficiency Rail:** 3.3V rail via TPS62840 for maximum efficiency.
+- **Robust Monitoring:** INA228 Coulomb Counter for precise SOC tracking (essential for LiFePO4 chemistry) and long-term energy statistics.
+- **Universal Solar Input:** 3.6V – 24V with autonomous MPPT tracking and integrated protection against "stuck states" (hardware watchdog logic).
+- **Environmental Sensing & Timekeeping:** Integrated BME280 and RV-3028 RTC for autonomous wake-up management and precise time base.
+- **Form Factor:** Only 45 × 40 mm – optimized for low-profile enclosures and minimal mechanical stress.
 
 ## Current Feature Matrix
 
