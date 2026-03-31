@@ -12,6 +12,7 @@
 - [Firmware-Build](#firmware-build)
 - [CLI-Befehle](#cli-befehle)
 - [Diagnose & Fehlersuche](#diagnose--fehlersuche)
+- [Regulatorische Hinweise & CE-Konformität](#regulatorische-hinweise--ce-konformität-red-201453eu)
 - [Siehe auch](#siehe-auch)
 
 ## Übersicht
@@ -279,6 +280,34 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
    - Lösung: `checkAndFixSolarLogic()` reaktiviert MPPT bei PG=1
 2. **PG-Stuck bei Sonnenaufgang**: VBUS steigt langsam, BQ qualifiziert die Quelle nicht
    - Lösung: `checkAndFixSolarLogic()` toggled HIZ bei VBUS ≥ 4.5V + PG=0 (5min Cooldown)
+
+## Regulatorische Hinweise & CE-Konformität (RED 2014/53/EU)
+
+Das Inhero MR-2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware wurde durch ein akkreditiertes Prüflabor auf Konformität gemäß der europäischen Funkanlagenrichtlinie (RED 2014/53/EU) getestet. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+
+**Vorgaben für den gesetzeskonformen Betrieb der Funk-Firmware:**
+Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss sichergestellt werden, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) zwingend eingehalten werden:
+
+1. **Standard LoRa (868 MHz Band):**
+   * Frequenzbereich: 865,0 – 868,6 MHz
+   * Max. abgestrahlte Sendeleistung (ERP): 25 mW (14 dBm)
+   * Max. Duty Cycle: 1 % (oder LBT+AFA gemäß EN 300 220)
+   * *Hinweis: Im Sub-Band 863,0 – 865,0 MHz gelten abweichende Duty-Cycle-Anforderungen gemäß ERC/REC 70-03.*
+
+2. **High-Power LoRa (Sonderbereich 869,5 MHz):**
+   * Frequenzbereich: 869,40 – 869,65 MHz (MeshCore Standard-Kanal)
+   * Max. abgestrahlte Sendeleistung (ERP): **500 mW (27 dBm)**
+   * Max. Duty Cycle: 10 %
+   * *Hinweis zur Hardware:* Der verbaute LoRa-Transceiver (SX1262) liefert eine maximale leitungsgebundene Sendeleistung von 22 dBm. Um das gesetzliche Limit von 500 mW ERP (entspricht 29,15 dBm EIRP) vollständig auszuschöpfen, ist die Verwendung einer entsprechenden Antenne mit einem Antennengewinn von ca. +7 dBi erforderlich (abzüglich etwaiger Kabelverluste). Mit der mitgelieferten FPCB-Antenne (0,7 dBi) werden max. ca. 114 mW ERP erreicht.
+
+3. **Bluetooth Low Energy (2,4 GHz):**
+   * Max. abgestrahlte Sendeleistung (EIRP): 100 mW (20 dBm)
+
+**Antennen & Verantwortung des Betreibers (EIRP/ERP Limit):**
+Der Anwender ist verpflichtet, die konfigurierte Sendeleistung (TX Power) im Chip und den Antennengewinn aufeinander abzustimmen. Wird eine Antenne verwendet, deren Gewinn in Kombination mit der eingestellten Sendeleistung die oben genannten gesetzlichen EIRP/ERP-Limits überschreitet, muss die Sendeleistung softwareseitig zwingend reduziert werden.
+
+**Haftungsausschluss:**
+Das Inhero MR-2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Werden durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration die gesetzlichen Parameter außerhalb der EU-Normen betrieben, erlischt die CE-Konformität des Geräts. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
 
 ## Siehe auch
 

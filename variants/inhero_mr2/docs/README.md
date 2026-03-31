@@ -12,6 +12,7 @@
 - [Firmware Build](#firmware-build)
 - [CLI Commands](#cli-commands)
 - [Diagnostics & Troubleshooting](#diagnostics--troubleshooting)
+- [Regulatory Notes & CE Compliance](#regulatory-notes--ce-compliance-red-201453eu)
 - [See Also](#see-also)
 
 ## Overview
@@ -279,6 +280,34 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
    - Solution: `checkAndFixSolarLogic()` re-enables MPPT on PG=1
 2. **PG stuck at sunrise**: VBUS rises slowly, BQ fails to qualify the source
    - Solution: `checkAndFixSolarLogic()` toggles HIZ when VBUS ≥ 4.5V + PG=0 (5min cooldown)
+
+## Regulatory Notes & CE Compliance (RED 2014/53/EU)
+
+The Inhero MR-2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware has been tested for compliance with the European Radio Equipment Directive (RED 2014/53/EU) by an accredited test laboratory. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
+
+**Requirements for legally compliant operation of radio firmware:**
+Since the final transmission characteristics (TX power, frequency, duty cycle) are largely determined by the software installed by the user (e.g. MeshCore) and the chosen antenna, the following European limits (per EN 300 220 and EN 300 328, ERC/REC 70-03 Annex 1) must be strictly observed:
+
+1. **Standard LoRa (868 MHz band):**
+   * Frequency range: 865.0 – 868.6 MHz
+   * Max. radiated TX power (ERP): 25 mW (14 dBm)
+   * Max. duty cycle: 1% (or LBT+AFA per EN 300 220)
+   * *Note: Different duty cycle requirements per ERC/REC 70-03 apply in the 863.0 – 865.0 MHz sub-band.*
+
+2. **High-Power LoRa (special band 869.5 MHz):**
+   * Frequency range: 869.40 – 869.65 MHz (MeshCore default channel)
+   * Max. radiated TX power (ERP): **500 mW (27 dBm)**
+   * Max. duty cycle: 10%
+   * *Hardware note:* The onboard LoRa transceiver (SX1262) provides a maximum conducted TX power of 22 dBm. To fully utilize the legal limit of 500 mW ERP (equivalent to 29.15 dBm EIRP), an antenna with a gain of approx. +7 dBi is required (minus any cable losses). With the included FPCB antenna (0.7 dBi), max. approx. 114 mW ERP is achieved.
+
+3. **Bluetooth Low Energy (2.4 GHz):**
+   * Max. radiated TX power (EIRP): 100 mW (20 dBm)
+
+**Antennas & operator responsibility (EIRP/ERP limit):**
+The user is obligated to match the configured TX power in the chip with the antenna gain. If an antenna is used whose gain, in combination with the configured TX power, exceeds the legal EIRP/ERP limits stated above, the TX power must be reduced in software.
+
+**Disclaimer:**
+The Inhero MR-2 is a module intended for professional developers and qualified users. If the legal parameters are operated outside EU norms due to the choice of firmware, antenna, or manual configuration, the CE compliance of the device is void. In this case, all legal responsibility for operation transfers to the integrator or end user.
 
 ## See Also
 
