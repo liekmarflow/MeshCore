@@ -28,7 +28,7 @@
 #include <Arduino.h>
 
 // Solar MPPT polling interval (no interrupt — pure polling)
-#define SOLAR_MPPT_TASK_INTERVAL_MS (1 * 60 * 1000)  // 1 minute
+#define SOLAR_MPPT_INTERVAL_MS (1 * 60 * 1000)  // 1 minute
 
 // MPPT Statistics tracking for 7-day moving average
 #define MPPT_STATS_HOURS 168  // 7 days * 24 hours
@@ -278,7 +278,6 @@ private:
 
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
-  bool configureSolarOnlyInterrupts();
   float performTcCalibration(float actual_temp_c); ///< Internal: calibrate NTC given reference temp (called by BME auto-cal)
   static constexpr const char* PREFS_NAMESPACE = "inheromr2";
   static constexpr const char* BATTKEY = "batType";
@@ -303,5 +302,4 @@ private:
   static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
   static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
   static void calculateTTL();    ///< Calculate TTL from 7-day avg net deficit and remaining SOC capacity
-  static float estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type);
 };

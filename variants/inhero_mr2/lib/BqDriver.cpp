@@ -90,48 +90,6 @@ bq25798_charging_status BqDriver::getChargingStatus() {
   return (bq25798_charging_status)reg_value;
 }
 
-/// @brief Configures interrupt masks to only trigger on Power Good changes (solar events)
-/// @return true if all mask registers configured successfully
-bool BqDriver::configureSolarOnlyInterrupts() {
-  Adafruit_BusIO_Register mask0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_0);
-  if (!mask0.write(0xF7)) return false;
-
-  Adafruit_BusIO_Register mask1 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_1);
-  if (!mask1.write(0xFF)) return false;
-
-  Adafruit_BusIO_Register mask2 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_2);
-  if (!mask2.write(0xFF)) return false;
-
-  Adafruit_BusIO_Register mask3 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_MASK_3);
-  if (!mask3.write(0xFF)) return false;
-
-  // 5. Fault Mask 0 (0x2C) - Mask everything (0xFF)
-  Adafruit_BusIO_Register fault0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_FAULT_MASK_0);
-  if (!fault0.write(0xFF)) return false;
-
-  // 6. Fault Mask 1 (0x2D) - Mask everything (0xFF)
-  Adafruit_BusIO_Register fault1 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_FAULT_MASK_1);
-  if (!fault1.write(0xFF)) return false;
-
-  // 7. Clear existing interrupts ("Flush")
-  // We read Charger Flag 0 (0x22) where PG_FLAG resides.
-  // Reading resets the INT pin on the chip back to HIGH.
-  Adafruit_BusIO_Register flag0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_FLAG_0);
-  uint8_t dummy;
-  flag0.read(&dummy); // Dummy Read zum Clearen
-
-  return true;
-}
-
-/// @brief Checks and clears Power Good flag register
-/// @return true if PG_FLAG bit is set
-bool BqDriver::checkAndClearPgFlag() {
-  Adafruit_BusIO_Register flag0 = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_FLAG_0);
-  uint8_t val;
-  if (!flag0.read(&val)) { return false; }
-  return (val & 0x08);
-}
-
 /// @brief Reads solar and temperature telemetry via BQ25798 ADC one-shot
 ///
 /// BQ25798 ADC Operating Conditions (Datasheet SLUSE22, Section 9.3.16):
@@ -539,73 +497,7 @@ bool BqDriver::setADCEnabled(bool enabled) {
   return ok;
 }
 
-bool BqDriver::getADCRate() {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_rate_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 6);
-  return (bool)adc_rate_bits.read();
-}
-
-bool BqDriver::setADCRate(bool oneshot) {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_rate_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 6);
-  return adc_rate_bits.write((uint8_t)oneshot);
-}
-
-bq25798_adc_sample_t BqDriver::getADCSample() {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_sample_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 2, 4);
-  return (bq25798_adc_sample_t)adc_sample_bits.read();
-}
-
-bool BqDriver::setADCSample(bq25798_adc_sample_t sample) {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_sample_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 2, 4);
-  return adc_sample_bits.write((uint8_t)sample);
-}
-
-bool BqDriver::getADCAvg() {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_avg_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 3);
-  return (bool)adc_avg_bits.read();
-}
-
-bool BqDriver::setADCAvg(bool avg) {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_avg_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 3);
-  return adc_avg_bits.write((uint8_t)avg);
-}
-
-bool BqDriver::getADCAvgInit() {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_avg_init_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 2);
-  return (bool)adc_avg_init_bits.read();
-}
-
-bool BqDriver::setADCAvgInit(bool init) {
-  Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_RegisterBits adc_avg_init_bits = Adafruit_BusIO_RegisterBits(&adc_ctrl_reg, 1, 2);
-  return adc_avg_init_bits.write((uint8_t)init);
-}
-
-// ADC Function Disable 0 register (0x2F) implementations
-bool BqDriver::getIBUSADCDisable() {
-  Adafruit_BusIO_Register disable0_reg =
-      Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_FUNCTION_DISABLE_0);
-  Adafruit_BusIO_RegisterBits ibus_dis_bits = Adafruit_BusIO_RegisterBits(&disable0_reg, 1, 7);
-  return (bool)ibus_dis_bits.read();
-}
-
-bool BqDriver::setIBUSADCDisable(bool disable) {
-  Adafruit_BusIO_Register disable0_reg =
-      Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_FUNCTION_DISABLE_0);
-  Adafruit_BusIO_RegisterBits ibus_dis_bits = Adafruit_BusIO_RegisterBits(&disable0_reg, 1, 7);
-  return ibus_dis_bits.write((uint8_t)disable);
-}
-
-// ADC Function Disable 1 (0x30): Bit 7: DP, 6: DM, 5: VAC2, 4: VAC1
-// Implement similarly.
-
-// ADC Reading implementations (e.g. getIBUS() - signed float in A)
+// ADC Reading implementations
 int16_t BqDriver::getIBUS() {
   Adafruit_BusIO_Register ibus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
   uint16_t raw;
@@ -625,16 +517,6 @@ uint16_t BqDriver::getVBUS() {
   return val; // in mV
 }
 
-uint16_t BqDriver::getVSYS() {
-  Adafruit_BusIO_Register vsys_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VSYS_ADC, 2, MSBFIRST);
-  uint16_t val;
-  if (!vsys_reg.read(&val)) {
-    return 0;
-  }
-  return val; // in mV
-}
-
-// FÃ¼r getTS(): % of REGN
 float BqDriver::getTS() {
   Adafruit_BusIO_Register ts_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TS_ADC, 2, MSBFIRST);
   uint16_t val;
@@ -660,17 +542,6 @@ float BqDriver::getTS() {
   return -1.0f; // I2C read error after all retries
 }
 
-// FÃ¼r getTDIE(): signed Â°C
-float BqDriver::getTDIE() {
-  Adafruit_BusIO_Register tdie_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TDIE_ADC, 2, MSBFIRST);
-  uint16_t raw;
-  if (!tdie_reg.read(&raw)) {
-    return 0.0f;
-  }
-  int16_t val = (int16_t)raw;
-  return val * 0.5f; // 0.5 Â°C/LSB
-}
-
 bool BqDriver::setVOCpercent(bq25798_voc_pct_t pct) {
   uint8_t reg15 = readReg(0x15);
   reg15 = (reg15 & 0x1F) | ((uint8_t)pct << 5);  // Bits [7:5] = VOC_PCT
@@ -682,19 +553,6 @@ bq25798_voc_pct_t BqDriver::getVOCpercent() {
   return (bq25798_voc_pct_t)((reg15 >> 5) & 0x07);
 }
 
-bool BqDriver::setForwardOOA(bool enable) {
-  uint8_t reg12 = readReg(0x12);
-  if (enable) {
-    reg12 &= ~(1 << 0);  // DIS_FWD_OOA = 0 â†’ OOA enabled
-  } else {
-    reg12 |= (1 << 0);   // DIS_FWD_OOA = 1 â†’ OOA disabled
-  }
-  return writeReg(0x12, reg12);
-}
-
-bool BqDriver::getForwardOOA() {
-  return (readReg(0x12) & (1 << 0)) == 0;  // DIS_FWD_OOA=0 means enabled
-}
 
 /// @brief Gets EN_AUTO_IBATDIS state (auto battery discharge during VBAT_OVP)
 /// @return true if auto discharge is enabled (POR default = enabled)
@@ -731,5 +589,3 @@ uint8_t BqDriver::readReg(uint8_t reg) {
   }
   return buffer[0];
 }
-
-// Kopiere fÃ¼r die anderen Readings und passe Skalierung an (z.B. getDP()/getDM(): *0.001f fÃ¼r V).

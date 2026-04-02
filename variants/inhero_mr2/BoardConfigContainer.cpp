@@ -155,7 +155,7 @@ bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
 
 // Battery voltage thresholds moved to BatteryProperties structure (see .h file)
-// Rev 1.1: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → task notification.
+// Rev 1.1: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → volatile flag → tickPeriodic().
 // No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
 
 // Watchdog state
@@ -703,7 +703,7 @@ bool BoardConfigContainer::begin() {
       
       // Arm INA228 low-voltage alert for this battery chemistry
       // Rev 1.1: Always active when battery type is configured (no CLI toggle)
-      // ISR on ALERT pin → task notification → System Sleep with GPIO latch
+      // ISR on ALERT pin → volatile flag → tickPeriodic() → System Sleep with GPIO latch
       armLowVoltageAlert();
 
       // NOTE: Low-voltage recovery SOC=0% is handled in InheroMr2Board::begin()
@@ -1134,12 +1134,6 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   }
 
   return true;
-}
-
-/// @brief Configures solar-only interrupt masks on BQ25798
-/// @return true if configuration successful
-bool BoardConfigContainer::configureSolarOnlyInterrupts() {
-  return bq.configureSolarOnlyInterrupts();
 }
 
 /// @brief Gets current battery type from preferences
@@ -1711,7 +1705,7 @@ float BoardConfigContainer::readBmeTemperature() {
 
 /// @brief Arm INA228 low-voltage alert for current battery chemistry
 /// @details Programs INA228 BUVL register with lowv_sleep_mv threshold.
-///          Alert fires when VBAT drops below this level → ISR → task notification → System Sleep.
+///          Alert fires when VBAT drops below this level → ISR → volatile flag → tickPeriodic() → System Sleep.
 ///          Always active when battery type is configured (no CLI toggle).
 ///          BAT_UNKNOWN: alert disabled (threshold = 0).
 void BoardConfigContainer::armLowVoltageAlert() {
@@ -2064,50 +2058,6 @@ void BoardConfigContainer::calculateTTL() {
                      days_remaining, remaining_mah, deficit_per_day);
 }
 
-/// @brief Estimate SOC from voltage (fallback method)
-/// @param voltage_mv Battery voltage in mV
-/// @param type Battery chemistry type
-/// @return Estimated SOC in %
-float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryType type) {
-  float voltage_v = voltage_mv / 1000.0f;
-  float soc = 0.0f;
-  
-  switch (type) {
-    case BatteryType::LTO_2S:
-      // LTO discharge curve (2S): 5.6V (100%) → 4.0V (0%)
-      soc = ((voltage_v - 4.0f) / (5.6f - 4.0f)) * 100.0f;
-      break;
-      
-    case BatteryType::LIFEPO4_1S:
-      // LiFePO4 discharge curve (1S): 3.6V (100%) → 2.8V (0%)
-      soc = ((voltage_v - 2.8f) / (3.6f - 2.8f)) * 100.0f;
-      break;
-      
-    case BatteryType::LIION_1S:
-    default:
-      // Li-Ion discharge curve (1S): 4.2V (100%) → 3.2V (0%)
-      // More accurate: use piecewise linear approximation
-      if (voltage_v >= 4.1f) {
-        soc = 90.0f + ((voltage_v - 4.1f) / 0.1f) * 10.0f;  // 4.1-4.2V = 90-100%
-      } else if (voltage_v >= 3.9f) {
-        soc = 70.0f + ((voltage_v - 3.9f) / 0.2f) * 20.0f;  // 3.9-4.1V = 70-90%
-      } else if (voltage_v >= 3.7f) {
-        soc = 40.0f + ((voltage_v - 3.7f) / 0.2f) * 30.0f;  // 3.7-3.9V = 40-70%
-      } else if (voltage_v >= 3.5f) {
-        soc = 20.0f + ((voltage_v - 3.5f) / 0.2f) * 20.0f;  // 3.5-3.7V = 20-40%
-      } else {
-        soc = ((voltage_v - 3.2f) / 0.3f) * 20.0f;          // 3.2-3.5V = 0-20%
-      }
-      break;
-  }
-  
-  // Clamp to 0-100%
-  if (soc > 100.0f) soc = 100.0f;
-  if (soc < 0.0f) soc = 0.0f;
-  
-  return soc;
-}
-
 // ===== Tick-based Periodic Dispatch =====
 
 /// @brief Called from InheroMr2Board::tick() — dispatches all periodic I2C work
@@ -2134,7 +2084,7 @@ void BoardConfigContainer::tickPeriodic() {
   uint32_t now = millis();
 
   // Every ~60s: MPPT cycle (solar charging control)
-  if (now - lastMpptMs >= SOLAR_MPPT_TASK_INTERVAL_MS) {
+  if (now - lastMpptMs >= SOLAR_MPPT_INTERVAL_MS) {
     lastMpptMs = now;
     runMpptCycle();
   }

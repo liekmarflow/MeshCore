@@ -69,9 +69,9 @@ public:
   /// New implementation: Reads directly into buffer
   size_t getString(const char* key, char* buffer, size_t maxLen, const char* defaultValue = "") {
     if (!_started) {
-      // Fallback kopieren
+      // Copy fallback
       strncpy(buffer, defaultValue, maxLen);
-      buffer[maxLen - 1] = '\0'; // Sicherheit
+      buffer[maxLen - 1] = '\0'; // Safety
       return strlen(buffer);
     }
 

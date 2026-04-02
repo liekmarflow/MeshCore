@@ -173,7 +173,6 @@ public:
   bool setStatPinEnable(bool enable)  { return Adafruit_BQ25798::setStatPinEnable(enable); }
   bool getStatPinEnable()             { return Adafruit_BQ25798::getStatPinEnable(); }
 
-  // In der Klasse Adafruit_BQ25798 (unter den bestehenden Funktionsprototypen):
   bq25798_jeita_vset_t getJeitaVSet();
   bool setJeitaVSet(bq25798_jeita_vset_t setting);
 
@@ -208,15 +207,8 @@ public:
   bool getChargerStatusPowerGood();
   bq25798_charging_status getChargingStatus();
 
-  bool configureSolarOnlyInterrupts();
-
-  bool checkAndClearPgFlag();
-
   bool setVOCpercent(bq25798_voc_pct_t pct);
   bq25798_voc_pct_t getVOCpercent();
-
-  bool setForwardOOA(bool enable);
-  bool getForwardOOA();
 
   bool getAutoIBATDIS();
   bool setAutoIBATDIS(bool enable);
@@ -233,33 +225,10 @@ protected:
   Adafruit_I2CDevice* ih_i2c_dev = nullptr; ///< Dedicated I2C device for NTC access
 
 private:
-  // In MyBQ25798 class (under NTC functions):
-  // ADC Control
   bool startADCOneShot(bool ts_enabled = true);
-
   bool setADCEnabled(bool enabled);
-
-  bool getADCRate(); // false = continuous, true = one-shot
-  bool setADCRate(bool oneshot);
-
-  bq25798_adc_sample_t getADCSample();
-  bool setADCSample(bq25798_adc_sample_t sample);
-
-  bool getADCAvg();
-  bool setADCAvg(bool avg);
-
-  bool getADCAvgInit();
-  bool setADCAvgInit(bool init);
-
-  // ADC Function Disable 0 (0x2F)
-  bool getIBUSADCDisable();
-  bool setIBUSADCDisable(bool disable);
-
   int16_t getIBUS();
-  uint16_t getVSYS();
-
   float getTS();   // TS voltage in % of REGN
-  float getTDIE(); // Die temperature in °C (signed)
 
   float calculateBatteryTemp(float ts_pct);
   Telemetry telemetryData = { 0 };
