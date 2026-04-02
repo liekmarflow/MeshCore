@@ -11,6 +11,7 @@
 - [3. Daily Energy Balance](#3-daily-energy-balance)
 - [4. Solar Power Management & Interrupt Loop Avoidance](#4-solar-power-management--interrupt-loop-avoidance)
   - [BQ25798 ADC at Low Battery Voltages](#bq25798-adc-at-low-battery-voltages)
+  - [JEITA WARM Zone & VBAT_OVP Prevention](#jeita-warm-zone--vbat_ovp-prevention)
 - [5. Time-To-Live (TTL) Prediction](#5-time-to-live-ttl-prediction)
 - [6. RTC Wakeup Management](#6-rtc-wakeup-management)
 - [7. Power Management Flow](#7-power-management-flow)
@@ -331,6 +332,65 @@ The firmware uses special return values for invalid temperatures:
 - `BqDriver::getTelemetryData(vbat_mv)` — Main function with VBAT-dependent TS control
 - `BqDriver::startADCOneShot(ts_enabled)` — Configures ADC channels and starts conversion
 - `BoardConfigContainer::getTelemetryData()` — Passes INA228 VBAT to BqDriver
+
+### JEITA WARM Zone & VBAT_OVP Prevention
+
+#### Problem: Default JEITA Configuration + Inhero Divider
+
+The Inhero MR2 uses a non-standard NTC voltage divider (RT1=5.6 kΩ pullup to REGN, RT2=27 kΩ parallel to GND) instead of the TI reference design (5.24 kΩ / 30.31 kΩ). This shifts TS thresholds lower by a **temperature-dependent** amount: ~5–6 °C in the cold range (where NTC resistance is large relative to RT2, amplifying the divider mismatch) and ~2–3 °C in the warm/hot range.
+
+With the BQ25798 POR defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `EN_AUTO_IBATDIS = 1`), this caused a critical failure chain at moderate temperatures (~42 °C):
+
+```
+42°C ambient → TS = 44.65% REGN (below VT3_FALL = 44.8%)
+  → BQ enters WARM zone
+  → JEITA_VSET reduces VREG: 3.5V − 400mV = 3.1V (LiFePO4)
+  → Battery at 3.47V > 104% × 3.1V = 3.224V → VBAT_OVP triggers
+  → Converter stops, EN_AUTO_IBATDIS sinks IBAT_LOAD = 30mA from battery
+  → Total drain: −11mA (system) + −30mA (IBAT_LOAD) = −41mA
+  → Recovery requires VBAT < 102% × 3.1V = 3.162V → hours of battery drain
+```
+
+#### Fix: Three Register Settings in `configureBaseBQ()`
+
+| Setting | Register | Value | Effect |
+|---------|----------|-------|--------|
+| `setTsWarm(BQ25798_TS_WARM_55C)` | Charger Control 2 | 55 °C (37.7% REGN) | WARM zone starts at ~52 °C (Inhero), not ~42 °C |
+| `setJeitaVSet(BQ25798_JEITA_VSET_UNCHANGED)` | Charger Control 5 | UNCHANGED | No VREG reduction in WARM — prevents VBAT_OVP |
+| `JEITA_ISETH` (POR default retained) | NTC Control 0, bits 4:3 | 11b = ICHG unchanged | No charge current reduction in WARM |
+| `setAutoIBATDIS(false)` | Charger Control 0, bit 7 | 0 | Disables 30 mA active battery discharge during OVP |
+
+> **Result:** With JEITA_VSET=UNCHANGED and JEITA_ISETH=ICHG unchanged, the WARM zone (T3–T5) is effectively neutralized. Charging continues at full voltage and full current until T-Hot (~58 °C), where charging is suspended entirely.
+
+#### TS Threshold Comparison
+
+| Zone Boundary | BQ Register | % REGN | TI Reference (°C) | Inhero MR2 (°C) | Shift |
+|---------------|-------------|--------|--------------------|------------------|-------|
+| VT1 (Cold) | — | 72.0% | +3.7 | −2.0 | −5.7 °C |
+| VT2 (Cool) | — | 69.8% | +7.9 | +2.8 | −5.1 °C |
+| VT3 (Warm) | TS_WARM=55°C | 37.7% | +54.5 | +52.2 | −2.3 °C |
+| VT5 (Hot) | — | 34.2% | +59.9 | +57.7 | −2.2 °C |
+
+> NTC models: 103AT (B25/50=3435) for TI reference, NCP15XH103F03RC (B25/85=3380) for Inhero. Typical %REGN from BQ25798 datasheet.
+
+#### Diagnostic Verification
+
+The `bqdiag` command shows JEITA state in the TS field:
+
+```
+bqdiag output: PG / CC TS:OK CE:1 HIZ:0 F:00/00 S:00.00.01.00.00 N:14 VREG:3500mV
+                                ^^^^
+                                OK = normal, WARM/HOT/COLD = JEITA zone active
+```
+
+- `TS:WARM` + `VBAT_OVP` in fault register = the original bug (fixed by settings above)
+- `TS:OK` with `F:00/00` = normal operation, no faults
+
+#### Code References
+- `BoardConfigContainer::configureBaseBQ()` — Applies all three settings at startup
+- `BqDriver::setTsWarm()` / `setJeitaVSet()` — Existing driver API
+- `BqDriver::setAutoIBATDIS()` — Added to driver (Charger Control 0, bit 7)
+- `BoardConfigContainer::getBqDiagnostics()` — Reads TS zone from STATUS_4 register
 
 ---
 

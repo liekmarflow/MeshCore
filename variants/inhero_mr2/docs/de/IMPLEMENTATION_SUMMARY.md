@@ -11,6 +11,7 @@
 - [3. Tägliche Energiebilanz](#3-tägliche-energiebilanz)
 - [4. Solar-Energieverwaltung & Interrupt-Loop-Vermeidung](#4-solar-energieverwaltung--interrupt-loop-vermeidung)
   - [BQ25798 ADC bei niedrigen Batteriespannungen](#bq25798-adc-bei-niedrigen-batteriespannungen)
+  - [JEITA-WARM-Zone & VBAT_OVP-Vermeidung](#jeita-warm-zone--vbat_ovp-vermeidung)
 - [5. Time-To-Live (TTL)-Prognose](#5-time-to-live-ttl-prognose)
 - [6. RTC-Wakeup-Management](#6-rtc-wakeup-management)
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
@@ -330,6 +331,65 @@ Die Firmware verwendet spezielle Rückgabewerte für ungültige Temperaturen:
 - `BqDriver::getTelemetryData(vbat_mv)` — Hauptfunktion mit VBAT-abhängiger TS-Steuerung
 - `BqDriver::startADCOneShot(ts_enabled)` — Konfiguriert ADC-Kanäle und startet Konvertierung
 - `BoardConfigContainer::getTelemetryData()` — Übergibt INA228-VBAT an BqDriver
+
+### JEITA-WARM-Zone & VBAT_OVP-Vermeidung
+
+#### Problem: Standard-JEITA-Konfiguration + Inhero-Teiler
+
+Das Inhero MR2 verwendet einen nicht-standardmäßigen NTC-Spannungsteiler (RT1=5,6 kΩ Pullup an REGN, RT2=27 kΩ parallel zu GND) anstelle des TI-Referenzdesigns (5,24 kΩ / 30,31 kΩ). Dies verschiebt TS-Schwellen um einen **temperaturabhängigen** Betrag nach unten: ~5–6 °C im Kaltbereich (wo der NTC-Widerstand groß relativ zu RT2 ist und den Teiler-Unterschied verstärkt) und ~2–3 °C im Warm-/Hot-Bereich.
+
+Mit den BQ25798 POR-Defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `EN_AUTO_IBATDIS = 1`) verursachte dies eine kritische Fehlerkette bei moderaten Temperaturen (~42 °C):
+
+```
+42°C Umgebung → TS = 44,65% REGN (unter VT3_FALL = 44,8%)
+  → BQ tritt in WARM-Zone ein
+  → JEITA_VSET reduziert VREG: 3,5V − 400mV = 3,1V (LiFePO4)
+  → Batterie bei 3,47V > 104% × 3,1V = 3,224V → VBAT_OVP ausgelöst
+  → Wandler stoppt, EN_AUTO_IBATDIS zieht IBAT_LOAD = 30mA aus Batterie
+  → Gesamtverbrauch: −11mA (System) + −30mA (IBAT_LOAD) = −41mA
+  → Recovery erfordert VBAT < 102% × 3,1V = 3,162V → stundenlanger Batterieverbrauch
+```
+
+#### Fix: Drei Register-Einstellungen in `configureBaseBQ()`
+
+| Einstellung | Register | Wert | Wirkung |
+|-------------|----------|------|---------|
+| `setTsWarm(BQ25798_TS_WARM_55C)` | Charger Control 2 | 55 °C (37,7% REGN) | WARM-Zone beginnt bei ~52 °C (Inhero), nicht ~42 °C |
+| `setJeitaVSet(BQ25798_JEITA_VSET_UNCHANGED)` | Charger Control 5 | UNCHANGED | Keine VREG-Reduktion in WARM — verhindert VBAT_OVP |
+| `JEITA_ISETH` (POR-Default beibehalten) | NTC Control 0, Bits 4:3 | 11b = ICHG unchanged | Keine Ladestrom-Reduktion in WARM |
+| `setAutoIBATDIS(false)` | Charger Control 0, Bit 7 | 0 | Deaktiviert 30-mA-Batterieentladung bei OVP |
+
+> **Ergebnis:** Mit JEITA_VSET=UNCHANGED und JEITA_ISETH=ICHG unchanged ist die WARM-Zone (T3–T5) effektiv neutralisiert. Die Ladung läuft mit voller Spannung und vollem Strom bis T-Hot (~58 °C), wo die Ladung komplett gesperrt wird.
+
+#### TS-Schwellenvergleich
+
+| Zonengrenze | BQ-Register | % REGN | TI-Referenz (°C) | Inhero MR2 (°C) | Shift |
+|-------------|-------------|--------|-------------------|------------------|-------|
+| VT1 (Cold) | — | 72,0% | +3,7 | −2,0 | −5,7 °C |
+| VT2 (Cool) | — | 69,8% | +7,9 | +2,8 | −5,1 °C |
+| VT3 (Warm) | TS_WARM=55°C | 37,7% | +54,5 | +52,2 | −2,3 °C |
+| VT5 (Hot) | — | 34,2% | +59,9 | +57,7 | −2,2 °C |
+
+> NTC-Modelle: 103AT (B25/50=3435) für TI-Referenz, NCP15XH103F03RC (B25/85=3380) für Inhero. Typische %REGN-Werte aus BQ25798-Datenblatt.
+
+#### Diagnoseverifikation
+
+Der `bqdiag`-Befehl zeigt den JEITA-Status im TS-Feld:
+
+```
+bqdiag-Ausgabe: PG / CC TS:OK CE:1 HIZ:0 F:00/00 S:00.00.01.00.00 N:14 VREG:3500mV
+                              ^^^^
+                              OK = normal, WARM/HOT/COLD = JEITA-Zone aktiv
+```
+
+- `TS:WARM` + `VBAT_OVP` im Fault-Register = der ursprüngliche Bug (behoben durch obige Einstellungen)
+- `TS:OK` mit `F:00/00` = normaler Betrieb, keine Fehler
+
+#### Code-Referenzen
+- `BoardConfigContainer::configureBaseBQ()` — Wendet alle drei Einstellungen beim Start an
+- `BqDriver::setTsWarm()` / `setJeitaVSet()` — Bestehende Driver-API
+- `BqDriver::setAutoIBATDIS()` — Zum Driver hinzugefügt (Charger Control 0, Bit 7)
+- `BoardConfigContainer::getBqDiagnostics()` — Liest TS-Zone aus STATUS_4-Register
 
 ---
 

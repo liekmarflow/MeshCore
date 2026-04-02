@@ -120,6 +120,28 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **Error monitoring:** Diagnostic commands show FAULT_STATUS registers (0x20, 0x21) for detailed analysis incl. VBAT_OVP, VBUS_OVP and temperature conditions
 - **VREG display:** Shows the actually configured battery regulation voltage in diagnostics for threshold verification
 
+### JEITA Temperature Zone Configuration
+
+The BQ25798 uses the TS pin (NTC thermistor) for JEITA-compliant temperature-dependent charge control. The Inhero MR2 uses a voltage divider (RT1=5.6 kΩ pullup to REGN, RT2=27 kΩ parallel to GND) that shifts TS thresholds lower than the TI reference design (5.24 kΩ / 30.31 kΩ). The shift is **temperature-dependent**: ~5–6 °C in the cold range, ~2–3 °C in the warm/hot range (because at low temperatures the NTC resistance is large relative to RT2, amplifying the divider mismatch).
+
+| JEITA Zone | BQ25798 Threshold | TI Reference | Inhero MR2 (actual) | Shift | Firmware Config |
+|------------|-------------------|--------------|----------------------|-------|-----------------|
+| T-Cold (charge suspend) | VT1 = 72.0% REGN | +3.7 °C | −2.0 °C | −5.7 °C | — (not configurable) |
+| T-Cool (reduced current) | VT2 = 69.8% REGN | +7.9 °C | +2.8 °C | −5.1 °C | `set board.fmax` |
+| T-Warm start | VT3 = 37.7% REGN | +54.5 °C | +52.2 °C | −2.3 °C | `TS_WARM = 55°C` register setting |
+| T-Hot (charge suspend) | VT5 = 34.2% REGN | +59.9 °C | +57.7 °C | −2.2 °C | — (not configurable) |
+
+> Calculation based on: NTC 103AT (B25/50=3435) for TI reference, NCP15XH103F03RC (B25/85=3380) for Inhero. Typical %REGN values from BQ25798 datasheet.
+
+**Key firmware settings in `configureBaseBQ()`:**
+
+- **`TS_WARM = 55°C`** (BQ register value): Moves the WARM zone threshold from the default 45 °C setting (44.8% REGN, ~41.8 °C with Inhero divider) up to 37.7% REGN (~52.2 °C with Inhero divider). This prevents premature WARM zone entry at moderate temperatures.
+- **`JEITA_VSET = UNCHANGED`**: No battery regulation voltage reduction in the WARM zone. The POR default (VREG−400 mV) would reduce VREG to 3.1 V for LiFePO4, causing VBAT_OVP at normal battery voltages (3.3–3.5 V).
+- **`JEITA_ISETH = ICHG unchanged`** (POR default, retained): No charge current reduction in the WARM zone. Combined with JEITA_VSET=UNCHANGED, the WARM zone is effectively neutralized — charging continues at full voltage and full current.
+- **`AUTO_IBATDIS = disabled`**: Disables the BQ25798's automatic 30 mA battery discharge during VBAT_OVP. The POR default actively drains the battery at ~30 mA (IBAT_LOAD) when OVP is triggered, which is counterproductive for solar-powered systems.
+
+> **Background:** With default BQ25798 settings, the combination of the Inhero divider offset and LiFePO4 chemistry caused a failure chain at ~42 °C: WARM zone entry → VREG reduced to 3.1 V → VBAT_OVP (battery at 3.47 V > 104% × 3.1 V) → active 30 mA discharge → net −45 mA drain despite solar input. The settings above prevent this entirely. The WARM zone (52–58 °C with Inhero divider) now has no effect on charging behavior.
+
 ## Firmware Build
 
 ```bash

@@ -120,6 +120,28 @@ Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autar
 - **Fehlerüberwachung:** Diagnosebefehle zeigen FAULT_STATUS-Register (0x20, 0x21) für detaillierte Analyse inkl. VBAT_OVP, VBUS_OVP und Temperaturbedingungen
 - **VREG-Anzeige:** Zeigt die tatsächlich konfigurierte Battery-Regulation-Spannung in der Diagnose zur Schwellenwert-Prüfung
 
+### JEITA-Temperaturzonen-Konfiguration
+
+Der BQ25798 nutzt den TS-Pin (NTC-Thermistor) für JEITA-konforme temperaturabhängige Laderegelung. Das Inhero MR2 verwendet einen Spannungsteiler (RT1=5,6 kΩ Pullup an REGN, RT2=27 kΩ parallel zu GND), der TS-Schwellen nach unten verschiebt gegenüber dem TI-Referenzdesign (5,24 kΩ / 30,31 kΩ). Die Verschiebung ist **temperaturabhängig**: ~5–6 °C im Kaltbereich, ~2–3 °C im Warm-/Hot-Bereich (da bei niedrigen Temperaturen der NTC-Widerstand groß ist relativ zu RT2 und den Teiler-Unterschied verstärkt).
+
+| JEITA-Zone | BQ25798-Schwelle | TI-Referenz | Inhero MR2 (real) | Shift | Firmware-Konfig |
+|------------|------------------|-------------|--------------------|---------|-----------------|
+| T-Cold (Ladung gesperrt) | VT1 = 72,0% REGN | +3,7 °C | −2,0 °C | −5,7 °C | — (nicht konfigurierbar) |
+| T-Cool (reduzierter Strom) | VT2 = 69,8% REGN | +7,9 °C | +2,8 °C | −5,1 °C | `set board.fmax` |
+| T-Warm Start | VT3 = 37,7% REGN | +54,5 °C | +52,2 °C | −2,3 °C | `TS_WARM = 55°C` Register-Einstellung |
+| T-Hot (Ladung gesperrt) | VT5 = 34,2% REGN | +59,9 °C | +57,7 °C | −2,2 °C | — (nicht konfigurierbar) |
+
+> Berechnung basiert auf: NTC 103AT (B25/50=3435) für TI-Referenz, NCP15XH103F03RC (B25/85=3380) für Inhero. Typische %REGN-Werte aus BQ25798-Datenblatt.
+
+**Wichtige Firmware-Einstellungen in `configureBaseBQ()`:**
+
+- **`TS_WARM = 55°C`** (BQ-Registerwert): Verschiebt die WARM-Zonen-Schwelle vom Default 45 °C (44,8% REGN, ~41,8 °C mit Inhero-Teiler) auf 37,7% REGN (~52,2 °C mit Inhero-Teiler). Verhindert vorzeitigen WARM-Zonen-Eintritt bei moderaten Temperaturen.
+- **`JEITA_VSET = UNCHANGED`**: Keine Reduktion der Battery-Regulation-Spannung in der WARM-Zone. Der POR-Default (VREG−400 mV) würde VREG auf 3,1 V für LiFePO4 reduzieren und VBAT_OVP bei normalen Batteriespannungen (3,3–3,5 V) auslösen.
+- **`JEITA_ISETH = ICHG unchanged`** (POR-Default, beibehalten): Keine Ladestrom-Reduktion in der WARM-Zone. Zusammen mit JEITA_VSET=UNCHANGED ist die WARM-Zone effektiv neutralisiert — Ladung läuft mit voller Spannung und vollem Strom weiter.
+- **`AUTO_IBATDIS = deaktiviert`**: Deaktiviert die automatische 30-mA-Batterieentladung des BQ25798 während VBAT_OVP. Der POR-Default entlädt die Batterie aktiv mit ~30 mA (IBAT_LOAD) bei OVP — kontraproduktiv für solarbetriebene Systeme.
+
+> **Hintergrund:** Mit den BQ25798-Standardeinstellungen verursachte die Kombination aus Inhero-Teiler-Offset und LiFePO4-Chemie eine Fehlerkette bei ~42 °C: WARM-Zonen-Eintritt → VREG auf 3,1 V reduziert → VBAT_OVP (Batterie bei 3,47 V > 104% × 3,1 V) → aktive 30-mA-Entladung → netto −45 mA Verbrauch trotz Solareinspeisung. Die obigen Einstellungen verhindern dies vollständig. Die WARM-Zone (52–58 °C mit Inhero-Teiler) hat nun keinen Einfluss auf das Ladeverhalten.
+
 ## Firmware-Build
 
 ```bash
