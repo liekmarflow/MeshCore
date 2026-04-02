@@ -667,6 +667,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getChargerInfo(infoBuffer, sizeof(infoBuffer));
     snprintf(reply, maxlen, "%s", infoBuffer);
     return true;
+  } else if (strcmp(cmd, "bqdiag") == 0) {
+    char diagBuffer[100];
+    boardConfig.getBqDiagnostics(diagBuffer, sizeof(diagBuffer));
+    snprintf(reply, maxlen, "%s", diagBuffer);
+    return true;
   } else if (strcmp(cmd, "socdebug") == 0) {
     Ina228Driver* ina = boardConfig.getIna228Driver();
     if (!ina) {
@@ -776,7 +781,7 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|bqdiag|conf|tccal|leds|batcap");
   return true;
 }
 

@@ -207,6 +207,7 @@ public:
 
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
+  void getBqDiagnostics(char* buffer, uint32_t bufferSize);
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %

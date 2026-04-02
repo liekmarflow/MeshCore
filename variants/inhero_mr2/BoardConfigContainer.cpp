@@ -557,6 +557,70 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   }
 }
 
+/// @brief Reads BQ25798 status/fault registers and produces a compact diagnostic string
+/// @details Register layout (BQ25798 datasheet SLUSDV2B):
+///   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]
+///   0x1C STATUS_1: CHG_STAT[7:5] VBUS_STAT[4:1] BC12[0]
+///   0x1D STATUS_2: ICO[7:6] rsvd[5:3] TREG[2] DPDM[1] VBAT_PRESENT[0]
+///   0x1E STATUS_3: ACRB2[7] ACRB1[6] ADC_DONE[5] VSYS[4] CHG_TMR[3] TRICHG_TMR[2] PRECHG_TMR[1] rsvd[0]
+///   0x1F STATUS_4: rsvd[7:5] VBATOTG_LOW[4] TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
+///   0x20 FAULT_0:  IBAT_REG[7] VBUS_OVP[6] VBAT_OVP[5] IBUS_OCP[4] IBAT_OCP[3] CONV_OCP[2] VAC2_OVP[1] VAC1_OVP[0]
+///   0x21 FAULT_1:  rsvd[7] OTG_UVP[6] OTG_OVP[5] rsvd[4] VSYS_SHORT[3] VSYS_OVP[2] rsvd[1:0]
+///   0x0F CTRL_0:   AUTO_IBATDIS[7] FORCE_IBATDIS[6] EN_CHG[5] EN_ICO[4] FORCE_ICO[3] EN_HIZ[2] EN_TERM[1] EN_BACKUP[0]
+///   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
+/// @param buffer Destination buffer (min 100 bytes recommended)
+/// @param bufferSize Size of destination buffer
+void BoardConfigContainer::getBqDiagnostics(char* buffer, uint32_t bufferSize) {
+  if (!buffer || bufferSize == 0) return;
+  memset(buffer, 0, bufferSize);
+
+  if (!BQ_INITIALIZED) {
+    snprintf(buffer, bufferSize, "BQ not init");
+    return;
+  }
+
+  // Read status registers (read-only, safe to read)
+  uint8_t s0 = bq.readReg(0x1B);  // CHARGER_STATUS_0
+  uint8_t s1 = bq.readReg(0x1C);  // CHARGER_STATUS_1
+  uint8_t s2 = bq.readReg(0x1D);  // CHARGER_STATUS_2
+  uint8_t s3 = bq.readReg(0x1E);  // CHARGER_STATUS_3
+  uint8_t s4 = bq.readReg(0x1F);  // CHARGER_STATUS_4
+  uint8_t f0 = bq.readReg(0x20);  // FAULT_STATUS_0
+  uint8_t f1 = bq.readReg(0x21);  // FAULT_STATUS_1
+
+  // Read control registers
+  uint8_t ctrl0 = bq.readReg(0x0F);  // CHARGER_CONTROL_0: EN_CHG[5], EN_HIZ[2]
+  uint8_t ntc1  = bq.readReg(0x18);  // NTC_CONTROL_1
+
+  // Decode TS region from STATUS_4 (0x1F): TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
+  const char* ts_str = "OK";
+  if (s4 & 0x01)      ts_str = "HOT";
+  else if (s4 & 0x02) ts_str = "WARM";
+  else if (s4 & 0x04) ts_str = "COOL";
+  else if (s4 & 0x08) ts_str = "COLD";
+
+  // Build active-flags substring (only show abnormal conditions)
+  char flags[50] = "";
+  int pos = 0;
+  if (s0 & 0x80) pos += snprintf(flags + pos, sizeof(flags) - pos, " IINDPM");
+  if (s0 & 0x40) pos += snprintf(flags + pos, sizeof(flags) - pos, " VINDPM");
+  if (s0 & 0x20) pos += snprintf(flags + pos, sizeof(flags) - pos, " WD!");
+  if (s2 & 0x04) pos += snprintf(flags + pos, sizeof(flags) - pos, " TREG");
+  if (s3 & 0x08) pos += snprintf(flags + pos, sizeof(flags) - pos, " CHG_TMR");
+  if (s3 & 0x04) pos += snprintf(flags + pos, sizeof(flags) - pos, " TCTMR");
+  if (s3 & 0x02) pos += snprintf(flags + pos, sizeof(flags) - pos, " PCTMR");
+  if (f0 & 0x40) pos += snprintf(flags + pos, sizeof(flags) - pos, " VBUS_OVP");
+  if (f0 & 0x20) pos += snprintf(flags + pos, sizeof(flags) - pos, " VBAT_OVP");
+
+  bool en_chg = (ctrl0 >> 5) & 1;  // EN_CHG: bit 5 of CHARGER_CONTROL_0
+  bool en_hiz = (ctrl0 >> 2) & 1;  // EN_HIZ: bit 2 of CHARGER_CONTROL_0
+
+  // Compact output: TS region, active flags, control bits, faults, raw status hex, NTC config
+  snprintf(buffer, bufferSize,
+           "TS:%s%s CE:%d HIZ:%d F:%02X/%02X S:%02X.%02X.%02X.%02X.%02X N:%02X",
+           ts_str, flags, en_chg, en_hiz, f0, f1, s0, s1, s2, s3, s4, ntc1);
+}
+
 /// @brief Initializes battery manager, preferences, and background tasks
 /// @return true if BQ25798 initialized successfully
 bool BoardConfigContainer::begin() {
@@ -990,6 +1054,18 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setMinSystemV(2.75);  // 2.75V = next valid step above 2.7V (250mV steps: 2.5, 2.75, 3.0...)
   bq.setStatPinEnable(leds_enabled);  // Configure STAT LED based on user preference
   bq.setTsCool(BQ25798_TS_COOL_5C);
+  bq.setTsWarm(BQ25798_TS_WARM_55C);  // 37.7% REGN → ~52°C with Inhero divider (default 45°C was ~42°C)
+
+  // JEITA WARM zone: keep VREG unchanged (no voltage reduction).
+  // Default JEITA_VSET = VREG-400mV causes VBAT_OVP for LiFePO4 (3.5V - 0.4V = 3.1V, OVP at 3.22V)
+  // and is unnecessarily conservative for Li-Ion (4.1V - 0.4V = 3.7V).
+  // Both chemistries use safe charge voltages (4.1V / 3.5V), no reduction needed.
+  bq.setJeitaVSet(BQ25798_JEITA_VSET_UNCHANGED);
+
+  // Disable auto battery discharge during VBAT_OVP (EN_AUTO_IBATDIS).
+  // POR default = enabled → BQ actively sinks 30mA from battery during OVP to lower VBAT.
+  // With JEITA_VSET fixed, VBAT_OVP should no longer trigger. Belt-and-suspenders safety.
+  bq.setAutoIBATDIS(false);
 
   // Flush stale ADC registers by running one discard conversion.
   // After reboot (e.g. low-voltage recovery), BQ25798 retains old ADC values

@@ -19,4 +19,5 @@ venv/
 
 # Exclude schematics folder (proprietary design files)
 variants/*/schematics/
+
 build_log.txt

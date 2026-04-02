@@ -696,6 +696,23 @@ bool BqDriver::getForwardOOA() {
   return (readReg(0x12) & (1 << 0)) == 0;  // DIS_FWD_OOA=0 means enabled
 }
 
+/// @brief Gets EN_AUTO_IBATDIS state (auto battery discharge during VBAT_OVP)
+/// @return true if auto discharge is enabled (POR default = enabled)
+bool BqDriver::getAutoIBATDIS() {
+  Adafruit_BusIO_Register ctrl0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
+  Adafruit_BusIO_RegisterBits auto_ibatdis_bit = Adafruit_BusIO_RegisterBits(&ctrl0_reg, 1, 7);
+  return (bool)auto_ibatdis_bit.read();
+}
+
+/// @brief Sets EN_AUTO_IBATDIS (auto battery discharge during VBAT_OVP)
+/// @param enable true = BQ sinks 30mA from BAT during OVP, false = no active discharge
+/// @return true if successful
+bool BqDriver::setAutoIBATDIS(bool enable) {
+  Adafruit_BusIO_Register ctrl0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
+  Adafruit_BusIO_RegisterBits auto_ibatdis_bit = Adafruit_BusIO_RegisterBits(&ctrl0_reg, 1, 7);
+  return auto_ibatdis_bit.write(enable ? 1 : 0);
+}
+
 // Non-static register access methods (use instance I2C config)
 bool BqDriver::writeReg(uint8_t reg, uint8_t val) {
   if (!ih_i2c_dev) return false;
