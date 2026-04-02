@@ -165,7 +165,7 @@ bool Ina228Driver::shutdown() {
   // Set operating mode to Shutdown (MODE = 0x0)
   // This disables all conversions and Coulomb Counter.
   // Use retry+readback — I2C writes can fail silently (see setUnderVoltageAlert).
-  // If this fails, INA228 stays in continuous mode (~350µA wasted in System-Off!).
+  // If this fails, INA228 stays in continuous mode (~350µA wasted in System Sleep!).
   uint16_t adc_config = 0x0000;  // MODE = 0x0 (Shutdown)
 
   for (int retry = 0; retry < 3; retry++) {

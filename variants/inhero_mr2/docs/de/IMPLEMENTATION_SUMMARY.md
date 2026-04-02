@@ -563,7 +563,7 @@ if (NRF_POWER->GPREGRET2 & GPREGRET2_LOW_VOLTAGE_SLEEP) {
   uint16_t wake_threshold = BoardConfigContainer::getLowVoltageWakeThreshold(batType);
   
   if (vbat_mv < wake_threshold) {
-    // Spannung noch zu niedrig → sofort wieder System-Off
+    // Spannung noch zu niedrig → sofort wieder System Sleep
     configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
     sd_power_system_off();  // Bleibt in Low-Voltage-Sleep-Zyklus
   }

@@ -42,7 +42,7 @@ volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 void InheroMr2Board::begin() {
   // === FAST PATH: RTC wake from low-voltage sleep ===
   // Check GPREGRET2 FIRST — before ANY GPIO setup.
-  // Note: System-Off wake triggers a System-ON reset. The bootloader runs before our code,
+  // Note: System Sleep wake triggers a System-ON reset. The bootloader runs before our code,
   // and the reset clears all PIN_CNF to Input/Disconnect defaults. BSP init() only does
   // OUTSET=0xFFFFFFFF which has no physical effect on Input-configured pins.
   // Therefore we MUST explicitly re-assert any GPIO we need (CE, etc.) in this path.
@@ -56,7 +56,7 @@ void InheroMr2Board::begin() {
     Wire.begin();
     delay(10);
 
-    // RTC INT: must have SENSE_Low for System-Off wake-up
+    // RTC INT: must have SENSE_Low for System Sleep wake-up
     NRF_GPIO->PIN_CNF[RTC_INT_PIN] =
         (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
         (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
@@ -73,7 +73,7 @@ void InheroMr2Board::begin() {
       // Still too low or read failed — go back to sleep immediately.
       // INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
 
-      // BQ CE pin: The System-ON reset after System-Off wake resets all PIN_CNF
+      // BQ CE pin: The System-ON reset after System Sleep wake resets all PIN_CNF
       // to Input/Disconnect defaults. The previous cycle's OUTPUT latch is lost.
       // Must explicitly re-assert OUTPUT HIGH so solar charging stays active.
 #ifdef BQ_CE_PIN
@@ -83,7 +83,7 @@ void InheroMr2Board::begin() {
 #endif
 
       // INA228 → Shutdown mode with readback verification (~3.5µA vs ~350µA continuous).
-      // I2C writes can fail silently — if this fails, 350µA wasted in System-Off!
+      // I2C writes can fail silently — if this fails, 350µA wasted in System Sleep!
       for (int retry = 0; retry < 3; retry++) {
         Wire.beginTransmission(0x40);
         Wire.write(0x01);  // ADC_CONFIG register
@@ -141,7 +141,7 @@ void InheroMr2Board::begin() {
       NRF_P0->LATCH = (1UL << RTC_INT_PIN);
       Wire.end();
 
-      // Disconnect all GPIO pull-ups to prevent leakage in System-Off.
+      // Disconnect all GPIO pull-ups to prevent leakage in System Sleep.
       // Wire.begin() set SDA/SCL to INPUT_PULLUP; if an I2C device holds
       // the line LOW, each pull-up wastes ~250µA. Wire.end() alone does NOT
       // disable the pull-ups on nRF52.
@@ -245,13 +245,13 @@ void InheroMr2Board::begin() {
   // MR2 Rev 1.1 hardware — no detection needed
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.1 (INA228 ALERT + RTC + CE-FET)");
 
-  // === CRITICAL: Configure RTC INT pin for wake-up from SYSTEMOFF ===
-  // attachInterrupt() alone is NOT sufficient for SYSTEMOFF wake-up!
+  // === CRITICAL: Configure RTC INT pin for wake-up from System Sleep ===
+  // attachInterrupt() alone is NOT sufficient for System Sleep wake-up!
   // We MUST configure the pin with SENSE for nRF52 SYSTEMOFF wake capability
   pinMode(RTC_INT_PIN, INPUT_PULLUP);
 
-  // Configure GPIO SENSE for wake-up from SYSTEM OFF mode
-  // This is essential - without SENSE configuration, SYSTEMOFF wake-up will not work
+  // Configure GPIO SENSE for wake-up from System Sleep (nRF52 SYSTEMOFF mode)
+  // This is essential - without SENSE configuration, System Sleep wake-up will not work
   NRF_GPIO->PIN_CNF[RTC_INT_PIN] =
       (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
       (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
@@ -944,7 +944,7 @@ uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
   return BoardConfigContainer::getLowVoltageWakeThreshold(chemType);
 }
 
-/// @brief Put SX1262 radio and SPI pins into lowest power state for System-Off.
+/// @brief Put SX1262 radio and SPI pins into lowest power state for System Sleep.
 /// Must be called before ANY sd_power_system_off() call — both from initiateShutdown()
 /// and Early Boot quick-shutdown paths.
 ///
@@ -958,7 +958,7 @@ uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
 /// already released SPI.
 ///
 /// Instead, pre-configure the GPIO PORT registers (OUTSET/PIN_CNF) while SPIM is still
-/// active. These are "shadow" values that take effect when SPIM is disabled. System-Off
+/// active. These are "shadow" values that take effect when SPIM is disabled. System Sleep
 /// stops all peripherals including SPIM, and the GPIO PORT seamlessly takes over — no
 /// glitch, no floating pins, SX1262 stays in Cold Sleep (~160nA).
 void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
@@ -1044,7 +1044,7 @@ void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
   // No external OUTPUT latch needed.
 }
 
-/// @brief Set ALL GPIO pins to INPUT_DISCONNECT except the 3 pins needed during System-Off.
+/// @brief Set ALL GPIO pins to INPUT_DISCONNECT except the 3 pins needed during System Sleep.
 /// Must be called AFTER Wire.end(), AFTER prepareRadioForSystemOff(), and AFTER all I2C/SPI.
 ///
 /// Comprehensive approach: Instead of chasing individual leaky pins, reset ALL pins to the
@@ -1053,14 +1053,14 @@ void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
 /// LEDs/loads, etc.
 ///
 /// CRITICAL: Adafruit BSP init() runs NRF_P0->OUTSET = NRF_P1->OUTSET = 0xFFFFFFFF on
-/// every boot BEFORE our code. Any pin left as OUTPUT from the previous System-Off cycle
+/// every boot BEFORE our code. Any pin left as OUTPUT from the previous System Sleep cycle
 /// gets its output latch set HIGH. For LEDs (P1.03, P1.04) this means LEDs turn ON.
 /// For CE (P0.04) this means charge enable pulse. By setting unused pins to INPUT_DISCONNECT,
 /// DIR=Input prevents the BSP OUTSET from causing physical pin changes on the next boot.
 ///
 /// Only 2 pins are preserved:
 ///   P0.04  (BQ_CE_PIN)   — OUTPUT HIGH: solar charging active during sleep
-///   P0.17  (RTC_INT_PIN) — INPUT_PULLUP + SENSE_Low: System-Off wake source
+///   P0.17  (RTC_INT_PIN) — INPUT_PULLUP + SENSE_Low: System Sleep wake source
 /// NSS (P1.10) has internal pull-up inside RAK4630 — no external latch needed.
 void InheroMr2Board::disconnectLeakyPullups() {
   uint32_t pin_cfg_discon = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
@@ -1084,11 +1084,11 @@ void InheroMr2Board::disconnectLeakyPullups() {
 /// @brief Initiate controlled shutdown with filesystem protection (Rev 1.1)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
 ///
-/// Rev 1.1 low-voltage shutdown uses true System-Off (~15µA total):
+/// Rev 1.1 low-voltage shutdown uses System Sleep with GPIO latch (< 500µA total):
 /// - INA228 enters shutdown mode (~3.5µA)
 /// - BQ CE pin latched HIGH via FET (solar charging continues autonomously)
 /// - RTC countdown timer configured for periodic wake
-/// - nRF52 enters System-Off (~1.5µA) — GPIO latches preserved
+/// - nRF52 enters SYSTEMOFF (~1.5µA) — GPIO latches preserved
 /// - RTC wake triggers reboot; Early Boot checks voltage for boot vs sleep-again
 void InheroMr2Board::initiateShutdown(uint8_t reason) {
   MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
@@ -1103,7 +1103,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     ina->shutdown();
   }
 
-  // 3. SX1262 sleep + SPI cleanup (prevents ~4mA leakage in System-Off)
+  // 3. SX1262 sleep + SPI cleanup (prevents ~4mA leakage in System Sleep)
   prepareRadioForSystemOff();
 
   // 4. LEDs off before sleep
@@ -1111,12 +1111,12 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   digitalWrite(PIN_LED2, LOW);
 
   if (reason == SHUTDOWN_REASON_LOW_VOLTAGE) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - entering System-Off with CE latched");
+    MESH_DEBUG_PRINTLN("PWRMGT: Low voltage shutdown - entering System Sleep with CE latched");
 
     delay(100); // Allow I/O to complete
 
     // 5. Latch BQ CE pin HIGH (FET ON = CE LOW = charge enabled)
-    // GPIO output latch survives System-Off as long as VDD is present
+    // GPIO output latch survives System Sleep as long as VDD is present
 #ifdef BQ_CE_PIN
     digitalWrite(BQ_CE_PIN, HIGH);
     MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
@@ -1164,7 +1164,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
 
     // 7. Clear GPIO LATCH for RTC INT pin.
-    // If a previous RTC wake cycle set the LATCH (retained across System-Off),
+    // If a previous RTC wake cycle set the LATCH (retained across System Sleep),
     // DETECT would fire immediately → instant wake → boot loop.
     NRF_P0->LATCH = (1UL << RTC_INT_PIN);
 
@@ -1177,7 +1177,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // 10. Store shutdown reason for Early Boot decision
     NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason;
 
-    MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEM-OFF (~15uA)");
+    MESH_DEBUG_PRINTLN("PWRMGT: Entering System Sleep (< 500uA)");
     delay(50);
 
     sd_power_system_off();

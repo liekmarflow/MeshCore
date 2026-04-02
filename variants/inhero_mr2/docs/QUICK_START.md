@@ -116,7 +116,7 @@ Note: `set board.fmax` has no effect on LTO (JEITA disabled).
 ## Voltage Thresholds per Battery Chemistry
 Thresholds are optimized for maximum lifespan and stable operation.
 
-| Battery Chemistry | lowv_sleep_mv (System-Off) | lowv_wake_mv (0% SOC) | Hysteresis |
+| Battery Chemistry | lowv_sleep_mv (System Sleep) | lowv_wake_mv (0% SOC) | Hysteresis |
 |---|---|---|---|
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |

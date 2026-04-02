@@ -115,7 +115,7 @@ Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
 ## Spannungsschwellen je Akkuchemie
 Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 
-| Akkuchemie | lowv_sleep_mv (System-Off) | lowv_wake_mv (0% SOC) | Hysterese |
+| Akkuchemie | lowv_sleep_mv (System Sleep) | lowv_wake_mv (0% SOC) | Hysterese |
 |---|---|---|---|
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |

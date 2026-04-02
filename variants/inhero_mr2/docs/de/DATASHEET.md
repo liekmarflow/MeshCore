@@ -20,7 +20,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | Feature | Beschreibung |
 |---------|-------------|
 | **Watchdog Timer (WDT)** | Hardware-Watchdog des nRF52840. Startet das Board automatisch neu, wenn die Firmware hängt – wichtig für den unbeaufsichtigten Dauerbetrieb. |
-| **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System-Off mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
+| **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System Sleep mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
 | **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem 3.3V_off-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
 | **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe README für Details. |
 
@@ -174,9 +174,9 @@ USB-C VBUS ist über eine **SS34-Schottky-Diode** mit dem BQ25798-VBUS-Eingang (
 
 | Typ | Nennspannung | Ladeendspannung | Low-V Sleep | Low-V Wake | Hysterese |
 |-----|-------------|----------------|-------------|------------|-----------|
-| **Li-Ion 1S** | 3,7 V | 4,2 V | 3100 mV | 3300 mV | 200 mV |
-| **LiFePO4 1S** | 3,2 V | 3,6 V | 2700 mV | 2900 mV | 200 mV |
-| **LTO 2S** | 4,6 V (2× 2,3 V) | 5,6 V | 3900 mV | 4100 mV | 200 mV |
+| **Li-Ion 1S** | 3,7 V | 4,1 V | 3100 mV | 3300 mV | 200 mV |
+| **LiFePO4 1S** | 3,2 V | 3,5 V | 2700 mV | 2900 mV | 200 mV |
+| **LTO 2S** | 4,6 V (2× 2,3 V) | 5,4 V | 3900 mV | 4100 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 ---

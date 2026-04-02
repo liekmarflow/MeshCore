@@ -20,7 +20,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | Feature | Description |
 |---------|-------------|
 | **Watchdog Timer (WDT)** | nRF52840 hardware watchdog. Automatically reboots the board if the firmware hangs – essential for unattended long-term operation. |
-| **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled system-off with RTC wake. Solar charging remains active during sleep (CE pin latched). |
+| **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled System Sleep with RTC wake. Solar charging remains active during sleep (CE pin latched). |
 | **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
 | **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~5–6 °C in cold range, ~2–3 °C in warm/hot range). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see README for details. |
 
@@ -174,9 +174,9 @@ USB-C VBUS is connected to the BQ25798 VBUS input (same single input as solar) v
 
 | Type | Nominal Voltage | Charge Voltage | Low-V Sleep | Low-V Wake | Hysteresis |
 |------|----------------|----------------|-------------|------------|------------|
-| **Li-Ion 1S** | 3.7 V | 4.2 V | 3100 mV | 3300 mV | 200 mV |
-| **LiFePO4 1S** | 3.2 V | 3.6 V | 2700 mV | 2900 mV | 200 mV |
-| **LTO 2S** | 4.6 V (2× 2.3 V) | 5.6 V | 3900 mV | 4100 mV | 200 mV |
+| **Li-Ion 1S** | 3.7 V | 4.1 V | 3100 mV | 3300 mV | 200 mV |
+| **LiFePO4 1S** | 3.2 V | 3.5 V | 2700 mV | 2900 mV | 200 mV |
+| **LTO 2S** | 4.6 V (2× 2.3 V) | 5.4 V | 3900 mV | 4100 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 ---

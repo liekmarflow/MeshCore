@@ -114,7 +114,7 @@ public:
     BatteryType type;
     float charge_voltage;       // Max charge voltage in V
     float nominal_voltage;      // Nominal voltage for energy calculations
-    uint16_t lowv_sleep_mv;     // Low-voltage sleep threshold (INA228 ALERT triggers System-Off) in mV
+    uint16_t lowv_sleep_mv;     // Low-voltage sleep threshold (INA228 ALERT triggers System Sleep) in mV
     uint16_t lowv_wake_mv;      // Low-voltage wake threshold (0% SOC marker, RTC wake decision) in mV
     bool charge_enable;         // Enable/disable charging (false for BAT_UNKNOWN)
   } BatteryProperties;
@@ -124,7 +124,7 @@ public:
   static inline constexpr BatteryProperties battery_properties[] = {
     // Type         ChgV  NomV  SleepMv WakeMv  ChgEn
     { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false }, // SAFETY: Safe low thresholds, no charging
-    { LTO_2S,       5.4f, 5.0f, 3900,  4100,   true  }, // LTO 2S: 200mV hysteresis
+    { LTO_2S,       5.4f, 4.6f, 3900,  4100,   true  }, // LTO 2S: 200mV hysteresis
     { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true  }, // LiFePO4: 200mV hysteresis
     { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true  }  // Li-Ion: 200mV hysteresis
   };
@@ -246,7 +246,7 @@ public:
   static uint16_t getLowVoltageWakeThreshold(BatteryType type);    ///< Get wake threshold (0% SOC marker)
   
   // Watchdog methods
-  static void setupWatchdog();   ///< Initialize and start hardware watchdog (120s timeout)
+  static void setupWatchdog();   ///< Initialize and start hardware watchdog (600s timeout)
   static void feedWatchdog();    ///< Feed the watchdog to prevent reset
   static void disableWatchdog(); ///< Disable watchdog before OTA (cannot truly disable nRF52 WDT)
   
@@ -266,7 +266,7 @@ private:
   uint32_t lastHourlyMs = 0;       ///< Last updateHourlyStats() execution
   bool tickInitialized = false;    ///< First-call init flag for MPPT stats
 
-  void runMpptCycle();             ///< Single MPPT cycle (extracted from old solarMpptTask body)
+  void runMpptCycle();             ///< Single MPPT cycle
   static MpptStatistics mpptStats; ///< MPPT statistics data
   static BatterySOCStats socStats; ///< Battery SOC statistics
   

@@ -105,12 +105,12 @@ public:
   /// @brief RTC interrupt handler (called by hardware interrupt)
   static void rtcInterruptHandler();
 
-  /// @brief Put SX1262 + SPI pins into lowest power state for System-Off
+  /// @brief Put SX1262 + SPI pins into lowest power state for System Sleep
   /// @param radioInitialized false in Early Boot (before SPI.begin), true after full init
   /// Must be called before any sd_power_system_off() to prevent ~4mA SX1262 leakage
   static void prepareRadioForSystemOff(bool radioInitialized = true);
 
-  /// @brief Disconnect internal pull-ups on OD/I2C pins to prevent leakage in System-Off
+  /// @brief Disconnect internal pull-ups on OD/I2C pins to prevent leakage in System Sleep
   /// Must be called AFTER Wire.end() and before sd_power_system_off()
   static void disconnectLeakyPullups();
 

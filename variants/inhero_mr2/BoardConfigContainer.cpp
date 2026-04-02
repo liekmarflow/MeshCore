@@ -703,7 +703,7 @@ bool BoardConfigContainer::begin() {
       
       // Arm INA228 low-voltage alert for this battery chemistry
       // Rev 1.1: Always active when battery type is configured (no CLI toggle)
-      // ISR on ALERT pin → task notification → System-Off with latched CE
+      // ISR on ALERT pin → task notification → System Sleep with GPIO latch
       armLowVoltageAlert();
 
       // NOTE: Low-voltage recovery SOC=0% is handled in InheroMr2Board::begin()
@@ -1165,7 +1165,7 @@ BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeB
 }
 
 /// @brief Gets maximum charge current from preferences
-/// @return Maximum charge current in mA, defaults to 100mA if read fails
+/// @return Maximum charge current in mA, defaults to DEFAULT_MAX_CHARGE_CURRENT_MA (200mA) if read fails
 uint16_t BoardConfigContainer::getMaxChargeCurrent_mA() const {
   uint16_t maxI = 100;
   loadMaxChrgI(maxI);
@@ -1197,7 +1197,7 @@ bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
     // Disable MPPT in hardware
     bq.setMPPTenable(false);
   } else {
-    // Enable MPPT - will be set by solarMpptTask when appropriate
+    // Enable MPPT in hardware register
     bq.setMPPTenable(true);
   }
   
@@ -1711,7 +1711,7 @@ float BoardConfigContainer::readBmeTemperature() {
 
 /// @brief Arm INA228 low-voltage alert for current battery chemistry
 /// @details Programs INA228 BUVL register with lowv_sleep_mv threshold.
-///          Alert fires when VBAT drops below this level → ISR → task notification → System-Off.
+///          Alert fires when VBAT drops below this level → ISR → task notification → System Sleep.
 ///          Always active when battery type is configured (no CLI toggle).
 ///          BAT_UNKNOWN: alert disabled (threshold = 0).
 void BoardConfigContainer::armLowVoltageAlert() {
@@ -2111,11 +2111,10 @@ float BoardConfigContainer::estimateSOCFromVoltage(uint16_t voltage_mv, BatteryT
 // ===== Tick-based Periodic Dispatch =====
 
 /// @brief Called from InheroMr2Board::tick() — dispatches all periodic I2C work
-/// @details Replaces the old FreeRTOS solarMpptTask + socUpdateTask with
-///          millis()-based scheduling in the main loop context.
+/// @details millis()-based scheduling in the main loop context.
 ///          Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
 void BoardConfigContainer::tickPeriodic() {
-  // First-call init: clear MPPT stats (was previously in solarMpptTask startup)
+  // First-call init: clear MPPT stats
   if (!tickInitialized) {
     memset(&mpptStats, 0, sizeof(mpptStats));
     tickInitialized = true;
@@ -2123,7 +2122,7 @@ void BoardConfigContainer::tickPeriodic() {
 
   // Check low-voltage alert flag (set by INA228 ALERT ISR)
   if (lowVoltageAlertFired) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System-Off shutdown");
+    MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System Sleep");
     blinkRed(1, 100, 100, leds_enabled);
     blinkRed(3, 300, 300, leds_enabled);
 

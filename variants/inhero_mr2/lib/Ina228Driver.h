@@ -8,7 +8,7 @@
  * Features:
  * - Voltage, current, power monitoring
  * - Coulomb counter (accumulated charge)
- * - Alert pin for hardware UVLO (under-voltage lockout)
+ * - Alert pin for firmware-triggered low-voltage sleep (INA228 BUVL → ISR → System Sleep)
  * - Chemistry-specific thresholds (Li-Ion, LiFePO4, LTO)
  */
 
