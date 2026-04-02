@@ -17,7 +17,3 @@ compile_commands.json
 .venv/
 venv/
 
-# Exclude schematics folder (proprietary design files)
-variants/*/schematics/
-
-build_log.txt
