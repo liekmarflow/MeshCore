@@ -33,7 +33,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| INA228 ALERT → Low-Voltage System Sleep | Active | ISR on P1.02 → Task Notification → System Sleep with GPIO latch + RTC Wake |
+| INA228 ALERT → Low-Voltage System Sleep | Active | ISR on P1.02 → volatile flag → tickPeriodic() → System Sleep with GPIO latch + RTC Wake |
 | RTC Wakeup (Low-Voltage Recovery) | Active | 60 min (periodic) |
 | BQ CE Pin Safety (FET-inverted) | Active | GPIO HIGH → FET ON → CE LOW → charge ON (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
 | System Sleep with latched CE | Active | < 500µA, GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging possible |

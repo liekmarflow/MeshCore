@@ -37,7 +37,7 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| INA228 ALERT → Low-Voltage System Sleep | Active | ISR on P1.02 → Task Notification → System Sleep with GPIO latch + RTC Wake |
+| INA228 ALERT → Low-Voltage System Sleep | Active | ISR on P1.02 → volatile flag → tickPeriodic() → System Sleep with GPIO latch + RTC Wake |
 | RTC Wakeup (Low-Voltage Recovery) | Active | 60 min (periodic) |
 | BQ CE Pin Safety (FET-inverted) | Active | GPIO HIGH → FET ON → CE LOW → charge ON (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
 | System Sleep with latched CE | Active | < 500µA, GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging possible |
@@ -122,7 +122,6 @@ sd_power_system_off() → System Sleep with GPIO latch (< 500µA)
 ### SOC Calculation
 **Method**: `updateBatterySOC()` in `BoardConfigContainer.cpp`
 - **Primary**: Coulomb Counting (INA228 CHARGE register)
-- **Fallback**: Voltage-based SOC via `estimateSOCFromVoltage()`
 - **Update interval**: tickPeriodic() calls it (60s normal, hourly during low-voltage RTC wake)
 
 **Formula**:
