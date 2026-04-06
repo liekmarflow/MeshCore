@@ -30,6 +30,7 @@ This guide walks you through commissioning and the most important CLI commands.
   - set board.bat liion1s
   - or set board.bat lifepo1s
   - or set board.bat lto2s
+  - or set board.bat naion1s
 - Defines charge parameters and low-voltage thresholds.
 
 ## 7) Set Battery Capacity
@@ -52,7 +53,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - 100% = no reduction, full charge current even in cold conditions.
 - Below -5°C (T-Cold): Charging always completely blocked by JEITA.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
-- Note: For LTO, JEITA is disabled (fmax has no effect, charges even in frost).
+- Note: For LTO and Na-Ion, JEITA is disabled (fmax has no effect, charges even in frost).
 
 ## 10) Enable MPPT
 - Command: set board.mppt <0|1>
@@ -94,7 +95,13 @@ set board.imax 700
 set board.fmax 0%
 ```
 
-Note: `set board.fmax` has no effect on LTO (JEITA disabled).
+### Na-Ion 1S (3.1V nominal)
+```bash
+set board.bat naion1s
+set board.imax 500
+```
+
+Note: `set board.fmax` has no effect on LTO and Na-Ion (JEITA disabled).
 
 ## Solar Panel Notes
 - Maximum open-circuit voltage (Voc) for the input: 25V.

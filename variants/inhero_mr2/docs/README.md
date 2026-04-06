@@ -17,7 +17,7 @@
 
 ## Overview
 
-The Inhero MR-2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4 and LTO batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
+The Inhero MR-2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4, LTO and Na-Ion batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
@@ -77,6 +77,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 - **lowv_sleep_mv**: INA228 ALERT threshold → triggers System Sleep with GPIO latch
 - **lowv_wake_mv**: RTC wake threshold → boot only when VBAT is above, also 0% SOC marker
@@ -172,7 +173,7 @@ platformio run -e Inhero_MR2_kiss_modem
 ### Get Commands
 ```bash
 get board.bat       # Query current battery type
-                    # Output: liion1s | lifepo1s | lto2s | none
+                    # Output: liion1s | lifepo1s | lto2s | naion1s | none
 
 get board.fmax      # Query frost charge behavior
                     # Output: 0% | 20% | 40% | 100%
@@ -185,7 +186,7 @@ get board.fmax      # Query frost charge behavior
                     # Note: Only charging is restricted. With sufficient
                     # solar, the board continues to run on solar power —
                     # the battery is neither charged nor discharged.
-                    # LTO batteries: N/A (JEITA disabled, charges even in frost)
+                    # LTO / Na-Ion batteries: N/A (JEITA disabled, charges even in frost)
 
 get board.imax      # Query maximum charge current
                     # Output: <current>mA (e.g. 200mA)
@@ -242,7 +243,7 @@ get board.leds      # Query LED enable status
 ### Set Commands
 ```bash
 set board.bat <type>           # Set battery type
-                               # Options: lto2s | lifepo1s | liion1s | none
+                               # Options: lto2s | lifepo1s | liion1s | naion1s | none
                                # none = no battery / unknown (charging disabled)
 
 set board.fmax <behavior>      # Set frost charge behavior
@@ -257,7 +258,7 @@ set board.fmax <behavior>      # Set frost charge behavior
                                # Note: Only charging is restricted. With sufficient
                                # solar, the board continues to run on solar power —
                                # the battery is neither charged nor discharged.
-                               # N/A for LTO batteries (JEITA disabled)
+                               # N/A for LTO / Na-Ion batteries (JEITA disabled)
 
 set board.imax <current>       # Set maximum charge current in mA
                                # Range: 50-1500mA (BQ25798 minimum: 50mA)

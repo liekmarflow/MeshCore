@@ -100,6 +100,7 @@ sd_power_system_off() → System Sleep mit GPIO-Latch (< 500µA)
 | **Li-Ion 1S** | 3100 | 3300 | 200mV |
 | **LiFePO4 1S** | 2700 | 2900 | 200mV |
 | **LTO 2S** | 3900 | 4100 | 200mV |
+| **Na-Ion 1S** | 2500 | 2700 | 200mV |
 
 **Implementierung**: `BoardConfigContainer` — `battery_properties[]` Lookup-Tabelle
 - `lowv_sleep_mv` → INA228 BUVL Alert-Schwelle, löst System Sleep aus
@@ -592,6 +593,7 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 **Anti-Motorboating**: Der Early-Boot-Check in `begin()` verhindert, dass das System bei knapper Spannung immer wieder bootet und sofort abstürzt. Erst wenn VBAT über `lowv_wake_mv` liegt, wird normal gebootet.
 
@@ -755,7 +757,7 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 ### Getter
 ```bash
 board.bat       # Batterietyp abfragen
-                # Ausgabe: liion1s | lifepo1s | lto2s | none
+                # Ausgabe: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Frost-Ladeverhalten abfragen
                 # Ausgabe: 0% | 20% | 40% | 100% (LTO: N/A)
@@ -798,12 +800,12 @@ board.batcap    # Batteriekapazität
 ### Setter
 ```bash
 set board.bat <type>        # Batteriechemie setzen
-                            # Optionen: liion1s | lifepo1s | lto2s | none
+                            # Optionen: liion1s | lifepo1s | lto2s | naion1s | none
 
 set board.fmax <wert>       # Frost-Ladestromabsenkung setzen
                             # Optionen: 0% | 20% | 40% | 100%
                             # Begrenzt Ladestrom im T-Cool-Bereich (0°C bis -5°C)
-                            # Bei LTO ohne Wirkung (JEITA deaktiviert)
+                            # Bei LTO / Na-Ion ohne Wirkung (JEITA deaktiviert)
 
 set board.imax <mA>         # Maximalen Ladestrom setzen
                             # Bereich: 50-1500 mA

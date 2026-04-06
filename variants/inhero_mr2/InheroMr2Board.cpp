@@ -588,8 +588,8 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
              BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType()));
     return true;
   } else if (strcmp(cmd, "fmax") == 0) {
-    // LTO batteries ignore JEITA temperature control
-    if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
+    const auto* props = BoardConfigContainer::getBatteryProperties(boardConfig.getBatteryType());
+    if (props && props->ts_ignore) {
       snprintf(reply, maxlen, "N/A");
     } else {
       snprintf(
@@ -728,7 +728,8 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     // Display all configuration values
     const char* batType = BoardConfigContainer::getBatteryTypeCommandString(boardConfig.getBatteryType());
     const char* frostBehaviour;
-    if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
+    const auto* confProps = BoardConfigContainer::getBatteryProperties(boardConfig.getBatteryType());
+    if (confProps && confProps->ts_ignore) {
       frostBehaviour = "N/A";
     } else {
       frostBehaviour =
@@ -790,9 +791,9 @@ const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
       return ret;
     }
   } else if (strncmp(setCommand, "fmax ", 5) == 0) {
-    // LTO batteries ignore JEITA temperature control - setting fmax behavior is not applicable
-    if (boardConfig.getBatteryType() == BoardConfigContainer::BatteryType::LTO_2S) {
-      snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for LTO (JEITA disabled)");
+    const auto* fmaxProps = BoardConfigContainer::getBatteryProperties(boardConfig.getBatteryType());
+    if (fmaxProps && fmaxProps->ts_ignore) {
+      snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for this chemistry (JEITA disabled)");
       return ret;
     }
 

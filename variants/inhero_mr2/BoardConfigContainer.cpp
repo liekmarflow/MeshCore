@@ -1092,30 +1092,20 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   }
 
   // Configure chemistry-specific parameters
-  switch (type) {
-  case BoardConfigContainer::BatteryType::LIION_1S:
-    bq.setCellCount(BQ25798_CELL_COUNT_1S);
-    bq.setTsIgnore(false);
-    bq.setChargeLimitV(props->charge_voltage);
-    break;
-  case BoardConfigContainer::BatteryType::LIFEPO4_1S:
-    bq.setCellCount(BQ25798_CELL_COUNT_1S);
-    bq.setTsIgnore(false);
-    bq.setChargeLimitV(props->charge_voltage);
-    break;
-  case BoardConfigContainer::BatteryType::LTO_2S:
-    bq.setCellCount(BQ25798_CELL_COUNT_2S);
-    bq.setTsIgnore(true);
-    // Explicitly set JEITA current limits to UNCHANGED for LTO
+  // Configure cell count
+  bq25798_cell_count_t cellCount = (type == BoardConfigContainer::BatteryType::LTO_2S) ? BQ25798_CELL_COUNT_2S : BQ25798_CELL_COUNT_1S;
+  bq.setCellCount(cellCount);
+
+  // Configure TS/JEITA based on battery properties
+  bq.setTsIgnore(props->ts_ignore);
+  if (props->ts_ignore) {
+    // Explicitly set JEITA current limits to UNCHANGED when TS is ignored
     // Even though TS_IGNORE disables temperature monitoring, ensure JEITA registers don't interfere
-    bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);  // Cold region - no current reduction
-    bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);  // Warm region - no current reduction
-    bq.setChargeLimitV(props->charge_voltage);
-    break;
-  case BoardConfigContainer::BatteryType::BAT_UNKNOWN:
-    // Already handled above via charge_enable flag
-    break;
+    bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
+    bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
   }
+
+  bq.setChargeLimitV(props->charge_voltage);
 
   return true;
 }
@@ -1490,6 +1480,9 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
         break;
       case BatteryType::LIFEPO4_1S:
         capacity_mah = 1500.0f;  // Typical LiFePO4 capacity
+        break;
+      case BatteryType::NAION_1S:
+        capacity_mah = 2000.0f;  // Typical Na-Ion capacity
         break;
       case BatteryType::LIION_1S:
       default:

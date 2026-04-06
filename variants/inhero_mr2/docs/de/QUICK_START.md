@@ -30,6 +30,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
   - set board.bat liion1s
   - oder set board.bat lifepo1s
   - oder set board.bat lto2s
+  - oder set board.bat naion1s
 - Legt Ladeparameter und Low-Voltage-Schwellen fest.
 
 ## 7) Akkukapazitaet setzen
@@ -52,7 +53,7 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - 100% = keine Reduktion, voller Ladestrom auch bei Kaelte.
 - Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
 - Wichtig: Nur das Laden wird eingeschraenkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO ist JEITA deaktiviert (fmax ohne Wirkung, laedt auch bei Frost).
+- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (fmax ohne Wirkung, laedt auch bei Frost).
 
 ## 10) MPPT aktivieren
 - Command: set board.mppt <0|1>
@@ -94,7 +95,13 @@ set board.imax 700
 set board.fmax 0%
 ```
 
-Hinweis: `set board.fmax` hat bei LTO keine Wirkung (JEITA deaktiviert).
+### Na-Ion 1S (3.1V nominal)
+```bash
+set board.bat naion1s
+set board.imax 500
+```
+
+Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.

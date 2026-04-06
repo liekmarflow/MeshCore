@@ -14,6 +14,7 @@ Praefix ist immer `board.` – also `get board.<cmd>` bzw. `set board.<cmd> <wer
 set board.bat liion1s          # Li-Ion 1S (3.7V nominal)
 set board.bat lifepo1s         # LiFePO4 1S (3.2V nominal)
 set board.bat lto2s            # LTO 2S (2x 2.3V nominal)
+set board.bat naion1s          # Na-Ion 1S (3.1V nominal)
 set board.bat none             # Kein Akku / unbekannt (Laden deaktiviert)
 
 # Akkukapazitaet (100–100000 mAh)
@@ -27,7 +28,7 @@ set board.fmax 0%              # Laden gesperrt
 set board.fmax 20%             # max. 20% von imax
 set board.fmax 40%             # max. 40% von imax
 set board.fmax 100%            # keine Reduktion
-# Hinweis: Bei LTO ohne Wirkung (JEITA deaktiviert)
+# Hinweis: Bei LTO / Na-Ion ohne Wirkung (JEITA deaktiviert)
 
 # MPPT ein/aus
 set board.mppt 1               # MPPT aktivieren
@@ -88,10 +89,10 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 
 | Befehl | Beschreibung |
 |---|---|
-| `get board.bat` | Batterietyp (`liion1s`, `lifepo1s`, `lto2s`, `none`) |
+| `get board.bat` | Batterietyp (`liion1s`, `lifepo1s`, `lto2s`, `naion1s`, `none`) |
 | `get board.batcap` | Batteriekapazitaet in mAh (set/default) |
 | `get board.imax` | Maximaler Ladestrom in mA |
-| `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO: `N/A`) |
+| `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO/Na-Ion: `N/A`) |
 | `get board.mppt` | MPPT-Status (`0`/`1`) |
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
@@ -106,10 +107,10 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 
 | Befehl | Wertebereich | Beschreibung |
 |---|---|---|
-| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `none` | Akkuchemie waehlen |
+| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Akkuchemie waehlen |
 | `set board.batcap` | `100`–`100000` (mAh) | Akkukapazitaet setzen |
 | `set board.imax` | `50`–`1500` (mA) | Max. Ladestrom setzen |
-| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO) |
+| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO/Na-Ion) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
@@ -144,6 +145,15 @@ set board.leds off
 set board.bat lto2s
 set board.batcap 18000
 set board.imax 700
+set board.mppt 1
+set board.leds off
+```
+
+### Na-Ion 1S mit 10Ah und Solar
+```bash
+set board.bat naion1s
+set board.batcap 10000
+set board.imax 500
 set board.mppt 1
 set board.leds off
 ```

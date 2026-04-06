@@ -87,7 +87,7 @@ typedef struct {
 class BoardConfigContainer {
 
 public:
-  enum BatteryType : uint8_t { BAT_UNKNOWN = 0, LTO_2S = 1, LIFEPO4_1S = 2, LIION_1S = 3 };
+  enum BatteryType : uint8_t { BAT_UNKNOWN = 0, LTO_2S = 1, LIFEPO4_1S = 2, LIION_1S = 3, NAION_1S = 4 };
   typedef struct {
     const char* command_string;
     BatteryType type;
@@ -101,21 +101,24 @@ public:
     uint16_t lowv_sleep_mv;     // Low-voltage sleep threshold (INA228 ALERT triggers System Sleep) in mV
     uint16_t lowv_wake_mv;      // Low-voltage wake threshold (0% SOC marker, RTC wake decision) in mV
     bool charge_enable;         // Enable/disable charging (false for BAT_UNKNOWN)
+    bool ts_ignore;             // Ignore TS/NTC temperature monitoring (disables JEITA)
   } BatteryProperties;
 
   // Battery properties lookup table
   // All battery-specific thresholds in one central location
   static inline constexpr BatteryProperties battery_properties[] = {
-    // Type         ChgV  NomV  SleepMv WakeMv  ChgEn
-    { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false }, // SAFETY: Safe low thresholds, no charging
-    { LTO_2S,       5.4f, 4.6f, 3900,  4100,   true  }, // LTO 2S: 200mV hysteresis
-    { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true  }, // LiFePO4: 200mV hysteresis
-    { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true  }  // Li-Ion: 200mV hysteresis
+    // Type         ChgV  NomV  SleepMv WakeMv  ChgEn  TsIgn
+    { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false, true  }, // SAFETY: Safe low thresholds, no charging
+    { LTO_2S,       5.4f, 4.6f, 3900,  4100,   true,  true  }, // LTO 2S: No JEITA (wide temp range)
+    { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true,  false }, // LiFePO4: JEITA enabled
+    { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true,  false }, // Li-Ion: JEITA enabled
+    { NAION_1S,     3.9f, 3.1f, 2500,  2700,   true,  true  }  // Na-Ion: No JEITA (wide temp range)
   };
 
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
                                                        { "lifepo1s", LIFEPO4_1S },
                                                        { "liion1s", LIION_1S },
+                                                       { "naion1s", NAION_1S },
                                                        { "none", BAT_UNKNOWN },
                                                        { nullptr, BAT_UNKNOWN } };
 

@@ -100,6 +100,7 @@ sd_power_system_off() → System Sleep with GPIO latch (< 500µA)
 | **Li-Ion 1S** | 3100 | 3300 | 200mV |
 | **LiFePO4 1S** | 2700 | 2900 | 200mV |
 | **LTO 2S** | 3900 | 4100 | 200mV |
+| **Na-Ion 1S** | 2500 | 2700 | 200mV |
 
 **Implementation**: `BoardConfigContainer` — `battery_properties[]` lookup table
 - `lowv_sleep_mv` → INA228 BUVL Alert threshold, triggers System Sleep
@@ -593,6 +594,7 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 **Anti-Motorboating**: The early-boot check in `begin()` prevents the system from repeatedly booting and immediately crashing at marginal voltage. Only when VBAT is above `lowv_wake_mv` does it boot normally.
 
@@ -756,7 +758,7 @@ The 168h ring buffer statistics (coulomb counter, MPPT data, SOC state) are stor
 ### Getters
 ```bash
 board.bat       # Query battery type
-                # Output: liion1s | lifepo1s | lto2s | none
+                # Output: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Query frost charge behavior
                 # Output: 0% | 20% | 40% | 100% (LTO: N/A)
@@ -799,12 +801,12 @@ board.batcap    # Battery capacity
 ### Setters
 ```bash
 set board.bat <type>        # Set battery chemistry
-                            # Options: liion1s | lifepo1s | lto2s | none
+                            # Options: liion1s | lifepo1s | lto2s | naion1s | none
 
 set board.fmax <value>      # Set frost charge current reduction
                             # Options: 0% | 20% | 40% | 100%
                             # Limits charge current in T-Cool range (0°C to -5°C)
-                            # No effect on LTO (JEITA disabled)
+                            # No effect on LTO / Na-Ion (JEITA disabled)
 
 set board.imax <mA>         # Set maximum charge current
                             # Range: 50-1500 mA

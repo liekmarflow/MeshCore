@@ -17,7 +17,7 @@
 
 ## Übersicht
 
-Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4 sowie LTO und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget“-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
+Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget“-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
@@ -77,6 +77,7 @@ Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autar
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 - **lowv_sleep_mv**: INA228 ALERT-Schwelle → löst System Sleep mit GPIO-Latch aus
 - **lowv_wake_mv**: RTC-Wake-Schwelle → Boot nur wenn VBAT darüber liegt, gleichzeitig 0% SOC-Marker
@@ -172,7 +173,7 @@ platformio run -e Inhero_MR2_kiss_modem
 ### Get-Befehle
 ```bash
 get board.bat       # Aktuellen Batterietyp abfragen
-                    # Ausgabe: liion1s | lifepo1s | lto2s | none
+                    # Ausgabe: liion1s | lifepo1s | lto2s | naion1s | none
 
 get board.fmax      # Frost-Ladeverhalten abfragen
                     # Ausgabe: 0% | 20% | 40% | 100%
@@ -185,7 +186,7 @@ get board.fmax      # Frost-Ladeverhalten abfragen
                     # Hinweis: Nur das Laden wird eingeschränkt. Bei ausreichend
                     # Solar wird das Board weiterhin mit Solarstrom betrieben —
                     # der Akku wird weder ge- noch entladen.
-                    # LTO batteries: N/A (JEITA disabled, lädt auch bei Frost)
+                    # LTO / Na-Ion batteries: N/A (JEITA disabled, lädt auch bei Frost)
 
 get board.imax      # Maximalen Ladestrom abfragen
                     # Ausgabe: <current>mA (z.B. 200mA)
@@ -242,7 +243,7 @@ get board.leds      # LED-Aktivstatus abfragen
 ### Set-Befehle
 ```bash
 set board.bat <type>           # Batterietyp setzen
-                               # Options: lto2s | lifepo1s | liion1s | none
+                               # Options: lto2s | lifepo1s | liion1s | naion1s | none
                                # none = kein Akku / unbekannt (Laden deaktiviert)
 
 set board.fmax <behavior>      # Frost-Ladeverhalten setzen
@@ -257,7 +258,7 @@ set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Hinweis: Nur das Laden wird eingeschränkt. Bei
                                # ausreichend Solar läuft das Board weiterhin auf
                                # Solarstrom — der Akku wird weder ge- noch entladen.
-                               # N/A for LTO batteries (JEITA disabled)
+                               # N/A for LTO / Na-Ion batteries (JEITA disabled)
 
 set board.imax <current>       # Maximalen Ladestrom in mA setzen
                                # Range: 50-1500mA (BQ25798-Minimum: 50mA)

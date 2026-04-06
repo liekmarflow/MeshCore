@@ -9,7 +9,7 @@
 
 ## Board-Übersicht
 
-Das Inhero MR2 ist ein LoRa-Mesh-Repeater-Board auf Basis des **RAK4630**-Moduls (nRF52840 + SX1262) mit integriertem intelligentem Solar-Laderegler, Leistungsüberwachung und Tiefentladeschutz. Unterstützte Akku-Konfigurationen sind 1S-Li-Ion, 1S-LiFePO4 und 2S-LTO. Das Board wurde speziell für den autarken Langzeiteinsatz an abgelegenen oder schwer erreichbaren Standorten entwickelt. In Mitteleuropa ist ein ununterbrochener Repeater-Dauerbetrieb mit unverschatteten Solarmodulen ≥ 1 W und Akkukapazitäten ≥ 9 Ah möglich.
+Das Inhero MR2 ist ein LoRa-Mesh-Repeater-Board auf Basis des **RAK4630**-Moduls (nRF52840 + SX1262) mit integriertem intelligentem Solar-Laderegler, Leistungsüberwachung und Tiefentladeschutz. Unterstützte Akku-Konfigurationen sind 1S-Li-Ion, 1S-LiFePO4, 2S-LTO und 1S-Na-Ion. Das Board wurde speziell für den autarken Langzeiteinsatz an abgelegenen oder schwer erreichbaren Standorten entwickelt. In Mitteleuropa ist ein ununterbrochener Repeater-Dauerbetrieb mit unverschatteten Solarmodulen ≥ 1 W und Akkukapazitäten ≥ 9 Ah möglich.
 
 Die Lade- und Entladeschlussspannungen (siehe Tabelle [Unterstützte Akkuchemien](#unterstützte-akkuchemien)) sind so gewählt, dass die Akkus im Sommer nicht übermäßig belastet werden und gleichzeitig der Sleep-Betrieb bei Energiemangel sicher eingeleitet werden kann.
 
@@ -22,7 +22,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Watchdog Timer (WDT)** | Hardware-Watchdog des nRF52840. Startet das Board automatisch neu, wenn die Firmware hängt – wichtig für den unbeaufsichtigten Dauerbetrieb. |
 | **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System Sleep mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
 | **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem 3.3V_off-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
-| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe README für Details. |
+| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe README für Details. |
 
 ### Solar-Energiemanagement
 
@@ -39,7 +39,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Funk** | Semtech SX1262 (via RAK4630) |
 | **Frequenz** | LoRa Sub-GHz (regionsabhängig) |
 | **Konnektivität** | LoRa, BLE 5.0, USB-C |
-| **Versorgungsspannung** | 1S Li-Ion / 1S LiFePO4 / 2S LTO (per Firmware konfigurierbar) |
+| **Versorgungsspannung** | 1S Li-Ion / 1S LiFePO4 / 2S LTO / 1S Na-Ion (per Firmware konfigurierbar) |
 | **Solareingang** | 3,6 V – 24 V (MPPT) |
 | **Max. Solar-Voc** | 25 V |
 | **USB-Laden** | 5 V über USB-C (SS34-Diode auf VBUS-BQ, gleicher Ladepfad wie Solar) |
@@ -177,6 +177,7 @@ USB-C VBUS ist über eine **SS34-Schottky-Diode** mit dem BQ25798-VBUS-Eingang (
 | **Li-Ion 1S** | 3,7 V | 4,1 V | 3100 mV | 3300 mV | 200 mV |
 | **LiFePO4 1S** | 3,2 V | 3,5 V | 2700 mV | 2900 mV | 200 mV |
 | **LTO 2S** | 4,6 V (2× 2,3 V) | 5,4 V | 3900 mV | 4100 mV | 200 mV |
+| **Na-Ion 1S** | 3,1 V | 3,9 V | 2500 mV | 2700 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 ---
