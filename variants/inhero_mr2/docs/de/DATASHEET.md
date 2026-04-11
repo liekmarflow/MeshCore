@@ -24,6 +24,8 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem 3.3V_off-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
 | **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe README für Details. |
 
+> **⚠ WARNUNG — Kein Verpolschutz:** Das Board verfügt über **keinen Hardware-Verpolschutz** an Akku- oder Solareingang. Ein verpolter Anschluss führt zu **sofortiger, irreversibler Beschädigung** des Boards. Vor dem Anschließen immer die Polarität prüfen.
+
 ### Solar-Energiemanagement
 
 | Feature | Beschreibung |
@@ -99,12 +101,16 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | 2 | **Batt −** | Batterie-Minuspol (GND) |
 | 3 | **TS** | Temperatursensor (NTC) für JEITA-Ladeschutz. Erforderlicher Typ: NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel |
 
+> **⚠ WARNUNG:** Kein Verpolschutz. Vor dem Anschließen unbedingt korrekte Polarität prüfen.
+
 ### Steckerbelegung – Solar-Stecker (JST PH2.0-2P, von links nach rechts)
 
 | Pin | Signal | Beschreibung |
 |-----|--------|-------------|
 | 1 | **Solar +** | Solarpanel-Pluspol (3,6 V – 24 V, max. Voc 25 V) |
 | 2 | **Solar −** | Solarpanel-Minuspol (GND) |
+
+> **⚠ WARNUNG:** Kein Verpolschutz. Vor dem Anschließen unbedingt korrekte Polarität prüfen.
 
 ### USB-Ladepfad
 

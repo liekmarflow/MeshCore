@@ -15,6 +15,8 @@ This guide walks you through commissioning and the most important CLI commands.
 ## 3) Connect Battery
 - A charge level >90% is recommended so the SOC calculation starts reliably.
 
+> **⚠ WARNING — No Reverse Polarity Protection:** The board has no hardware reverse polarity protection. Connecting the battery with reversed polarity will cause immediate, irreversible damage. Always verify correct polarity before plugging in.
+
 ## 4) Configure Repeater via USB
 - Connect the repeater to a computer via USB cable.
 - Go to https://flasher.meshcore.co.uk/ -> Repeater Setup to configure (LoRa settings, name, admin password, etc.).

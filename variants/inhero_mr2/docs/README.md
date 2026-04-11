@@ -17,7 +17,7 @@
 
 ## Overview
 
-The Inhero MR-2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4, LTO and Na-Ion batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
+The Inhero MR-2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. With an active idle consumption of only 6.0 mA at 4.2 V and 7.7 mA at 3.3 V (USB off, no radio TX), the board is exceptionally efficient for a full-featured repeater — enabling long runtimes even with compact batteries and small solar panels. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4, LTO and Na-Ion batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
@@ -28,6 +28,8 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **Universal Solar Input:** 3.6V – 24V with autonomous MPPT tracking and integrated protection against "stuck states" (hardware watchdog logic).
 - **Environmental Sensing & Timekeeping:** Integrated BME280 and RV-3028 RTC for autonomous wake-up management and precise time base.
 - **Form Factor:** Only 45 × 40 mm – optimized for low-profile enclosures and minimal mechanical stress.
+
+> **⚠ WARNING — No Reverse Polarity Protection:** The board has no hardware reverse polarity protection on the battery or solar input. Connecting with reversed polarity will cause immediate, irreversible damage. Always verify correct polarity before connecting any power source.
 
 ## Current Feature Matrix
 

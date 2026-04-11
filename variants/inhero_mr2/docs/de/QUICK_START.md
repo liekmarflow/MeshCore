@@ -15,6 +15,8 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 ## 3) Akku anschliessen
 - Ein Ladestand >90% wird empfohlen, damit der Akku per USB voll geladen werden kann und damit die SOC-Berechnung stabil startet.
 
+> **⚠ WARNUNG — Kein Verpolschutz:** Das Board hat keinen Hardware-Verpolschutz. Ein verpolter Akkuanschluss fuehrt zu sofortiger, irreversibler Beschaedigung. Vor dem Anschliessen immer die Polaritaet pruefen.
+
 ## 4) Repeater per USB konfigurieren
 - Repeater per USB-Kabel mit dem Rechner verbinden.
 - Auf https://flasher.meshcore.co.uk/ -> Repeater-Setup konfigurieren (LoRa-Settings, Name, Admin-Passwort usw.).

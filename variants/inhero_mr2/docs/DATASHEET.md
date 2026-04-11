@@ -24,6 +24,8 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
 | **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~5–6 °C in cold range, ~2–3 °C in warm/hot range). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see README for details. |
 
+> **⚠ WARNING — No Reverse Polarity Protection:** The board has **no hardware reverse polarity protection** on the battery or solar input. Connecting a battery or solar panel with reversed polarity will cause **immediate, irreversible damage** to the board. Always double-check the polarity before connecting any power source.
+
 ### Solar Power Management
 
 | Feature | Description |
@@ -99,12 +101,16 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | 2 | **Batt −** | Battery negative terminal (GND) |
 | 3 | **TS** | Temperature sensor (NTC) for JEITA charge protection. Required type: NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) or compatible |
 
+> **⚠ WARNING:** No reverse polarity protection. Verify correct polarity before connecting.
+
 ### Pinout – Solar Connector (JST PH2.0-2P, left to right)
 
 | Pin | Signal | Description |
 |-----|--------|-------------|
 | 1 | **Solar +** | Solar panel positive (3.6 V – 24 V, max. Voc 25 V) |
 | 2 | **Solar −** | Solar panel negative (GND) |
+
+> **⚠ WARNING:** No reverse polarity protection. Verify correct polarity before connecting.
 
 ### USB Charging Path
 

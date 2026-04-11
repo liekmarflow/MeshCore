@@ -17,7 +17,7 @@
 
 ## Übersicht
 
-Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget“-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
+Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Mit einem aktiven Idle-Verbrauch von nur 6,0 mA bei 4,2 V bzw. 7,7 mA bei 3,3 V (USB aus, kein Radio-TX) ist das Board für einen voll ausgestatteten Repeater außergewöhnlich sparsam — das ermöglicht lange Laufzeiten selbst mit kompakten Akkus und kleinen Solarpanels. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget"-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
@@ -28,6 +28,8 @@ Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autar
 - **Universeller Solareingang:** 3.6V – 24V mit autonomem MPPT-Tracking und integriertem Schutz gegen „Stuck-States“ (Hardware-Watchdog-Logik).
 - **Umweltsensorik & Zeit:** Integrierter BME280 und RV-3028 RTC für autonomes Wake-up Management und präzise Zeitbasis.
 - **Formfaktor:** Nur 45 × 40 mm – optimiert für unauffällige Gehäuse und geringe mechanische Belastung.
+
+> **⚠ WARNUNG — Kein Verpolschutz:** Das Board verfügt über keinen Hardware-Verpolschutz an Akku- oder Solareingang. Ein verpolter Anschluss führt zu sofortiger, irreversibler Beschädigung. Vor dem Anschließen immer die Polarität prüfen.
 
 ## Aktuelle Feature-Matrix
 
