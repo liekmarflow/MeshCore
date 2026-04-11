@@ -86,6 +86,16 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **< 500µA** total consumption (nRF52840 System-Off + RTC + quiescent currents of all components)
 - GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging active
 
+### Active Idle Power Consumption
+- **6.0 mA** @ VBAT 4.2 V (USB off, no radio TX)
+- **7.7 mA** @ VBAT 3.3 V (USB off, no radio TX)
+- **+0.8–1.0 mA** with USB peripheral enabled
+- USB is auto-managed: enabled on VBUS detect, disabled on removal
+
+### Power Saving Measures
+- **WFE Idle** (`board.sleep(0)`): CPU enters Wait-For-Event between loop iterations. Wakes on any interrupt (radio, SysTick, USB, I2C) — typically within 1 ms. Reduces nRF52840 CPU current from ~3 mA (busy-loop) to ~0.5–0.8 mA.
+- **USB Auto-Disable**: nRF52840 USB peripheral is automatically disabled when no VBUS is detected, saving ~0.8–1.0 mA. Re-enabled automatically when USB cable is connected.
+
 ### Coulomb Counter & SOC Tracking
 - **Real-time SOC tracking** via INA228 (±0.1% accuracy)
 - **100mΩ shunt resistor** (1.6A max current)

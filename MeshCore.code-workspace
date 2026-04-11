@@ -6,6 +6,9 @@
 		{
 			"name": "MeshCore",
 			"path": "."
+		},
+		{
+			"path": "../direct_test_mode"
 		}
 	],
 	"settings": {}

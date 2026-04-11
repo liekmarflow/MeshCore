@@ -50,6 +50,9 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Buck Converter** | TPS62840 (3.3 V rail, max. 750 mA) |
 | **System-Off Current** | via 3.3V off switch ~15 µA |
 | **System Sleep Current** | < 500 µA (firmware sleep with GPIO latch, CE active, RTC wake) |
+| **Idle Current (active)** | 6.0 mA @ 4.2 V / 7.7 mA @ 3.3 V (USB off, no radio TX) |
+| **USB Peripheral** | ~0.8–1.0 mA additional (auto-enabled on VBUS detect, auto-disabled on removal) |
+| **CPU Idle Mode** | WFE (Wait-For-Event) between loop iterations, reduces CPU current from ~3 mA to ~0.5–0.8 mA |
 | **PCB Size** | 45 × 40 mm |
 | **Mounting Holes** | 4× M2.5, hole spacing 40 × 35 mm |
 | **Operating Temperature** | –40 °C to +85 °C (MCU spec) |
@@ -106,6 +109,16 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 ### USB Charging Path
 
 USB-C VBUS is connected to the BQ25798 VBUS input (same single input as solar) via an **SS34 Schottky diode**. The BQ25798 has only one VBUS input and does not distinguish between USB and solar. CC1 and CC2 are pulled to GND via 4.7 kΩ resistors, advertising the board as a USB power sink (5 V default). The SS34 diode prevents backflow from the solar panel to the USB bus, but current **can** flow from USB-VBUS out through the solar connector.
+
+#### USB Auto-Management
+
+The nRF52840 USB peripheral is automatically managed based on VBUS detection:
+
+- **VBUS detected** → USB peripheral enabled (Serial available)
+- **VBUS removed** → USB peripheral disabled (saves ~0.8–1.0 mA)
+- **Boot without USB** → USB disabled on first loop iteration
+
+No manual CLI commands are required. USB is always available when a cable is connected.
 
 > **⚠ Warning:** Since VBUS-USB and VBUS-BQ (solar input) are connected via the SS34 diode, a **short circuit on the solar connector** will also short VBUS-USB. Never short-circuit the solar input while USB is connected.
 

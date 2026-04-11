@@ -50,6 +50,9 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Buck Converter** | TPS62840 (3.3V-Rail, max. 750 mA) |
 | **System-Off-Strom** | via 3.3V off Switch ~15 µA |
 | **System-Sleep-Strom** | < 500 µA (Firmware-Sleep mit GPIO-Latch, CE aktiv, RTC-Wake) |
+| **Idle-Strom (aktiv)** | 6,0 mA @ 4,2 V / 7,7 mA @ 3,3 V (USB aus, kein Radio-TX) |
+| **USB-Peripherie** | ~0,8–1,0 mA zusätzlich (auto-aktiviert bei VBUS-Erkennung, auto-deaktiviert bei Entfernung) |
+| **CPU-Idle-Modus** | WFE (Wait-For-Event) zwischen Loop-Iterationen, reduziert CPU-Strom von ~3 mA auf ~0,5–0,8 mA |
 | **Platinengröße** | 45 × 40 mm |
 | **Montagebohrungen** | 4× M2.5, Lochabstand 40 × 35 mm |
 | **Betriebstemperatur** | –40 °C bis +85 °C (MCU-Spezifikation) |
@@ -106,6 +109,16 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 ### USB-Ladepfad
 
 USB-C VBUS ist über eine **SS34-Schottky-Diode** mit dem BQ25798-VBUS-Eingang (derselbe einzelne Eingang wie Solar) verbunden. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar. CC1 und CC2 sind über 4,7 kΩ Widerstände auf GND gezogen und melden das Board als USB-Power-Sink (5 V Standard). Die SS34-Diode verhindert einen Rückfluss vom Solarpanel zum USB-Bus, allerdings **kann** Strom von USB-VBUS über den Solarstecker abfließen.
+
+#### USB Auto-Management
+
+Die nRF52840-USB-Peripherie wird automatisch basierend auf VBUS-Erkennung verwaltet:
+
+- **VBUS erkannt** → USB-Peripherie aktiviert (Serial verfügbar)
+- **VBUS entfernt** → USB-Peripherie deaktiviert (spart ~0,8–1,0 mA)
+- **Boot ohne USB** → USB wird beim ersten Loop-Durchlauf deaktiviert
+
+Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel angeschlossen ist.
 
 > **⚠ Warnung:** Da VBUS-USB und VBUS-BQ (Solareingang) über die SS34-Diode verbunden sind, führt ein **Kurzschluss am Solarstecker** auch zum Kurzschluss von VBUS-USB. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 

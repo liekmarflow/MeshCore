@@ -28,11 +28,41 @@ static unsigned long userBtnDownAt = 0;
 #define USER_BTN_HOLD_OFF_MILLIS 1500
 #endif
 
+// USB power management (Inhero MR2 only)
+#if defined(INHERO_MR2)
+  #include <nrf.h>
+  bool usb_active = true;
+
+  static bool isUSBPowered() {
+    return (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk) != 0;
+  }
+
+  void disableUSB() {
+    if (usb_active) {
+      Serial.end();
+      NRF_USBD->ENABLE = 0;
+      usb_active = false;
+      MESH_DEBUG_PRINTLN("USB disabled");
+    }
+  }
+
+  void enableUSB() {
+    if (!usb_active) {
+      NRF_USBD->ENABLE = 1;
+      Serial.begin(115200);
+      usb_active = true;
+      MESH_DEBUG_PRINTLN("USB enabled");
+    }
+  }
+#endif
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
   board.begin();
+
+
 
 #if defined(MESH_DEBUG) && defined(NRF52_PLATFORM)
   // give some extra time for serial to settle so
@@ -106,7 +136,21 @@ void setup() {
 }
 
 void loop() {
+#if defined(INHERO_MR2)
+  // Auto-enable USB when VBUS is plugged in
+  if (!usb_active && isUSBPowered()) {
+    enableUSB();
+  }
+  // Auto-disable USB when VBUS is removed
+  if (usb_active && !isUSBPowered()) {
+    disableUSB();
+  }
+#endif
+
   int len = strlen(command);
+#if defined(INHERO_MR2)
+  if (!usb_active) goto skip_serial;  // skip serial polling when USB is off
+#endif
   while (Serial.available() && len < sizeof(command)-1) {
     char c = Serial.read();
     if (c != '\n') {
@@ -131,6 +175,9 @@ void loop() {
 
     command[0] = 0;  // reset command buffer
   }
+#if defined(INHERO_MR2)
+skip_serial:
+#endif
 
   board.tick();        // Feed watchdog and perform board-specific tasks
 
@@ -169,4 +216,12 @@ void loop() {
     }
     #endif
   }
+#if defined(NRF52_PLATFORM)
+  else {
+    // Even without powersaving: briefly idle via WFE between loop iterations.
+    // Wakes on any interrupt (radio DIO1, SysTick, USB, I2C) - typically within 1ms.
+    // Reduces nRF52840 CPU current from ~3mA (busy-loop) to ~0.5-0.8mA.
+    board.sleep(0);
+  }
+#endif
 }
