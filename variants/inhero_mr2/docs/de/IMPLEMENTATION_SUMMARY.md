@@ -1004,6 +1004,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ## Siehe auch
 
 - [README.md](README.md) — Benutzer-Dokumentation und CLI-Referenz
+- [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
 - [QUICK_START.md](QUICK_START.md) — Inbetriebnahme und Konfiguration
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
 

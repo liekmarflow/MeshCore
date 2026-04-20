@@ -106,7 +106,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 
 ### SOC→Li-Ion mV Mapping (Workaround)
 - **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The Companion App uses a Li-Ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
-- **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%.
+- **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%. See [TELEMETRY.md](TELEMETRY.md) for details on how this affects the app display.
 - **TODO**: Remove once MeshCore supports native SOC% transmission.
 
 ### Time-To-Live (TTL) Prediction
@@ -116,7 +116,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **Prerequisites:** `living_on_battery == true` (24h deficit), min. 24h data, capacity known
 - **TTL = 0:** Solar surplus, no 24h data available, or capacity unknown
 - **CLI:** TTL is shown in `get board.stats` (BAT mode only, e.g. `T:12d0h`)
-- **Telemetry:** Transmitted as days via CayenneLPP Distance field (max. 990 days for "infinite")
+- **Telemetry:** Transmitted as days via CayenneLPP Distance field (max. 990 days for "infinite"). See [TELEMETRY.md](TELEMETRY.md) for channel details.
 
 ### Solar Power Management 🆕
 
@@ -346,6 +346,7 @@ The Inhero MR-2 is a module intended for professional developers and qualified u
 
 ## See Also
 
-- [QUICK_START.md](QUICK_START.md) - Quick start for commissioning and CLI setup
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) - All board-specific CLI commands at a glance
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Complete technical documentation
+- [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
+- [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

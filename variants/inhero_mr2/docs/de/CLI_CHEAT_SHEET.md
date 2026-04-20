@@ -96,7 +96,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.mppt` | MPPT-Status (`0`/`1`) |
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzuebersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
-| `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC |
+| `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC — siehe [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
 | `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
@@ -170,6 +170,7 @@ get board.cinfo
 
 ## Siehe auch
 
-- [README.md](README.md) - Übersicht, Feature-Matrix und Diagnose
-- [QUICK_START.md](QUICK_START.md) - Schnellstart fuer Inbetriebnahme und CLI-Setup
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Vollständige technische Dokumentation
+- [README.md](README.md) — Übersicht, Feature-Matrix und Diagnose
+- [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
+- [QUICK_START.md](QUICK_START.md) — Schnellstart für Inbetriebnahme und CLI-Setup
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation

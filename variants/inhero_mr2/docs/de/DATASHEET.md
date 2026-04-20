@@ -215,7 +215,6 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 
 ## Siehe auch
 
-- [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose
-- [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
+- [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose- [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)- [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – Alle board-spezifischen CLI-Kommandos
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Vollständige technische Dokumentation

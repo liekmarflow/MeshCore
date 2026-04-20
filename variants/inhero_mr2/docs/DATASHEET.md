@@ -228,7 +228,6 @@ No manual CLI commands are required. USB is always available when a cable is con
 
 ## See Also
 
-- [README.md](README.md) – Overview, feature matrix and diagnostics
-- [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
+- [README.md](README.md) – Overview, feature matrix and diagnostics- [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)- [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – All board-specific CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Complete technical documentation

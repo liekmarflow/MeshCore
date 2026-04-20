@@ -169,7 +169,7 @@ get board.conf
 - `get board.mppt` - MPPT status (0/1).
 - `get board.leds` - LED status (Heartbeat + BQ Stat).
 - `get board.batcap` - Battery capacity in mAh (set/default).
-- `get board.telem` - Real-time telemetry (Battery/Solar incl. SOC, V/I/T).
+- `get board.telem` - Real-time telemetry (Battery/Solar incl. SOC, V/I/T). See [TELEMETRY.md](TELEMETRY.md) for what the app displays.
 - `get board.stats` - Energy balance (24h/3d/7d), charge/discharge breakdown and MPPT ratio.
 - `get board.cinfo` - Charger status (Charger State + Flags).
 - `get board.conf` - Summary of all configs (B, F, M, I, Vco, V0).
@@ -180,5 +180,6 @@ get board.conf
 ## See Also
 
 - [README.md](README.md) — Overview, feature matrix and diagnostics
+- [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
