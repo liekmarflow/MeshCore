@@ -132,6 +132,8 @@ void loop() {
     command[0] = 0;  // reset command buffer
   }
 
+  board.tick();        // Feed watchdog and perform board-specific tasks
+
 #if defined(PIN_USER_BTN) && defined(_SEEED_SENSECAP_SOLAR_H_)
   // Hold the user button to power off the SenseCAP Solar repeater.
   int btnState = digitalRead(PIN_USER_BTN);
