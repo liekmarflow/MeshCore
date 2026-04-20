@@ -1197,8 +1197,19 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
   bool bqConfigured = this->configureChemistry(type);
   cachedBatteryType = type;  // Update cache for static methods (updateBatterySOC, calculateTTL)
 
-  // Recalculate solar IINDPM — it depends on charge voltage
-  updateSolarIINDPM();
+  // Invalidate SOC — voltage-to-SOC mapping changes with chemistry.
+  // SOC will remain NA until next "Charging Done" sync or manual set.
+  socStats.soc_valid = false;
+  socStats.nominal_voltage = getNominalVoltage(type);
+
+  // Restore correct IINDPM — configureBaseBQ() sets safe 2A default,
+  // but USB must be capped to 500mA per USB 2.0 spec.
+  if (usbInputActive && bqDriverInstance) {
+    bqDriverInstance->setInputLimitA(IINDPM_USB_A);
+    MESH_DEBUG_PRINTLN("USB active: IINDPM restored to %dmA after chemistry change", (int)(IINDPM_USB_A * 1000));
+  } else {
+    updateSolarIINDPM();
+  }
 
   // === CRITICAL: Update INA228 low-voltage alert threshold when battery type changes ===
   if (ina228DriverInstance) {
