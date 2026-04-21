@@ -237,6 +237,10 @@ get board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                     # Ausgabe: <state> + flags
                     # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
+get board.selftest  # I²C-Hardware-Probe (alle Onboard-Komponenten)
+                    # Ausgabe: INA:<state> BQ:<state> RTC:<state> BME:<state>
+                    # States: OK | NACK | WR_FAIL (nur RTC, Write-Verify-Mismatch)
+
 get board.conf      # Alle Konfigurationswerte abfragen
                     # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 

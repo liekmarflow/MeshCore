@@ -158,6 +158,7 @@ get board.batcap
 get board.telem
 get board.stats
 get board.cinfo
+get board.selftest
 get board.conf
 ```
 

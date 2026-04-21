@@ -784,6 +784,10 @@ board.stats     # Energy statistics (balance + MPPT + TTL)
 board.cinfo     # Charger info + last PG-stuck HIZ toggle
                 # Output: "PG / CC HIZ:never" or "!PG / !CHG HIZ:3m ago"
 
+board.selftest  # I²C hardware probe (all on-board devices)
+                # Output: "INA:OK BQ:OK RTC:OK BME:OK"
+                # Per-device states: OK | NACK | WR_FAIL (RTC only)
+
 board.conf      # All configuration values
                 # Output: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<V> V0:<V>
                 # Example: B:liion1s F:0% M:1 I:500mA Vco:4.10 V0:3.30

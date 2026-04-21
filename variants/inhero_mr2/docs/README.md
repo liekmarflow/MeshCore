@@ -237,6 +237,10 @@ get board.cinfo     # Charger info + last PG-stuck HIZ toggle
                     # Output: <state> + flags
                     # States: !CHG, PRE, CC, CV, TRICKLE, TOP, DONE
 
+get board.selftest  # I²C hardware probe (all on-board devices)
+                    # Output: INA:<state> BQ:<state> RTC:<state> BME:<state>
+                    # States: OK | NACK | WR_FAIL (RTC only, write-verify mismatch)
+
 get board.conf      # Query all configuration values
                     # Output: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 

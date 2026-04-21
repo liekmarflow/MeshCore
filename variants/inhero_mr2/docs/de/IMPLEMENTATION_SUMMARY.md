@@ -783,6 +783,10 @@ board.stats     # Energie-Statistiken (Bilanz + MPPT + TTL)
 board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                 # Ausgabe: "PG / CC HIZ:never" oder "!PG / !CHG HIZ:3m ago"
 
+board.selftest  # I²C-Hardware-Probe (alle Onboard-Komponenten)
+                # Ausgabe: "INA:OK BQ:OK RTC:OK BME:OK"
+                # States je Gerät: OK | NACK | WR_FAIL (nur RTC)
+
 board.conf      # Alle Konfigurationswerte
                 # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<V> V0:<V>
                 # Beispiel: B:liion1s F:0% M:1 I:500mA Vco:4.10 V0:3.30
