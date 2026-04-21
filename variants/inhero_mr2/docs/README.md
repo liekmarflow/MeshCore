@@ -300,6 +300,31 @@ set board.soc <percent>        # Manually set SOC
 
 ## Diagnostics & Troubleshooting
 
+### I²C Hardware Self-Test
+
+```bash
+get board.selftest
+```
+
+Probes all I²C devices on the board and reports their status in one line:
+
+```
+INA:OK BQ:OK RTC:OK BME:OK
+```
+
+| Device | Address | Test |
+|---|---|---|
+| `INA` | `0x40` | INA228 power monitor — address ACK |
+| `BQ`  | `0x6B` | BQ25798 charger — address ACK |
+| `RTC` | `0x52` | RV-3028 RTC — address ACK **plus** user-RAM (`0x1F`) write/readback verification with two patterns (`0xA5`, `0x5A`); original byte is restored |
+| `BME` | `0x76` | BME280 environment sensor — address ACK |
+
+Possible per-device states:
+
+- **`OK`** — device responds (and, for the RTC, persists writes correctly)
+- **`NACK`** — device does not acknowledge on the I²C bus
+- **`WR_FAIL`** — *RTC only* — chip ACKs but write/readback mismatched. The same write-verify runs in `BoardConfigContainer::begin()` and triggers the slow red error LED on failure, so the board is flagged as faulty before deployment.
+
 ### BQ25798 Register Verification
 The diagnostic functions enable precise verification of BQ25798 registers against the datasheet:
 

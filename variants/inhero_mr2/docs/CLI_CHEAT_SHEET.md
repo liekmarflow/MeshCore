@@ -78,6 +78,14 @@ get board.stats                # Energy balance (24h/3d/7d), C/D, MPPT%, TTL
 
 # Charger & Diagnostics
 get board.cinfo                # Charger status + last PG-stuck HIZ toggle
+get board.selftest             # Probe all I2C devices (INA228/BQ25798/RV-3028/BME280)
+                               #   Output: "INA:OK BQ:OK RTC:OK BME:OK"
+                               #   RTC includes user-RAM write/readback verify
+                               #   to catch cold-solder joints (chip ACKs but
+                               #   rejects writes). Possible per-device states:
+                               #     OK      — device responds and (RTC) persists writes
+                               #     NACK    — device does not ACK on I2C bus
+                               #     WR_FAIL — (RTC only) ACKs but write/readback mismatched
 
 # Calibration
 get board.tccal                # NTC temperature offset in °C (0.00 = default)
@@ -99,6 +107,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC — see [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, TTL (7d-avg-based) |
 | `get board.cinfo` | Charger status + PG-stuck HIZ toggle (e.g. "PG / CC HIZ:3m ago") |
+| `get board.selftest` | I2C device probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC also write-verified) |
 | `get board.tccal` | NTC temperature offset in °C (`0.00` = default) |
 
 ---

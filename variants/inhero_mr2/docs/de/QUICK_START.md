@@ -171,6 +171,7 @@ get board.conf
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T). Siehe [TELEMETRY.md](TELEMETRY.md) für die App-Anzeige.
 - `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
 - `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
+- `get board.selftest` - I²C-Hardware-Probe (`INA:OK BQ:OK RTC:OK BME:OK`). RTC inkl. Write/Readback-Verifikation (Zustand `WR_FAIL` bei Mismatch).
 - `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
 

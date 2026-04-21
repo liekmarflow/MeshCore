@@ -558,6 +558,66 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
 ///   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
 /// @param buffer Destination buffer (min 100 bytes recommended)
 /// @param bufferSize Size of destination buffer
+bool BoardConfigContainer::probeRtc() {
+  // Address ACK
+  Wire.beginTransmission(0x52);
+  if (Wire.endTransmission() != 0) return false;
+
+  // User-RAM 0x1F write/readback with two patterns (catches stuck bits).
+  // Save original first, restore afterwards — keeps user data intact.
+  Wire.beginTransmission(0x52);
+  Wire.write(0x1F);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1) return false;
+  uint8_t saved = Wire.read();
+
+  for (uint8_t pat : {0xA5, 0x5A}) {
+    Wire.beginTransmission(0x52);
+    Wire.write(0x1F);
+    Wire.write(pat);
+    if (Wire.endTransmission() != 0) return false;
+
+    Wire.beginTransmission(0x52);
+    Wire.write(0x1F);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1) return false;
+    if (Wire.read() != pat) return false;
+  }
+
+  // Restore original byte
+  Wire.beginTransmission(0x52);
+  Wire.write(0x1F);
+  Wire.write(saved);
+  Wire.endTransmission();
+  return true;
+}
+
+namespace {
+  bool probeI2CAddr(uint8_t addr) {
+    Wire.beginTransmission(addr);
+    return Wire.endTransmission() == 0;
+  }
+}
+
+void BoardConfigContainer::getSelfTest(char* buffer, uint32_t bufferSize) {
+  if (!buffer || bufferSize == 0) return;
+  const char* ina = probeI2CAddr(0x40)             ? "OK" : "NACK";
+  const char* bq  = probeI2CAddr(BQ25798_I2C_ADDR) ? "OK" : "NACK";
+  const char* bme = probeI2CAddr(0x76)             ? "OK" : "NACK";
+
+  // RTC: distinguish bus-NACK from write-failure
+  const char* rtc;
+  if (!probeI2CAddr(0x52)) {
+    rtc = "NACK";
+  } else if (!probeRtc()) {
+    rtc = "WR_FAIL";
+  } else {
+    rtc = "OK";
+  }
+
+  snprintf(buffer, bufferSize, "INA:%s BQ:%s RTC:%s BME:%s", ina, bq, rtc, bme);
+}
+
 void BoardConfigContainer::getBqDiagnostics(char* buffer, uint32_t bufferSize) {
   if (!buffer || bufferSize == 0) return;
   memset(buffer, 0, bufferSize);
@@ -737,15 +797,14 @@ bool BoardConfigContainer::begin() {
   }
   
   // === RV-3028 RTC Initialization ===
+  // Address probe + user-RAM write/readback test (catches "zombie" RTCs that
+  // ACK on bus but reject writes — see probeRtc() for details).
   // Retry up to 3 times — after OTA/warm-reset the I2C bus may need recovery.
   bool rtc_initialized = false;
   for (int attempt = 0; attempt < 3; attempt++) {
-    Wire.beginTransmission(0x52);  // RV-3028 I2C address
-    if (Wire.endTransmission() == 0) {
+    if (probeRtc()) {
       rtc_initialized = true;
-      MESH_DEBUG_PRINTLN("RV-3028 RTC found @ 0x52 (attempt %d)", attempt + 1);
-      
-      // Blue LED flash: RTC initialized
+      MESH_DEBUG_PRINTLN("RV-3028 RTC OK (attempt %d)", attempt + 1);
       if (leds_enabled) {
         digitalWrite(LED_BLUE, HIGH);
         delay(150);
@@ -754,10 +813,8 @@ bool BoardConfigContainer::begin() {
       }
       break;
     }
-    delay(20);  // Give I2C bus time to recover before retry
-  }
-  if (!rtc_initialized) {
-    MESH_DEBUG_PRINTLN("RV-3028 RTC not found @ 0x52 (3 attempts)");
+    MESH_DEBUG_PRINTLN("RV-3028 RTC self-test failed (attempt %d)", attempt + 1);
+    delay(20);
   }
   
   // === MR2 Configuration ===

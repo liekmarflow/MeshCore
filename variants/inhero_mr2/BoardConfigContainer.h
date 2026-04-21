@@ -234,6 +234,21 @@ public:
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
   void getBqDiagnostics(char* buffer, uint32_t bufferSize);
+
+  /// @brief Probe all I2C devices on the board and report status.
+  /// @details Tests INA228 (0x40), BQ25798 (0x6B), RV-3028 (0x52, with
+  ///          user-RAM write/readback to catch \"zombie\" chips), BME280 (0x76).
+  ///          Format: \"INA:OK BQ:OK RTC:OK BME:OK\" or \"INA:OK BQ:NACK RTC:WR_FAIL BME:OK\".
+  /// @param buffer Output buffer
+  /// @param bufferSize Output buffer size
+  void getSelfTest(char* buffer, uint32_t bufferSize);
+
+  /// @brief Probe RV-3028 RTC: address ACK + user-RAM write/readback verify.
+  /// @details Catches RTCs that ACK on the bus but do not persist register
+  ///          writes. User-RAM bytes (0x1F, 0x20) per RV-3028 datasheet are
+  ///          scratch and safe to overwrite; original byte is restored.
+  /// @return true if RTC ACKs and persists a write, false otherwise.
+  static bool probeRtc();
   
   // MPPT Statistics methods
   float getMpptEnabledPercentage7Day() const;  ///< Get 7-day moving average of MPPT enabled %

@@ -752,6 +752,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
     boardConfig.getBqDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
+  } else if (strcmp(cmd, "selftest") == 0) {
+    char stBuffer[64];
+    boardConfig.getSelfTest(stBuffer, sizeof(stBuffer));
+    snprintf(reply, maxlen, "%s", stBuffer);
+    return true;
   } else if (strcmp(cmd, "socdebug") == 0) {
     Ina228Driver* ina = boardConfig.getIna228Driver();
     if (!ina) {

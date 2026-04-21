@@ -300,6 +300,31 @@ set board.soc <percent>        # SOC manuell setzen
 
 ## Diagnose & Fehlersuche
 
+### I²C-Hardware-Selbsttest
+
+```bash
+get board.selftest
+```
+
+Prüft alle I²C-Komponenten auf dem Board und liefert den Status in einer Zeile:
+
+```
+INA:OK BQ:OK RTC:OK BME:OK
+```
+
+| Komponente | Adresse | Test |
+|---|---|---|
+| `INA` | `0x40` | INA228 Power-Monitor — Adress-ACK |
+| `BQ`  | `0x6B` | BQ25798 Charger — Adress-ACK |
+| `RTC` | `0x52` | RV-3028 RTC — Adress-ACK **plus** User-RAM (`0x1F`) Write/Readback-Verifikation mit zwei Mustern (`0xA5`, `0x5A`); das ursprüngliche Byte wird wiederhergestellt |
+| `BME` | `0x76` | BME280 Umweltsensor — Adress-ACK |
+
+Mögliche Status-Werte je Gerät:
+
+- **`OK`** — Gerät antwortet (RTC: Writes werden korrekt persistiert)
+- **`NACK`** — Gerät antwortet nicht auf dem I²C-Bus
+- **`WR_FAIL`** — *nur RTC* — Chip ACKt, aber Write/Read stimmen nicht überein. Dieselbe Write-Verifikation läuft in `BoardConfigContainer::begin()` und löst bei Fehler die langsam blinkende rote Error-LED aus, sodass das Board vor dem Deployment als fehlerhaft markiert wird.
+
 ### BQ25798-Registerverifikation
 Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register gegen das Datenblatt:
 

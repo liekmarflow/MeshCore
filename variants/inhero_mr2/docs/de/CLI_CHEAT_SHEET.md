@@ -78,6 +78,14 @@ get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
 
 # Ladegeraet & Diagnose
 get board.cinfo                # Charger-Status + letzter PG-Stuck HIZ-Toggle
+get board.selftest             # Alle I2C-Komponenten pruefen (INA228/BQ25798/RV-3028/BME280)
+                               #   Ausgabe: "INA:OK BQ:OK RTC:OK BME:OK"
+                               #   RTC inkl. User-RAM Write/Readback-Verifikation
+                               #   — erkennt kalte Loetstellen (Chip ACKt, akzeptiert
+                               #   aber keine Writes). Moegliche Werte je Geraet:
+                               #     OK      — antwortet (RTC: Write persistiert)
+                               #     NACK    — keine I2C-Antwort
+                               #     WR_FAIL — (nur RTC) ACKt, aber Write/Read stimmen nicht ueberein
 
 # Kalibrierung
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
@@ -99,6 +107,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC — siehe [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
 | `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
+| `get board.selftest` | I2C-Komponenten-Probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC inkl. Write-Verify) |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
 
 ---
