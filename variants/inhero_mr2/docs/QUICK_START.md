@@ -76,31 +76,36 @@ This guide walks you through commissioning and the most important CLI commands.
 ## Example Values per Battery Chemistry (Starting Point)
 These values are safe starting points and should be adjusted to match battery, panel, and usage profile.
 
+The `imax` values below are derived from the rule of thumb from section 8:
+**`imax ≈ panel power ÷ panel voltage × 1.2`** (e.g. 2 W ÷ 5 V × 1.2 ≈ 480 mA → round to 500).
+`fmax` is given as a percentage of `imax` and only applies in the T-Cool zone (0 °C … -5 °C).
+
 ### Li-Ion 1S (3.7V nominal)
 ```bash
-set board.bat liion1s
-set board.imax 500
-set board.fmax 20%
+set board.bat liion1s    # chemistry: 1S Li-Ion (sets charge profile + low-V thresholds)
+set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+set board.fmax 20%       # T-Cool (0…-5 °C): cap at 20 % × 500 mA = 100 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
-set board.bat lifepo1s
-set board.imax 300
-set board.fmax 40%
+set board.bat lifepo1s   # chemistry: 1S LiFePO4 (sets charge profile + low-V thresholds)
+set board.imax 300       # max charge current — ≈ 1 W panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, rounded up for headroom)
+set board.fmax 40%       # T-Cool (0…-5 °C): cap at 40 % × 300 mA = 120 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
-set board.bat lto2s
-set board.imax 700
-set board.fmax 0%
+set board.bat lto2s      # chemistry: 2S LTO (sets charge profile + low-V thresholds)
+set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
+set board.fmax 0%        # no effect on LTO (JEITA disabled — LTO charges even at frost)
 ```
 
 ### Na-Ion 1S (3.1V nominal)
 ```bash
-set board.bat naion1s
-set board.imax 500
+set board.bat naion1s    # chemistry: 1S Na-Ion (sets charge profile + low-V thresholds)
+set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+                         # fmax is omitted: no effect on Na-Ion (JEITA disabled)
 ```
 
 Note: `set board.fmax` has no effect on LTO and Na-Ion (JEITA disabled).
@@ -130,6 +135,7 @@ Thresholds are optimized for maximum lifespan and stable operation.
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 ## Low-Voltage Behavior
 - **Low-Voltage System Sleep:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware latches CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → charging active), configures the RTC wake timer, and enters System Sleep with GPIO latch (< 500µA). P0.04 is excluded from `disconnectLeakyPullups()` so the GPIO latch stays HIGH. Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
@@ -164,7 +170,7 @@ get board.conf
 ```
 
 ## Getter Quick Reference (all relevant board getters)
-- `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, none).
+- `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, naion1s, none).
 - `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%).
 - `get board.imax` - Maximum charge current in mA.
 - `get board.mppt` - MPPT status (0/1).

@@ -76,31 +76,36 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 ## Beispielwerte je Akkuchemie (Startpunkt)
 Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
 
+Die `imax`-Werte unten leiten sich aus der Faustformel aus Abschnitt 8 ab:
+**`imax ≈ Panelleistung ÷ Panelspannung × 1.2`** (z.B. 2 W ÷ 5 V × 1.2 ≈ 480 mA → aufgerundet auf 500).
+`fmax` ist ein Prozentwert von `imax` und wirkt nur in der T-Cool-Zone (0 °C … -5 °C).
+
 ### Li-Ion 1S (3.7V nominal)
 ```bash
-set board.bat liion1s
-set board.imax 500
-set board.fmax 20%
+set board.bat liion1s    # Chemie: 1S Li-Ion (setzt Ladeprofil + Low-V-Schwellen)
+set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+set board.fmax 20%       # T-Cool (0…-5 °C): begrenzt auf 20 % × 500 mA = 100 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
-set board.bat lifepo1s
-set board.imax 300
-set board.fmax 40%
+set board.bat lifepo1s   # Chemie: 1S LiFePO4 (setzt Ladeprofil + Low-V-Schwellen)
+set board.imax 300       # max. Ladestrom — ≈ 1 W Panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, aufgerundet als Reserve)
+set board.fmax 40%       # T-Cool (0…-5 °C): begrenzt auf 40 % × 300 mA = 120 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
-set board.bat lto2s
-set board.imax 700
-set board.fmax 0%
+set board.bat lto2s      # Chemie: 2S LTO (setzt Ladeprofil + Low-V-Schwellen)
+set board.imax 700       # max. Ladestrom — ≈ 3 W Panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
+set board.fmax 0%        # ohne Wirkung bei LTO (JEITA deaktiviert — LTO lädt auch bei Frost)
 ```
 
 ### Na-Ion 1S (3.1V nominal)
 ```bash
-set board.bat naion1s
-set board.imax 500
+set board.bat naion1s    # Chemie: 1S Na-Ion (setzt Ladeprofil + Low-V-Schwellen)
+set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+                         # fmax weggelassen: ohne Wirkung bei Na-Ion (JEITA deaktiviert)
 ```
 
 Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktiviert).
@@ -129,6 +134,7 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 | Li-Ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
+| Na-Ion 1S | 2500 | 2700 | 200mV |
 
 ## Verhalten bei Low-Voltage
 - **Low-Voltage System Sleep:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware latcht CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → Laden aktiv), konfiguriert den RTC-Wake-Timer und geht in System Sleep mit GPIO-Latch (< 500µA). P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen, damit der GPIO-Latch HIGH bleibt. Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
@@ -163,7 +169,7 @@ get board.conf
 ```
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
-- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, none).
+- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, naion1s, none).
 - `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).

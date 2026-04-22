@@ -746,7 +746,7 @@ board.bat       # Batterietyp abfragen
                 # Ausgabe: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Frost-Ladeverhalten abfragen
-                # Ausgabe: 0% | 20% | 40% | 100% (LTO: N/A)
+                # Ausgabe: 0% | 20% | 40% | 100% (LTO/Na-Ion: N/A)
 
 board.imax      # Maximaler Ladestrom abfragen
                 # Ausgabe: <strom>mA (z.B. 500mA)

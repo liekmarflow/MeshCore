@@ -747,7 +747,7 @@ board.bat       # Query battery type
                 # Output: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Query frost charge behavior
-                # Output: 0% | 20% | 40% | 100% (LTO: N/A)
+                # Output: 0% | 20% | 40% | 100% (LTO/Na-Ion: N/A)
 
 board.imax      # Query maximum charge current
                 # Output: <current>mA (e.g. 500mA)
