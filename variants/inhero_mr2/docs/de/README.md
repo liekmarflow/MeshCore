@@ -164,20 +164,8 @@ platformio run -e Inhero_MR2_repeater
 # Repeater mit RS232-Bridge (Serial2 an P0.19/P0.20)
 platformio run -e Inhero_MR2_repeater_bridge_rs232
 
-# Room Server
-platformio run -e Inhero_MR2_room_server
-
-# Companion Radio (USB, mit Extra-Filesystem)
-platformio run -e Inhero_MR2_companion_radio_usb
-
-# Terminal Chat
-platformio run -e Inhero_MR2_terminal_chat
-
 # Sensor
 platformio run -e Inhero_MR2_sensor
-
-# KISS Modem
-platformio run -e Inhero_MR2_kiss_modem
 ```
 
 ## CLI-Befehle
