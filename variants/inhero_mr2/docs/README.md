@@ -363,6 +363,7 @@ The Inhero MR-2 is a module intended for professional developers and qualified u
 
 ## See Also
 
+- [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance

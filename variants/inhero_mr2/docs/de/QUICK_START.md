@@ -2,27 +2,27 @@
 
 > 🇬🇧 [English version](../QUICK_START.md)
 
-Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
+Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Commands.
 
-## 1) Temperaturfuehler (TS/NTC) vorbereiten
-- Entweder den 3-poligen Akkuanschluss mit TS/NTC nutzen oder die Onboard-NTC-Loetbruecke auf der Rueckseite schliessen.
+## 1) Temperaturfühler (TS/NTC) vorbereiten
+- Entweder den 3-poligen Akkuanschluss mit TS/NTC nutzen oder die Onboard-NTC-Lötbrücke auf der Rückseite schließen.
 - Firmware-NTC-Typ: NCP15XH103F03RC (10k @ 25C, Beta 3380).
-- Zweck: Der Charger nutzt den TS-Pin fuer JEITA/Frost-Logik.
+- Zweck: Der Charger nutzt den TS-Pin für JEITA/Frost-Logik.
 
-## 2) Antennen anschliessen
-- Nie ohne Antenne betreiben, sonst Gefahr fuer das RF-Frontend.
+## 2) Antennen anschließen
+- Nie ohne Antenne betreiben, sonst Gefahr für das RF-Frontend.
 
-## 3) Akku anschliessen
+## 3) Akku anschließen
 - Ein Ladestand >90% wird empfohlen, damit der Akku per USB voll geladen werden kann und damit die SOC-Berechnung stabil startet.
 
-> **⚠ WARNUNG — Kein Verpolschutz:** Das Board hat keinen Hardware-Verpolschutz. Ein verpolter Akkuanschluss fuehrt zu sofortiger, irreversibler Beschaedigung. Vor dem Anschliessen immer die Polaritaet pruefen.
+> **⚠ WARNUNG — Kein Verpolschutz:** Das Board hat keinen Hardware-Verpolschutz. Ein verpolter Akkuanschluss führt zu sofortiger, irreversibler Beschädigung. Vor dem Anschließen immer die Polarität prüfen.
 
 ## 4) Repeater per USB konfigurieren
 - Repeater per USB-Kabel mit dem Rechner verbinden.
 - Auf https://flasher.meshcore.co.uk/ -> Repeater-Setup konfigurieren (LoRa-Settings, Name, Admin-Passwort usw.).
-- Dadurch werden die Grundparameter im Geraet gesetzt.
+- Dadurch werden die Grundparameter im Gerät gesetzt.
 
-## 5) CLI oeffnen
+## 5) CLI öffnen
 - https://flasher.meshcore.co.uk/ -> Console
 - oder MeshCore-App -> Manage -> Command-Line
 - Hier werden die Board-spezifischen Commands gesetzt.
@@ -35,15 +35,15 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
   - oder set board.bat naion1s
 - Legt Ladeparameter und Low-Voltage-Schwellen fest.
 
-## 7) Akkukapazitaet setzen
+## 7) Akkukapazität setzen
 - Command: set board.batcap <mAh>
 - Beispiel: set board.batcap 10000
-- Wichtig fuer korrekte SOC-Berechnung.
+- Wichtig für korrekte SOC-Berechnung.
 
 ## 8) Maximalen Ladestrom setzen
 - Command: set board.imax <mA>
 - Bereich laut Firmware: 50 bis 1500 mA (BQ25798-Minimum: 50mA).
-- Passend zum Solar-Setup waehlen, damit die Stroeme zum PG-Check passen.
+- Passend zum Solar-Setup wählen, damit die Ströme zum PG-Check passen.
 - Faustformel: Panelleistung / Panelspannung * 1.2
 
 ## 9) Frost-Ladestromabsenkung einstellen
@@ -52,22 +52,22 @@ Diese Anleitung fuehrt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - 0% = Laden im T-Cool-Bereich gesperrt.
 - 20% = max. 20% von imax (z.B. 500mA → 100mA bei 0°C bis -5°C).
 - 40% = max. 40% von imax (z.B. 500mA → 200mA bei 0°C bis -5°C).
-- 100% = keine Reduktion, voller Ladestrom auch bei Kaelte.
+- 100% = keine Reduktion, voller Ladestrom auch bei Kälte.
 - Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
-- Wichtig: Nur das Laden wird eingeschraenkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (fmax ohne Wirkung, laedt auch bei Frost).
+- Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
+- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (fmax ohne Wirkung, lädt auch bei Frost).
 
 ## 10) MPPT aktivieren
 - Command: set board.mppt <0|1>
 - 1 = MPPT an, 0 = MPPT aus.
-- Fuer Solar-Eingang typischerweise aktivieren.
+- Für Solar-Eingang typischerweise aktivieren.
 
 ## 11) LEDs aktivieren/deaktivieren
 - Command: set board.leds <on|off> oder set board.leds <1|0>
 - Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
 
 ## 12) Akku voll laden (SOC-Sync)
-- Den Akku einmal komplett ueber USB aufladen, damit der SOC sauber synchronisiert.
+- Den Akku einmal komplett über USB aufladen, damit der SOC sauber synchronisiert.
 
 ## Zusatzhinweise (Praxis)
 - Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
@@ -106,20 +106,20 @@ set board.imax 500
 Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktiviert).
 
 ## Solarpanel-Hinweise
-- Maximale Leerlaufspannung (Voc) fuer den Eingang: 25V.
-- Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung hoehere Akkuspannungen laden.
-- 24V-Panels oder Serienverschaltung koennen die 25V-Voc-Grenze ueberschreiten und sind nicht geeignet.
+- Maximale Leerlaufspannung (Voc) für den Eingang: 25V.
+- Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung höhere Akkuspannungen laden.
+- 24V-Panels oder Serienverschaltung können die 25V-Voc-Grenze überschreiten und sind nicht geeignet.
 - Wattklasse: mindestens 1W, typisch 2W.
-- Bei 1W-Panels wird eine Akkukapazitaet von >9Ah empfohlen.
-- Gilt nur bei Suedausrichtung, vertikaler Montage und unverschattetem Standort.
-- Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazitaet fuer "Winterueberleben" erhoehen.
+- Bei 1W-Panels wird eine Akkukapazität von >9Ah empfohlen.
+- Gilt nur bei Südausrichtung, vertikaler Montage und unverschattetem Standort.
+- Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazität für "Winterüberleben" erhöhen.
 
 ## USB-Laden
-- Das Board kann auch ueber USB-C (5V) geladen werden.
-- USB-C VBUS wird ueber eine **SS34-Schottky-Diode** auf den BQ25798 VBUS-Eingang gefuehrt — derselbe einzelne Eingang wie das Solarpanel. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar.
-- Die SS34-Diode verhindert einen Rueckfluss vom Solarpanel zum USB-Bus. Allerdings **kann** Strom von USB-VBUS ueber den Solarstecker abfliessen.
-- CC1/CC2 sind ueber 4,7kΩ auf GND gezogen (USB-Sink, 5V Standard).
-- **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (via SS34-Diode), fuehrt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschliessen, waehrend USB angeschlossen ist.
+- Das Board kann auch über USB-C (5V) geladen werden.
+- USB-C VBUS wird über eine **SS34-Schottky-Diode** auf den BQ25798 VBUS-Eingang geführt — derselbe einzelne Eingang wie das Solarpanel. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar.
+- Die SS34-Diode verhindert einen Rückfluss vom Solarpanel zum USB-Bus. Allerdings **kann** Strom von USB-VBUS über den Solarstecker abfließen.
+- CC1/CC2 sind über 4,7kΩ auf GND gezogen (USB-Sink, 5V Standard).
+- **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (via SS34-Diode), führt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 
 ## Spannungsschwellen je Akkuchemie
 Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
@@ -136,7 +136,7 @@ Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
 
 ## CLI-Beispiele (kompakt)
 ```bash
-# Akkuchemie und Kapazitaet
+# Akkuchemie und Kapazität
 set board.bat liion1s
 set board.batcap 10000
 
@@ -171,9 +171,9 @@ get board.conf
 - `get board.batcap` - Batteriekapazität in mAh (set/default).
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T). Siehe [TELEMETRY.md](TELEMETRY.md) für die App-Anzeige.
 - `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
-- `get board.cinfo` - Ladegeraet-Status (Charger State + Flags).
+- `get board.cinfo` - Ladegerät-Status (Charger State + Flags).
 - `get board.selftest` - I²C-Hardware-Probe (`INA:OK BQ:OK RTC:OK BME:OK`). RTC inkl. Write/Readback-Verifikation (Zustand `WR_FAIL` bei Mismatch).
-- `get board.conf` - Kurzuebersicht aller Konfigs (B, F, M, I, Vco, V0).
+- `get board.conf` - Kurzübersicht aller Konfigs (B, F, M, I, Vco, V0).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
 
 ---
@@ -181,6 +181,7 @@ get board.conf
 ## Siehe auch
 
 - [README.md](README.md) — Übersicht, Feature-Matrix und Diagnose
+- [DATASHEET.md](DATASHEET.md) — Hardware-Spezifikationen und Pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
-- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
+- [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle board-spezifischen CLI-Befehle auf einen Blick
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation

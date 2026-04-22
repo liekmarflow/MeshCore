@@ -201,6 +201,16 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 
 ---
 
+## Firmware-Umgebungen
+
+| Build-Target | Beschreibung |
+|---|---|
+| `Inhero_MR2_repeater` | Standard-Repeater |
+| `Inhero_MR2_repeater_bridge_rs232` | Repeater mit RS232-Bridge (Serial2 an P0.19/P0.20) |
+| `Inhero_MR2_sensor` | Sensor-Firmware |
+
+---
+
 
 ## Absolute Maximalwerte
 
@@ -215,6 +225,8 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 
 ## Siehe auch
 
-- [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose- [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)- [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
+- [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose
+- [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
+- [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – Alle board-spezifischen CLI-Kommandos
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Vollständige technische Dokumentation

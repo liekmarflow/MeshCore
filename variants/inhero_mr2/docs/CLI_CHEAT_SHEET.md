@@ -180,6 +180,7 @@ get board.cinfo
 ## See Also
 
 - [README.md](README.md) — Overview, feature matrix and diagnostics
+- [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

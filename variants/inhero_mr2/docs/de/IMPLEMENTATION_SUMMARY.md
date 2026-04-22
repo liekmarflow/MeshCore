@@ -372,24 +372,10 @@ Mit den BQ25798 POR-Defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `E
 
 > NTC-Modelle: 103AT (B25/50=3435) für TI-Referenz, NCP15XH103F03RC (B25/85=3380) für Inhero. Typische %REGN-Werte aus BQ25798-Datenblatt.
 
-#### Diagnoseverifikation
-
-Der `bqdiag`-Befehl zeigt den JEITA-Status im TS-Feld:
-
-```
-bqdiag-Ausgabe: PG / CC TS:OK CE:1 HIZ:0 F:00/00 S:00.00.01.00.00 N:14 VREG:3500mV
-                              ^^^^
-                              OK = normal, WARM/HOT/COLD = JEITA-Zone aktiv
-```
-
-- `TS:WARM` + `VBAT_OVP` im Fault-Register = der ursprüngliche Bug (behoben durch obige Einstellungen)
-- `TS:OK` mit `F:00/00` = normaler Betrieb, keine Fehler
-
 #### Code-Referenzen
 - `BoardConfigContainer::configureBaseBQ()` — Wendet alle drei Einstellungen beim Start an
 - `BqDriver::setTsWarm()` / `setJeitaVSet()` — Bestehende Driver-API
 - `BqDriver::setAutoIBATDIS()` — Zum Driver hinzugefügt (Charger Control 0, Bit 7)
-- `BoardConfigContainer::getBqDiagnostics()` — Liest TS-Zone aus STATUS_4-Register
 
 ---
 
@@ -1008,6 +994,7 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 ## Siehe auch
 
 - [README.md](README.md) — Benutzer-Dokumentation und CLI-Referenz
+- [DATASHEET.md](DATASHEET.md) — Hardware-Spezifikationen und Pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
 - [QUICK_START.md](QUICK_START.md) — Inbetriebnahme und Konfiguration
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick

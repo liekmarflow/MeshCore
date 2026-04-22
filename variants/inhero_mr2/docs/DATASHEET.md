@@ -207,11 +207,7 @@ No manual CLI commands are required. USB is always available when a cable is con
 |---|---|
 | `Inhero_MR2_repeater` | Standard repeater |
 | `Inhero_MR2_repeater_bridge_rs232` | Repeater with RS232 bridge (Serial2 on P0.19/P0.20) |
-| `Inhero_MR2_room_server` | Room Server |
-| `Inhero_MR2_companion_radio_usb` | Companion Radio (USB, extra filesystem) |
-| `Inhero_MR2_terminal_chat` | Terminal Chat |
 | `Inhero_MR2_sensor` | Sensor firmware |
-| `Inhero_MR2_kiss_modem` | KISS Modem |
 
 ---
 
@@ -228,6 +224,8 @@ No manual CLI commands are required. USB is always available when a cable is con
 
 ## See Also
 
-- [README.md](README.md) – Overview, feature matrix and diagnostics- [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)- [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
+- [README.md](README.md) – Overview, feature matrix and diagnostics
+- [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
+- [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – All board-specific CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Complete technical documentation
