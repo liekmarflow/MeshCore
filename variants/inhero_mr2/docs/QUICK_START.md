@@ -122,10 +122,10 @@ Note: `set board.fmax` has no effect on LTO and Na-Ion (JEITA disabled).
 
 ## USB Charging
 - The board can also be charged via USB-C (5V).
-- USB-C VBUS is routed to the BQ25798 VBUS input via an **SS34 Schottky diode** — the same single input as the solar panel. The BQ25798 has only one VBUS input and does not distinguish between USB and solar.
-- The SS34 diode prevents backflow from the solar panel to the USB bus. However, current **can** flow from USB-VBUS out through the solar connector.
+- USB-C VBUS is routed to the BQ25798 VBUS input via a **Schottky diode** — the same single input as the solar panel. The BQ25798 has only one VBUS input and does not distinguish between USB and solar.
+- The Schottky diode prevents backflow from the solar panel to the USB bus. However, current **can** flow from USB-VBUS out through the solar connector.
 - CC1/CC2 are pulled to GND via 4.7kΩ (USB sink, 5V default).
-- **⚠ Warning:** Since VBUS-USB and VBUS-BQ share the same bus (via SS34 diode), a **short circuit on the solar connector will also short VBUS-USB**. Never short-circuit the solar input while USB is connected.
+- **⚠ Warning:** Since VBUS-USB and VBUS-BQ share the same bus (via the Schottky diode), a **short circuit on the solar connector will also short VBUS-USB**. Never short-circuit the solar input while USB is connected.
 
 ## Voltage Thresholds per Battery Chemistry
 Thresholds are optimized for maximum lifespan and stable operation.

@@ -60,7 +60,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
 | **TPS62840** | Buck Converter | - | EN via 3.3V_off-Schalter | 750mA, 3.3V Rail |
 | **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 (ext. Pull-Down) | N-FET, Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → Laden an. Pull-Down zieht Gate LOW wenn floating. |
-| **SS34** | USB→VBUS-Diode | — | — | Schottky-Diode: VBUS-USB → VBUS-BQ (Solareingang). USB-C CC1/CC2 über 4,7kΩ auf GND (USB-Sink). **⚠ Solar-Kurzschluss shortet auch VBUS-USB.** |
+| **Schottky-Diode** | USB→VBUS-Diode | — | — | VBUS-USB → VBUS-BQ (Solareingang). USB-C CC1/CC2 über 4,7kΩ auf GND (USB-Sink). **⚠ Solar-Kurzschluss shortet auch VBUS-USB.** |
 
 ---
 

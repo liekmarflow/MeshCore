@@ -121,10 +121,10 @@ Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktivier
 
 ## USB-Laden
 - Das Board kann auch über USB-C (5V) geladen werden.
-- USB-C VBUS wird über eine **SS34-Schottky-Diode** auf den BQ25798 VBUS-Eingang geführt — derselbe einzelne Eingang wie das Solarpanel. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar.
-- Die SS34-Diode verhindert einen Rückfluss vom Solarpanel zum USB-Bus. Allerdings **kann** Strom von USB-VBUS über den Solarstecker abfließen.
+- USB-C VBUS wird über eine **Schottky-Diode** auf den BQ25798 VBUS-Eingang geführt — derselbe einzelne Eingang wie das Solarpanel. Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen USB und Solar.
+- Die Schottky-Diode verhindert einen Rückfluss vom Solarpanel zum USB-Bus. Allerdings **kann** Strom von USB-VBUS über den Solarstecker abfließen.
 - CC1/CC2 sind über 4,7kΩ auf GND gezogen (USB-Sink, 5V Standard).
-- **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (via SS34-Diode), führt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
+- **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (über die Schottky-Diode), führt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 
 ## Spannungsschwellen je Akkuchemie
 Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
