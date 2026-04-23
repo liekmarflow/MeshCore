@@ -10,6 +10,7 @@
 #include "InheroMr2Board.h"
 
 #include "BoardConfigContainer.h"
+#include "helpers/BatteryOcvMapping.h"
 #include "helpers/BqLowPowerSetup.h"
 #include "helpers/CliCommands.h"
 #include "helpers/I2cBusRecovery.h"
@@ -386,7 +387,7 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
 
   const BatterySOCStats* socStats = boardConfig.getSOCStats();
   if (socStats && socStats->soc_valid) {
-    return socToLiIonMilliVolts(boardConfig.getStateOfCharge());
+    return inhero::socToLiIonMilliVolts(boardConfig.getStateOfCharge());
   }
 
   // Fallback: no valid Coulomb-counting SOC yet — return real voltage
@@ -395,47 +396,6 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
     return 0;
   }
   return telemetry->batterie.voltage;
-}
-
-/// @brief Maps a SOC percentage (0-100%) to a fake Li-Ion 1S OCV in millivolts.
-/// @details Uses a standard Li-Ion NMC/NCA OCV lookup table with piecewise-linear
-///          interpolation. The companion app will reverse-map these voltages back
-///          to the same SOC%, giving correct battery level display regardless of
-///          the actual cell chemistry (Li-Ion, LiFePO4, LTO).
-/// @param soc_percent State of Charge in percent (0.0 – 100.0)
-/// @return Equivalent Li-Ion 1S voltage in millivolts (3000 – 4200)
-uint16_t InheroMr2Board::socToLiIonMilliVolts(float soc_percent) {
-  // Clamp input to valid range
-  if (soc_percent <= 0.0f) return 3000;
-  if (soc_percent >= 100.0f) return 4200;
-
-  // Standard Li-Ion 1S OCV table (NMC/NCA, 10% steps)
-  // Index 0 = 0% SOC, Index 10 = 100% SOC
-  static const uint16_t LI_ION_OCV_TABLE[] = {
-    3000,  // 0%
-    3300,  // 10%
-    3450,  // 20%
-    3530,  // 30%
-    3600,  // 40%
-    3670,  // 50%
-    3740,  // 60%
-    3820,  // 70%
-    3920,  // 80%
-    4050,  // 90%
-    4200   // 100%
-  };
-
-  // Piecewise-linear interpolation between 10% steps
-  float index_f = soc_percent / 10.0f;       // 0.0 – 10.0
-  uint8_t idx_lo = (uint8_t)index_f;          // lower table index
-  if (idx_lo >= 10) idx_lo = 9;               // safety clamp
-  uint8_t idx_hi = idx_lo + 1;
-
-  float frac = index_f - (float)idx_lo;       // fractional part (0.0 – 1.0)
-  float mv = (float)LI_ION_OCV_TABLE[idx_lo]
-           + frac * (float)(LI_ION_OCV_TABLE[idx_hi] - LI_ION_OCV_TABLE[idx_lo]);
-
-  return (uint16_t)(mv + 0.5f);               // round to nearest mV
 }
 
 bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
