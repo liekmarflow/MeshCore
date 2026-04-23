@@ -74,4 +74,3 @@ private:
   static volatile bool rtc_irq_pending;
   static volatile uint32_t ota_dfu_reset_at;  // millis() of deferred DFU reset (0 = inactive)
 };
-

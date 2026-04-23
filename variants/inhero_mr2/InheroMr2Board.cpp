@@ -376,11 +376,11 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
   // interprets this voltage using a hardcoded Li-Ion discharge curve to derive SOC%.
   // This gives wrong readings for LiFePO4/LTO chemistries whose voltage profiles
   // differ significantly from Li-Ion.
-  //
+
   // Solution: When we have a valid Coulomb-counted SOC, we reverse-map it to
   // the Li-Ion 1S OCV (Open Circuit Voltage) that the app expects.
   // This way the app always displays our accurate chemistry-independent SOC.
-  //
+
   // TODO: Remove this workaround once MeshCore supports transmitting the actual
   // SOC percentage alongside (or instead of) battery millivolts. At that point,
   // this function should return the real battery voltage again.
@@ -420,54 +420,43 @@ bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
   return true;
 }
 
-/// @brief Collects board telemetry and appends to CayenneLPP packet
-/// @param telemetry CayenneLPP packet to append data to
-/// @return true if successful, false if telemetry data unavailable
+// Collects board telemetry and appends to CayenneLPP packet
 bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
   return inhero::appendBoardTelemetry(boardConfig, telemetry);
 }
 
-/// @brief Handles custom CLI getter commands for board configuration
-/// @param getCommand Command string (without "board." prefix)
-/// @param reply Buffer to write response to
-/// @param maxlen Maximum length of reply buffer
-/// @return true if command was handled, false otherwise
+// Handles custom CLI getter commands for board configuration
 bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) {
   return inhero::handleGet(boardConfig, getCommand, reply, maxlen);
 }
 
-/// @brief Handles custom CLI setter commands for board configuration
-/// @param setCommand Command string with value (without "board." prefix)
-/// @return Status message ("OK" on success, error message on failure)
+// Handles custom CLI setter commands for board configuration
 const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
   return inhero::handleSet(boardConfig, setCommand);
 }
 
 // ===== Power Management Methods (Rev 1.1) =====
 
-/// @brief Get low-voltage sleep threshold (chemistry-specific)
-/// @return Sleep threshold in millivolts (INA228 ALERT fires here)
+// Get low-voltage sleep threshold (chemistry-specific)
 uint16_t InheroMr2Board::getLowVoltageSleepThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
   return BoardConfigContainer::getLowVoltageSleepThreshold(chemType);
 }
 
-/// @brief Get low-voltage wake threshold (chemistry-specific)
-/// @return Wake threshold in millivolts (0% SOC marker, RTC wake decision)
+// Get low-voltage wake threshold (chemistry-specific)
 uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
   BoardConfigContainer::BatteryType chemType = boardConfig.getBatteryType();
   return BoardConfigContainer::getLowVoltageWakeThreshold(chemType);
 }
 
-/// @brief Initiate controlled shutdown with filesystem protection (Rev 1.1)
-/// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
-///
-/// Rev 1.1 low-voltage shutdown uses System Sleep with GPIO latch (< 500µA total):
-/// - INA228 enters shutdown mode (~3.5µA)
-/// - BQ CE pin latched HIGH via FET (solar charging continues autonomously)
-/// - RTC countdown timer configured for periodic wake
-/// - nRF52 enters SYSTEMOFF (~1.5µA) — GPIO latches preserved
-/// - RTC wake triggers reboot; Early Boot checks voltage for boot vs sleep-again
+// Initiate controlled shutdown with filesystem protection (Rev 1.1)
+
+// Rev 1.1 low-voltage shutdown uses System Sleep with GPIO latch (< 500µA total):
+// - INA228 enters shutdown mode (~3.5µA)
+// - BQ CE pin latched HIGH via FET (solar charging continues autonomously)
+// - RTC countdown timer configured for periodic wake
+// - nRF52 enters SYSTEMOFF (~1.5µA) — GPIO latches preserved
+// - RTC wake triggers reboot; Early Boot checks voltage for boot vs sleep-again
 void InheroMr2Board::initiateShutdown(uint8_t reason) {
   MESH_DEBUG_PRINTLN("PWRMGT: Initiating shutdown (reason=0x%02X)", reason);
 

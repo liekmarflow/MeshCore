@@ -81,12 +81,12 @@ void BoardConfigContainer::setupWatchdog() { inhero::setupWatchdog(leds_enabled)
 void BoardConfigContainer::feedWatchdog()  { inhero::feedWatchdog(); }
 void BoardConfigContainer::disableWatchdog() { inhero::disableWatchdog(); }
 
-/// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
-/// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
-///          This function restores MPPT=1 when PG returns to 1.
-///          
-///          CRITICAL: Only runs when PowerGood=1 to avoid false positives.
-///          Exception: PG-Stuck recovery toggles HIZ when VBUS is present but PG=0.
+// Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
+// BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
+//          This function restores MPPT=1 when PG returns to 1.
+
+//          CRITICAL: Only runs when PowerGood=1 to avoid false positives.
+//          Exception: PG-Stuck recovery toggles HIZ when VBUS is present but PG=0.
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -137,8 +137,8 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
   }
 }
 
-/// @brief Single MPPT cycle — called from tickPeriodic() every 60s
-/// @details Checks solar logic and updates MPPT stats.
+// Single MPPT cycle — called from tickPeriodic() every 60s
+// Checks solar logic and updates MPPT stats.
 void BoardConfigContainer::runMpptCycle() {
     // Clear any pending BQ25798 interrupt flags (even though INT pin is not used)
     // Flag registers (0x22-0x27) are read-to-clear and de-assert INT pin.
@@ -159,9 +159,9 @@ void BoardConfigContainer::runMpptCycle() {
     }
 }
 
-/// @brief Stops heartbeat task and disarms alerts before OTA
-/// @details MPPT and SOC work are tick-based (no tasks to stop).
-///          Only the heartbeat LED task and INA228 alert need cleanup.
+// Stops heartbeat task and disarms alerts before OTA
+// MPPT and SOC work are tick-based (no tasks to stop).
+//          Only the heartbeat LED task and INA228 alert need cleanup.
 void BoardConfigContainer::stopBackgroundTasks() {
   MESH_DEBUG_PRINTLN("Stopping background tasks for OTA...");
   
@@ -196,9 +196,7 @@ void BoardConfigContainer::heartbeatTask(void* pvParameters) {
   }
 }
 
-/// @brief Enable or disable heartbeat LED and BQ25798 stat LED
-/// @param enabled true = LEDs enabled, false = LEDs disabled
-/// @return true on success
+// Enable or disable heartbeat LED and BQ25798 stat LED
 bool BoardConfigContainer::setLEDsEnabled(bool enabled) {
   leds_enabled = enabled;
   
@@ -233,14 +231,13 @@ bool BoardConfigContainer::setLEDsEnabled(bool enabled) {
   return true;
 }
 
-/// @brief Get current LED enable state
-/// @return true if LEDs are enabled
+// Get current LED enable state
 bool BoardConfigContainer::getLEDsEnabled() const {
   return leds_enabled;
 }
 
-/// @brief Updates MPPT statistics based on elapsed time and current status
-/// Should be called when MPPT status changes or periodically for time accounting
+// Updates MPPT statistics based on elapsed time and current status
+// Should be called when MPPT status changes or periodically for time accounting
 void BoardConfigContainer::updateMpptStats() {
   if (!bqDriverInstance) return;
   
@@ -348,17 +345,14 @@ void BoardConfigContainer::updateMpptStats() {
   }
 }
 
-/// @brief Returns current max charge current as string
-/// @return Static string buffer with charge current in mA
+// Returns current max charge current as string
 const char* BoardConfigContainer::getChargeCurrentAsStr() {
   static char buffer[16];
   snprintf(buffer, sizeof(buffer), "%dmA", this->getMaxChargeCurrent_mA());
   return buffer;
 }
 
-/// @brief Writes charger status information into provided buffer
-/// @param buffer Destination buffer for status string
-/// @param bufferSize Size of destination buffer
+// Writes charger status information into provided buffer
 void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   // Check if buffer is valid
   if (!buffer || bufferSize == 0) {
@@ -426,19 +420,17 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   }
 }
 
-/// @brief Reads BQ25798 status/fault registers and produces a compact diagnostic string
-/// @details Register layout (BQ25798 datasheet SLUSDV2B):
-///   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]
-///   0x1C STATUS_1: CHG_STAT[7:5] VBUS_STAT[4:1] BC12[0]
-///   0x1D STATUS_2: ICO[7:6] rsvd[5:3] TREG[2] DPDM[1] VBAT_PRESENT[0]
-///   0x1E STATUS_3: ACRB2[7] ACRB1[6] ADC_DONE[5] VSYS[4] CHG_TMR[3] TRICHG_TMR[2] PRECHG_TMR[1] rsvd[0]
-///   0x1F STATUS_4: rsvd[7:5] VBATOTG_LOW[4] TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
-///   0x20 FAULT_0:  IBAT_REG[7] VBUS_OVP[6] VBAT_OVP[5] IBUS_OCP[4] IBAT_OCP[3] CONV_OCP[2] VAC2_OVP[1] VAC1_OVP[0]
-///   0x21 FAULT_1:  rsvd[7] OTG_UVP[6] OTG_OVP[5] rsvd[4] VSYS_SHORT[3] VSYS_OVP[2] rsvd[1:0]
-///   0x0F CTRL_0:   AUTO_IBATDIS[7] FORCE_IBATDIS[6] EN_CHG[5] EN_ICO[4] FORCE_ICO[3] EN_HIZ[2] EN_TERM[1] EN_BACKUP[0]
-///   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
-/// @param buffer Destination buffer (min 100 bytes recommended)
-/// @param bufferSize Size of destination buffer
+// Reads BQ25798 status/fault registers and produces a compact diagnostic string
+// Register layout (BQ25798 datasheet SLUSDV2B):
+//   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]
+//   0x1C STATUS_1: CHG_STAT[7:5] VBUS_STAT[4:1] BC12[0]
+//   0x1D STATUS_2: ICO[7:6] rsvd[5:3] TREG[2] DPDM[1] VBAT_PRESENT[0]
+//   0x1E STATUS_3: ACRB2[7] ACRB1[6] ADC_DONE[5] VSYS[4] CHG_TMR[3] TRICHG_TMR[2] PRECHG_TMR[1] rsvd[0]
+//   0x1F STATUS_4: rsvd[7:5] VBATOTG_LOW[4] TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
+//   0x20 FAULT_0:  IBAT_REG[7] VBUS_OVP[6] VBAT_OVP[5] IBUS_OCP[4] IBAT_OCP[3] CONV_OCP[2] VAC2_OVP[1] VAC1_OVP[0]
+//   0x21 FAULT_1:  rsvd[7] OTG_UVP[6] OTG_OVP[5] rsvd[4] VSYS_SHORT[3] VSYS_OVP[2] rsvd[1:0]
+//   0x0F CTRL_0:   AUTO_IBATDIS[7] FORCE_IBATDIS[6] EN_CHG[5] EN_ICO[4] FORCE_ICO[3] EN_HIZ[2] EN_TERM[1] EN_BACKUP[0]
+//   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
 bool BoardConfigContainer::probeRtc() {
   // Address ACK
   Wire.beginTransmission(0x52);
@@ -553,8 +545,7 @@ void BoardConfigContainer::getBqDiagnostics(char* buffer, uint32_t bufferSize) {
            ts_str, flags, en_chg, en_hiz, iindpm_mA, f0, f1, s0, s1, s2, s3, s4, ntc1);
 }
 
-/// @brief Initializes battery manager, preferences, and background tasks
-/// @return true if BQ25798 initialized successfully
+// Initializes battery manager, preferences, and background tasks
 bool BoardConfigContainer::begin() {
   // Initialize LEDs early for boot sequence visualization
   pinMode(LED_BLUE, OUTPUT);  // Blue LED (P1.03)
@@ -802,9 +793,7 @@ bool BoardConfigContainer::begin() {
   return BQ_INITIALIZED && INA228_INITIALIZED;
 }
 
-/// @brief Loads battery type from preferences
-/// @param type Reference to store loaded battery type
-/// @return true if preference found and valid, false if default used
+// Loads battery type from preferences
 bool BoardConfigContainer::loadBatType(BatteryType& type) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -825,9 +814,7 @@ bool BoardConfigContainer::loadBatType(BatteryType& type) const {
   return false;
 }
 
-/// @brief Loads frost charge behavior from preferences
-/// @param behaviour Reference to store loaded behavior
-/// @return true if preference found and valid, false if default used
+// Loads frost charge behavior from preferences
 bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -848,9 +835,7 @@ bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
   return false;
 }
 
-/// @brief Loads maximum charge current from preferences
-/// @param maxCharge_mA Reference to store loaded current in mA
-/// @return true if preference found and valid (1-3000mA), false if default used
+// Loads maximum charge current from preferences
 bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -875,9 +860,7 @@ bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
   return false;
 }
 
-/// @brief Loads MPPT enabled setting from preferences
-/// @param enabled Reference to store loaded setting
-/// @return true if preference found, false if default used
+// Loads MPPT enabled setting from preferences
 bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -899,22 +882,22 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   return false;
 }
 
-/// @brief Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature)
-/// @note Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
-///                  Solar data and battery temperature from BQ25798 ADC
-///
-/// Temperature availability depends on power conditions:
-///   VBUS > 3.4V  → BQ25798 ADC runs → temperature available
-///   VBAT >= 3.2V → BQ25798 ADC runs → temperature available
-///   VBAT < 3.2V  → TS channel disabled (datasheet 9.3.16) → temperature = N/A
-///   VBAT < 2.9V  → ADC cannot operate at all → temperature = N/A, solar = 0
-///
-/// Temperature sentinel values (propagated from BqDriver::calculateBatteryTemp):
-///   -999.0f = I2C communication error or NTC unavailable
-///   -888.0f = ADC not ready / TS disabled due to low VBAT
-///    -99.0f = NTC open circuit (disconnected)
-///     99.0f = NTC short circuit
-///   Values outside -50..+90°C are treated as invalid → displayed as "N/A"
+// Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature)
+// Note: Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
+//                  Solar data and battery temperature from BQ25798 ADC
+
+// Temperature availability depends on power conditions:
+//   VBUS > 3.4V  → BQ25798 ADC runs → temperature available
+//   VBAT >= 3.2V → BQ25798 ADC runs → temperature available
+//   VBAT < 3.2V  → TS channel disabled (datasheet 9.3.16) → temperature = N/A
+//   VBAT < 2.9V  → ADC cannot operate at all → temperature = N/A, solar = 0
+
+// Temperature sentinel values (propagated from BqDriver::calculateBatteryTemp):
+//   -999.0f = I2C communication error or NTC unavailable
+//   -888.0f = ADC not ready / TS disabled due to low VBAT
+//    -99.0f = NTC open circuit (disconnected)
+//     99.0f = NTC short circuit
+//   Values outside -50..+90°C are treated as invalid → displayed as "N/A"
 const Telemetry* BoardConfigContainer::getTelemetryData() {
   static Telemetry telemetry;
   
@@ -963,8 +946,7 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   return &telemetry;
 }
 
-/// @brief Configures base BQ25798 settings (timers, watchdog, input limits, MPPT)
-/// @return true if BQ initialized and configuration successful
+// Configures base BQ25798 settings (timers, watchdog, input limits, MPPT)
 bool BoardConfigContainer::configureBaseBQ() {
   if (!BQ_INITIALIZED) {
     return false;
@@ -1009,9 +991,7 @@ bool BoardConfigContainer::configureBaseBQ() {
   return true;
 }
 
-/// @brief Configures battery chemistry-specific parameters (cell count, charge voltage)
-/// @param type Battery chemistry type (LIION_1S, LIFEPO4_1S, LTO_2S, BAT_UNKNOWN)
-/// @return true if configuration successful
+// Configures battery chemistry-specific parameters (cell count, charge voltage)
 bool BoardConfigContainer::configureChemistry(BatteryType type) {
   if (!BQ_INITIALIZED) {
     return false;
@@ -1059,8 +1039,7 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   return true;
 }
 
-/// @brief Gets current battery type from preferences
-/// @return Current battery chemistry type, defaults to DEFAULT_BATTERY_TYPE if read fails
+// Gets current battery type from preferences
 BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryType() const {
   BatteryType bat;
   if (loadBatType(bat)) {
@@ -1070,8 +1049,7 @@ BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryType() const {
   }
 }
 
-/// @brief Gets current frost charge behavior from preferences
-/// @return Frost charge behavior, defaults to NO_CHARGE if read fails
+// Gets current frost charge behavior from preferences
 BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeBehaviour() const {
   FrostChargeBehaviour frost;
   if (loadFrost(frost)) {
@@ -1081,25 +1059,21 @@ BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeB
   }
 }
 
-/// @brief Gets maximum charge current from preferences
-/// @return Maximum charge current in mA, defaults to DEFAULT_MAX_CHARGE_CURRENT_MA (200mA) if read fails
+// Gets maximum charge current from preferences
 uint16_t BoardConfigContainer::getMaxChargeCurrent_mA() const {
   uint16_t maxI = 100;
   loadMaxChrgI(maxI);
   return maxI;
 }
 
-/// @brief Gets current MPPT enable status from preferences
-/// @return true if MPPT enabled in configuration
+// Gets current MPPT enable status from preferences
 bool BoardConfigContainer::getMPPTEnabled() const {
   bool enabled;
   loadMpptEnabled(enabled);
   return enabled;
 }
 
-/// @brief Enables or disables MPPT
-/// @param enableMPPT true to enable MPPT
-/// @return true if successful
+// Enables or disables MPPT
 bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
   // Save to preferences first
   SimplePreferences prefs;
@@ -1121,15 +1095,12 @@ bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
   return true;
 }
 
-/// @brief Gets current maximum charge voltage
-/// @return Charge voltage limit in V
+// Gets current maximum charge voltage
 float BoardConfigContainer::getMaxChargeVoltage() const {
   return bq.getChargeLimitV();
 };
 
-/// @brief Sets battery type and reconfigures BQ accordingly
-/// @param type Battery chemistry type
-/// @return true if all configurations successful
+// Sets battery type and reconfigures BQ accordingly
 bool BoardConfigContainer::setBatteryType(BatteryType type) {
   bool bqBaseConfigured = this->configureBaseBQ();
   bool bqConfigured = this->configureChemistry(type);
@@ -1169,9 +1140,7 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
   return bqBaseConfigured && bqConfigured;
 }
 
-/// @brief Sets frost charge behavior (JEITA cold region)
-/// @param behaviour Charging behavior at low temperature
-/// @return true if successful
+// Sets frost charge behavior (JEITA cold region)
 bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviour) {
   switch (behaviour) {
   case BoardConfigContainer::FrostChargeBehaviour::NO_CHARGE:
@@ -1193,10 +1162,8 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
   return true;
 }
 
-/// @brief Sets maximum charge current (ICHG) and recalculates solar IINDPM
-/// @param maxChrgI Maximum charge current in mA
-/// @return true if successful
-/// @note Also calls updateSolarIINDPM() because IINDPM depends on ICHG.
+// Sets maximum charge current (ICHG) and recalculates solar IINDPM
+// Note: Also calls updateSolarIINDPM() because IINDPM depends on ICHG.
 bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -1220,9 +1187,8 @@ bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
   return ok;
 }
 
-/// @brief Notify USB connection state change — adjusts IINDPM accordingly
-/// @param connected true when USB VBUS detected, false when removed
-/// @details USB: IINDPM = 500mA (USB 2.0 spec). No USB: IINDPM calculated from battery/charge config.
+// Notify USB connection state change — adjusts IINDPM accordingly
+// USB: IINDPM = 500mA (USB 2.0 spec). No USB: IINDPM calculated from battery/charge config.
 void BoardConfigContainer::setUsbConnected(bool connected) {
   if (usbInputActive == connected) return;  // No state change
   usbInputActive = connected;
@@ -1237,10 +1203,9 @@ void BoardConfigContainer::setUsbConnected(bool connected) {
   }
 }
 
-/// @brief Calculate IINDPM for solar input from battery chemistry and charge current
-/// @return IINDPM in Amps, capped at IINDPM_MAX_A (JST limit), min 100mA (BQ25798 register min)
-/// @details Power conservation: I_in = IINDPM_MARGIN × (V_charge × I_charge) / V_panel.
-///          Prevents weak panels from POORSRC fault after PG qualification.
+// Calculate IINDPM for solar input from battery chemistry and charge current
+// Power conservation: I_in = IINDPM_MARGIN × (V_charge × I_charge) / V_panel.
+//          Prevents weak panels from POORSRC fault after PG qualification.
 float BoardConfigContainer::calculateSolarIINDPM() {
   const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
   if (!props || !props->charge_enable) {
@@ -1272,7 +1237,7 @@ float BoardConfigContainer::calculateSolarIINDPM() {
   return iindpm;
 }
 
-/// @brief Apply calculated solar IINDPM to BQ25798 (skipped when USB active)
+// Apply calculated solar IINDPM to BQ25798 (skipped when USB active)
 void BoardConfigContainer::updateSolarIINDPM() {
   if (usbInputActive || !bqDriverInstance) return;
 
@@ -1284,8 +1249,7 @@ void BoardConfigContainer::updateSolarIINDPM() {
                      IINDPM_MARGIN, IINDPM_PANEL_V);
 }
 
-/// @brief Calculates 7-day moving average of MPPT enabled percentage
-/// @return Percentage (0.0-100.0) of time MPPT was enabled over last 7 days
+// Calculates 7-day moving average of MPPT enabled percentage
 float BoardConfigContainer::getMpptEnabledPercentage7Day() const {
   // Return 0 if MPPT is disabled in config
   bool mpptEnabled;
@@ -1322,28 +1286,23 @@ float BoardConfigContainer::getMpptEnabledPercentage7Day() const {
 
 // ===== Battery SOC & Coulomb Counter Methods =====
 
-/// @brief Get current State of Charge in percent
-/// @return SOC in % (0-100)
+// Get current State of Charge in percent
 float BoardConfigContainer::getStateOfCharge() const {
   return socStats.current_soc_percent;
 }
 
-/// @brief Get nominal voltage for battery chemistry type
-/// @param type Battery chemistry type
-/// @return Nominal voltage in V (used for mAh → mWh conversion)
+// Get nominal voltage for battery chemistry type
 float BoardConfigContainer::getNominalVoltage(BatteryType type) {
   const BatteryProperties* props = getBatteryProperties(type);
   return props ? props->nominal_voltage : 3.7f;
 }
 
-/// @brief Get battery capacity in mAh
-/// @return Battery capacity (user-configured)
+// Get battery capacity in mAh
 float BoardConfigContainer::getBatteryCapacity() const {
   return socStats.capacity_mah;
 }
 
-/// @brief Check if battery capacity was explicitly set via CLI
-/// @return true if capacity was set in preferences, false if using default
+// Check if battery capacity was explicitly set via CLI
 bool BoardConfigContainer::isBatteryCapacitySet() const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -1353,9 +1312,7 @@ bool BoardConfigContainer::isBatteryCapacitySet() const {
   return (len > 0 && buffer[0] != '\0');
 }
 
-/// @brief Set battery capacity manually via CLI (converts to mWh internally)
-/// @param capacity_mah Capacity in mAh (user input)
-/// @return true if successful
+// Set battery capacity manually via CLI (converts to mWh internally)
 bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   if (capacity_mah < 100.0f || capacity_mah > 100000.0f) {
     return false;  // Sanity check
@@ -1385,23 +1342,21 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   return true;
 }
 
-/// @brief Get Time To Live in hours
-/// @details Based on the 7-day rolling average of daily net energy deficit (avg_7day_daily_net_mah),
-///          calculated from hourly INA228 Coulomb-counter samples in a 168h ring buffer.
-///          Formula: TTL = (current_soc% * capacity_mah) / abs(avg_7day_daily_net_mah) * 24h
-/// @return Hours until battery empty (0 = not calculated, charging, or insufficient data)
+// Get Time To Live in hours
+// Based on the 7-day rolling average of daily net energy deficit (avg_7day_daily_net_mah),
+//          calculated from hourly INA228 Coulomb-counter samples in a 168h ring buffer.
+//          Formula: TTL = (current_soc% * capacity_mah) / abs(avg_7day_daily_net_mah) * 24h
 uint16_t BoardConfigContainer::getTTL_Hours() const {
   return socStats.ttl_hours;
 }
 
-/// @brief Check if living on battery (net deficit)
-/// @return true if using more than charging
+// Check if living on battery (net deficit)
 bool BoardConfigContainer::isLivingOnBattery() const {
   return socStats.living_on_battery;
 }
 
-/// @brief Sync SOC to 100% after "Charging Done" event from BQ25798
-/// @details Resets INA228 Coulomb Counter baseline and marks SOC as valid
+// Sync SOC to 100% after "Charging Done" event from BQ25798
+// Resets INA228 Coulomb Counter baseline and marks SOC as valid
 void BoardConfigContainer::syncSOCToFull() {
   if (!ina228DriverInstance) {
     return;
@@ -1442,9 +1397,7 @@ void BoardConfigContainer::refreshTempDerating() {
   socStats.last_battery_temp_c = lastValidBatteryTemp;
 }
 
-/// @brief Manually set SOC to specific percentage (e.g. after reboot with known SOC)
-/// @param soc_percent Desired SOC value (0-100)
-/// @return true if successful, false if invalid parameters
+// Manually set SOC to specific percentage (e.g. after reboot with known SOC)
 bool BoardConfigContainer::setSOCManually(float soc_percent) {
   if (!ina228DriverInstance) {
     MESH_DEBUG_PRINTLN("SOC: Cannot set - INA228 not initialized");
@@ -1489,9 +1442,7 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
   return true;
 }
 
-/// @brief Load battery capacity from preferences
-/// @param capacity_mah Output parameter
-/// @return true if loaded successfully
+// Load battery capacity from preferences
 bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -1529,17 +1480,14 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   return false;  // Not loaded from prefs
 }
 
-/// @brief Get INA228 driver instance
-/// @return Pointer to INA228 driver or nullptr if not initialized
+// Get INA228 driver instance
 Ina228Driver* BoardConfigContainer::getIna228Driver() {
   return ina228DriverInstance;
 }
 
 // ===== NTC Temperature Calibration =====
 
-/// @brief Load NTC temperature calibration offset from preferences
-/// @param offset Output parameter (°C)
-/// @return true if loaded successfully, false if using default (0.0)
+// Load NTC temperature calibration offset from preferences
 bool BoardConfigContainer::loadTcCalOffset(float& offset) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
@@ -1561,9 +1509,7 @@ bool BoardConfigContainer::loadTcCalOffset(float& offset) const {
   return false;
 }
 
-/// @brief Set NTC temperature calibration offset and save to preferences
-/// @param offset_c Calibration offset in °C (-20 to +20)
-/// @return true if saved successfully
+// Set NTC temperature calibration offset and save to preferences
 bool BoardConfigContainer::setTcCalOffset(float offset_c) {
   // Clamp to reasonable range
   if (offset_c < -20.0f) offset_c = -20.0f;
@@ -1587,18 +1533,13 @@ bool BoardConfigContainer::setTcCalOffset(float offset_c) {
   return false;
 }
 
-/// @brief Get current NTC temperature calibration offset
-/// @return Current offset in °C (0.0 = no calibration)
+// Get current NTC temperature calibration offset
 float BoardConfigContainer::getTcCalOffset() const {
   return tcCalOffset;
 }
 
-
-
-/// @brief Perform NTC temperature calibration using a reference temperature
-/// Averages 5 NTC readings to reduce ADC noise, computes offset = reference - avg, stores it.
-/// @param actual_temp_c Reference temperature in °C (e.g. from BME280)
-/// @return Computed offset in °C, or -999.0 on error
+// Perform NTC temperature calibration using a reference temperature
+// Averages 5 NTC readings to reduce ADC noise, computes offset = reference - avg, stores it.
 float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
   if (!bqDriverInstance) {
     return -999.0f;
@@ -1651,10 +1592,8 @@ float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
   return new_offset;
 }
 
-/// @brief Perform NTC temperature calibration using on-board BME280 as reference
-/// Averages 5 BME280 readings, then delegates to performTcCalibration(float).
-/// @param bme_temp_out Optional: receives the averaged BME temperature used for calibration
-/// @return Computed offset in °C, or -999.0 on error
+// Perform NTC temperature calibration using on-board BME280 as reference
+// Averages 5 BME280 readings, then delegates to performTcCalibration(float).
 float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
   // Average multiple BME280 readings to reduce noise
   const int NUM_SAMPLES = 5;
@@ -1685,8 +1624,7 @@ float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
   return performTcCalibration(bme_avg);
 }
 
-/// @brief Read BME280 temperature directly via I2C (temporary instance, no core code changes)
-/// @return Temperature in °C, or -999.0 if BME280 not available
+// Read BME280 temperature directly via I2C (temporary instance, no core code changes)
 float BoardConfigContainer::readBmeTemperature() {
 #if ENV_INCLUDE_BME280
   Adafruit_BME280 bme;
@@ -1713,11 +1651,11 @@ float BoardConfigContainer::readBmeTemperature() {
 #endif
 }
 
-/// @brief Arm INA228 low-voltage alert for current battery chemistry
-/// @details Programs INA228 BUVL register with lowv_sleep_mv threshold.
-///          Alert fires when VBAT drops below this level → ISR → volatile flag → tickPeriodic() → System Sleep.
-///          Always active when battery type is configured (no CLI toggle).
-///          BAT_UNKNOWN: alert disabled (threshold = 0).
+// Arm INA228 low-voltage alert for current battery chemistry
+// Programs INA228 BUVL register with lowv_sleep_mv threshold.
+//          Alert fires when VBAT drops below this level → ISR → volatile flag → tickPeriodic() → System Sleep.
+//          Always active when battery type is configured (no CLI toggle).
+//          BAT_UNKNOWN: alert disabled (threshold = 0).
 void BoardConfigContainer::armLowVoltageAlert() {
   if (!ina228DriverInstance) {
     return;
@@ -1763,24 +1701,20 @@ void BoardConfigContainer::lowVoltageAlertISR() {
   lowVoltageAlertFired = true;
 }
 
-/// @brief Get low-voltage sleep threshold (INA228 ALERT fires at this level)
-/// @param type Battery chemistry type
-/// @return Threshold in millivolts
+// Get low-voltage sleep threshold (INA228 ALERT fires at this level)
 uint16_t BoardConfigContainer::getLowVoltageSleepThreshold(BatteryType type) {
   const BatteryProperties* props = getBatteryProperties(type);
   return props ? props->lowv_sleep_mv : 2000;
 }
 
-/// @brief Get low-voltage wake threshold (RTC wake boots if VBAT >= this, 0% SOC marker)
-/// @param type Battery chemistry type
-/// @return Threshold in millivolts
+// Get low-voltage wake threshold (RTC wake boots if VBAT >= this, 0% SOC marker)
 uint16_t BoardConfigContainer::getLowVoltageWakeThreshold(BatteryType type) {
   const BatteryProperties* props = getBatteryProperties(type);
   return props ? props->lowv_wake_mv : 2200;
 }
 
-/// @brief Update battery SOC from INA228 Hardware Coulomb Counter
-/// @details Uses INA228 CHARGE register (mAh) for accurate charge tracking
+// Update battery SOC from INA228 Hardware Coulomb Counter
+// Uses INA228 CHARGE register (mAh) for accurate charge tracking
 void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
     return;
@@ -1868,7 +1802,7 @@ void BoardConfigContainer::updateBatterySOC() {
   // (remaining_mah / capacity_mah) and represents the actual stored charge.
   // Derating only affects TTL calculation (extractable capacity) and is shown
   // separately in CLI output as "derated SOC%".
-  //
+
   // Temperature source priority:
   //   1. NTC via BQ25798 TS ADC (cached in lastValidBatteryTemp by getTelemetryData())
   //   2. BME280 fallback — used when NTC has not provided a reading for >5 minutes.
@@ -1887,8 +1821,8 @@ void BoardConfigContainer::updateBatterySOC() {
   }
 }
 
-/// @brief Update daily balance statistics (mAh-based)
-/// @brief Update hourly battery statistics and advance rolling window
+// Update daily balance statistics (mAh-based)
+// Update hourly battery statistics and advance rolling window
 uint32_t BoardConfigContainer::getRTCTimestamp() {
   return getRTCTime();
 }
@@ -1939,7 +1873,7 @@ void BoardConfigContainer::updateHourlyStats() {
   }
 }
 
-/// @brief Calculate 24h and 3-day rolling averages from hourly buffer
+// Calculate 24h and 3-day rolling averages from hourly buffer
 void BoardConfigContainer::calculateRollingStats() {
   // Calculate last 24 hours net balance
   float sum_24h_charged = 0.0f;
@@ -2027,27 +1961,27 @@ void BoardConfigContainer::calculateRollingStats() {
   calculateTTL();
 }
 
-/// @brief Calculate Time To Live (hours until battery empty)
-/// @details TTL is based on the **7-day rolling average** of daily net energy consumption
-///          (avg_7day_daily_net_mah). This average is computed from a 168-hour (7-day)
-///          ring buffer of hourly INA228 Coulomb-counter measurements (charged/discharged/solar mAh).
-///
-///          Data flow:
-///          1. INA228 hardware Coulomb counter measures charge flow continuously (24-bit ADC)
-///          2. updateHourlyStats() samples the counter every hour, storing per-hour deltas
-///             (charged_mah, discharged_mah, solar_mah) in hours[168] ring buffer
-///          3. calculateRollingStats() sums the last 168 hours and divides by 7 to get
-///             avg_7day_daily_net_mah (= solar - discharged per day)
-///          4. This method extrapolates: remaining_mah / deficit_per_day * 24 = TTL hours
-///
-///          Preconditions for TTL > 0:
-///          - living_on_battery == true (24h net is negative, i.e. energy deficit)
-///          - avg_7day_daily_net_mah < 0 (7-day average shows net discharge)
-///          - capacity_mah > 0 (battery capacity is known)
-///          - At least 24 hours of valid hourly data exist in the ring buffer
-///
-///          When the device is solar-powered with energy surplus (net >= 0),
-///          TTL is 0 and callers interpret this as "infinite" via living_on_battery flag.
+// Calculate Time To Live (hours until battery empty)
+// TTL is based on the **7-day rolling average** of daily net energy consumption
+//          (avg_7day_daily_net_mah). This average is computed from a 168-hour (7-day)
+//          ring buffer of hourly INA228 Coulomb-counter measurements (charged/discharged/solar mAh).
+
+//          Data flow:
+//          1. INA228 hardware Coulomb counter measures charge flow continuously (24-bit ADC)
+//          2. updateHourlyStats() samples the counter every hour, storing per-hour deltas
+//             (charged_mah, discharged_mah, solar_mah) in hours[168] ring buffer
+//          3. calculateRollingStats() sums the last 168 hours and divides by 7 to get
+//             avg_7day_daily_net_mah (= solar - discharged per day)
+//          4. This method extrapolates: remaining_mah / deficit_per_day * 24 = TTL hours
+
+//          Preconditions for TTL > 0:
+//          - living_on_battery == true (24h net is negative, i.e. energy deficit)
+//          - avg_7day_daily_net_mah < 0 (7-day average shows net discharge)
+//          - capacity_mah > 0 (battery capacity is known)
+//          - At least 24 hours of valid hourly data exist in the ring buffer
+
+//          When the device is solar-powered with energy surplus (net >= 0),
+//          TTL is 0 and callers interpret this as "infinite" via living_on_battery flag.
 void BoardConfigContainer::calculateTTL() {
   if (!socStats.living_on_battery || socStats.avg_7day_daily_net_mah >= 0) {
     socStats.ttl_hours = 0;  // Not draining or charging
@@ -2091,9 +2025,9 @@ void BoardConfigContainer::calculateTTL() {
 
 // ===== Tick-based Periodic Dispatch =====
 
-/// @brief Called from InheroMr2Board::tick() — dispatches all periodic I2C work
-/// @details millis()-based scheduling in the main loop context.
-///          Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
+// Called from InheroMr2Board::tick() — dispatches all periodic I2C work
+// millis()-based scheduling in the main loop context.
+//          Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
 void BoardConfigContainer::tickPeriodic() {
   // First-call init: clear MPPT stats
   if (!tickInitialized) {
@@ -2136,7 +2070,7 @@ void BoardConfigContainer::tickPeriodic() {
 
 // ===== Helper Functions =====
 
-/// @brief Trim whitespace from string
+// Trim whitespace from string
 char* BoardConfigContainer::trim(char* str) {
   char* end;
 
@@ -2157,7 +2091,7 @@ char* BoardConfigContainer::trim(char* str) {
   return str;
 }
 
-/// @brief Convert command string to battery type enum
+// Convert command string to battery type enum
 BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromCommandString(const char* cmdStr) {
   for (const auto& entry : bat_map) {
     if (entry.command_string == nullptr) break;
@@ -2168,9 +2102,7 @@ BoardConfigContainer::BatteryType BoardConfigContainer::getBatteryTypeFromComman
   return BatteryType::BAT_UNKNOWN;
 }
 
-/// @brief Get battery properties for a given battery type
-/// @param type Battery type
-/// @return Pointer to BatteryProperties structure, or nullptr if not found
+// Get battery properties for a given battery type
 const BoardConfigContainer::BatteryProperties* BoardConfigContainer::getBatteryProperties(BatteryType type) {
   for (const auto& props : battery_properties) {
     if (props.type == type) {
@@ -2180,23 +2112,20 @@ const BoardConfigContainer::BatteryProperties* BoardConfigContainer::getBatteryP
   return nullptr;  // Should never happen if battery_properties is complete
 }
 
-/// @brief Temperature derating factor for a battery chemistry
-/// @details At cold temperatures, the internal resistance of a battery increases,
-///          reducing the extractable capacity — even though the stored charge
-///          (measured by the coulomb counter) remains unchanged. This function
-///          returns a factor 0.0–1.0 that scales the nominal capacity to reflect
-///          the actually available (extractable) capacity.
-///
-///          Model:  f(T) = 1.0                                  for T >= T_ref
-///                  f(T) = max(f_min, 1.0 - k * (T_ref - T))   for T <  T_ref
-///
-///          The linear model is a conservative approximation sufficient for SOC/TTL
-///          display purposes. Real curves are slightly concave (capacity drops faster
-///          at extreme cold), but the f_min clamp prevents unrealistic values.
-///
-/// @param props Battery properties (contains k, f_min, T_ref per chemistry)
-/// @param temp_c Current battery temperature in °C
-/// @return Derating factor (1.0 = full capacity, e.g. 0.75 = 75% extractable)
+// Temperature derating factor for a battery chemistry
+// At cold temperatures, the internal resistance of a battery increases,
+//          reducing the extractable capacity — even though the stored charge
+//          (measured by the coulomb counter) remains unchanged. This function
+//          returns a factor 0.0–1.0 that scales the nominal capacity to reflect
+//          the actually available (extractable) capacity.
+
+//          Model:  f(T) = 1.0                                  for T >= T_ref
+//                  f(T) = max(f_min, 1.0 - k * (T_ref - T))   for T <  T_ref
+
+//          The linear model is a conservative approximation sufficient for SOC/TTL
+//          display purposes. Real curves are slightly concave (capacity drops faster
+//          at extreme cold), but the f_min clamp prevents unrealistic values.
+
 float BoardConfigContainer::getTemperatureDerating(const BatteryProperties* props, float temp_c) {
   if (!props) return 1.0f;
   if (temp_c >= props->temp_ref_c) return 1.0f;
@@ -2207,7 +2136,7 @@ float BoardConfigContainer::getTemperatureDerating(const BatteryProperties* prop
   return factor;
 }
 
-/// @brief Convert battery type enum to command string
+// Convert battery type enum to command string
 const char* BoardConfigContainer::getBatteryTypeCommandString(BatteryType type) {
   for (const auto& entry : bat_map) {
     if (entry.command_string == nullptr) break;
@@ -2218,7 +2147,7 @@ const char* BoardConfigContainer::getBatteryTypeCommandString(BatteryType type) 
   return "unknown";
 }
 
-/// @brief Convert frost charge behaviour enum to command string
+// Convert frost charge behaviour enum to command string
 const char* BoardConfigContainer::getFrostChargeBehaviourCommandString(FrostChargeBehaviour type) {
   for (const auto& entry : frostchargebehaviour_map) {
     if (entry.command_string == nullptr) break;
@@ -2229,7 +2158,7 @@ const char* BoardConfigContainer::getFrostChargeBehaviourCommandString(FrostChar
   return "unknown";
 }
 
-/// @brief Convert command string to frost charge behaviour enum
+// Convert command string to frost charge behaviour enum
 BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeBehaviourFromCommandString(const char* cmdStr) {
   for (const auto& entry : frostchargebehaviour_map) {
     if (entry.command_string == nullptr) break;
@@ -2240,7 +2169,7 @@ BoardConfigContainer::FrostChargeBehaviour BoardConfigContainer::getFrostChargeB
   return FrostChargeBehaviour::REDUCE_UNKNOWN;
 }
 
-/// @brief Get available frost charge behaviour option strings
+// Get available frost charge behaviour option strings
 const char* BoardConfigContainer::getAvailableFrostChargeBehaviourOptions() {
   static char buffer[64];
 
@@ -2266,7 +2195,7 @@ const char* BoardConfigContainer::getAvailableFrostChargeBehaviourOptions() {
   return buffer;
 }
 
-/// @brief Get available battery type option strings
+// Get available battery type option strings
 const char* BoardConfigContainer::getAvailableBatOptions() {
   static char buffer[64];
 

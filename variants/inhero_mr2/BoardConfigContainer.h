@@ -269,17 +269,17 @@ private:
   // Tick scheduling (millis-based, overflow-safe)
   uint32_t lastMpptMs = 0;
   uint32_t lastSocMs = 0;
-  uint32_t lastHourlyMs = 0;       ///< Last updateHourlyStats() execution
-  bool tickInitialized = false;    ///< First-call init flag for MPPT stats
+  uint32_t lastHourlyMs = 0;       // Last updateHourlyStats() execution
+  bool tickInitialized = false;    // First-call init flag for MPPT stats
 
-  void runMpptCycle();             ///< Single MPPT cycle
-  static MpptStatistics mpptStats; ///< MPPT statistics data
-  static BatterySOCStats socStats; ///< Battery SOC statistics
-  static BatteryType cachedBatteryType; ///< Cached battery type for static methods (set by begin()/setBatteryType())
+  void runMpptCycle();             // Single MPPT cycle
+  static MpptStatistics mpptStats; // MPPT statistics data
+  static BatterySOCStats socStats; // Battery SOC statistics
+  static BatteryType cachedBatteryType; // Cached battery type for static methods (set by begin()/setBatteryType())
   
   bool BQ_INITIALIZED = false;
   bool INA228_INITIALIZED = false;
-  bool lowVoltageRecovery = false;  ///< Set in begin() if booting from low-voltage sleep (GPREGRET2)
+  bool lowVoltageRecovery = false;  // Set in begin() if booting from low-voltage sleep (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static bool usbInputActive; // True when USB VBUS detected — caps IINDPM to 500mA
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
@@ -292,7 +292,7 @@ private:
 
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
-  float performTcCalibration(float actual_temp_c); ///< Internal: calibrate NTC given reference temp (called by BME auto-cal)
+  float performTcCalibration(float actual_temp_c); // Internal: calibrate NTC given reference temp (called by BME auto-cal)
   static constexpr const char* PREFS_NAMESPACE = "inheromr2";
   static constexpr const char* BATTKEY = "batType";
   static constexpr const char* FROSTKEY = "frost";
@@ -300,7 +300,6 @@ private:
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
-
 
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
@@ -313,7 +312,7 @@ private:
   static void updateMpptStats();
 
   // Battery SOC helpers
-  static void updateHourlyStats();   ///< Update hourly statistics (called every 60 minutes)
-  static void calculateRollingStats(); ///< Calculate 24h and 3-day averages from rolling buffer
-  static void calculateTTL();    ///< Calculate TTL from 7-day avg net deficit and remaining SOC capacity
+  static void updateHourlyStats();   // Update hourly statistics (called every 60 minutes)
+  static void calculateRollingStats(); // Calculate 24h and 3-day averages from rolling buffer
+  static void calculateTTL();    // Calculate TTL from 7-day avg net deficit and remaining SOC capacity
 };
