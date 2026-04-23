@@ -78,7 +78,6 @@ public:
   bool queryBoardTelemetry(CayenneLPP &telemetry) override;
 
 private:
-  uint8_t findNextFreeChannel(CayenneLPP &lpp);
   static uint16_t socToLiIonMilliVolts(float soc_percent);
   static volatile bool rtc_irq_pending;
   static volatile uint32_t ota_dfu_reset_at;  // millis() of deferred DFU reset (0 = inactive)
