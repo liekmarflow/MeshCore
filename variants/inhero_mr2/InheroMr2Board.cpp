@@ -549,36 +549,14 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
 #endif
 
-    // 5b. BQ25798 — Disable ADC (saves ~500µA continuous draw)
-    // Must be AFTER CE=HIGH — charge enable may re-enable ADC internally.
-    Wire.beginTransmission(BQ25798_I2C_ADDR);
-    Wire.write(0x2E);  // ADC_CONTROL register
-    Wire.write(0x00);  // ADC_EN=0, ADC disabled
-    Wire.endTransmission();
+    // 5b. INA228 + BQ25798 -> minimum sleep current.
+    // Must be AFTER CE=HIGH (charge enable may re-enable BQ ADC internally).
+    // INA228 was already shut down via driver in step 2; the helper repeats the
+    // raw-I2C sequence with readback, which is harmless and adds robustness if
+    // the driver call silently failed.
+    inhero::prepareIcsForSystemOff();
 
-    // 5c. BQ25798 — Mask all interrupts and clear flags to de-assert INT pin.
-    // Default masks are 0x00 (all unmasked). Any pending flag holds INT LOW,
-    // and INPUT_PULLUP on BQ_INT_PIN wastes ~254µA through the pull-up.
-    { // Mask all interrupts
-      const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
-      for (uint8_t r : mask_regs) {
-        Wire.beginTransmission(BQ25798_I2C_ADDR);
-        Wire.write(r);
-        Wire.write(0xFF);
-        Wire.endTransmission();
-      }
-      // Read-to-clear all flag registers
-      const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
-      for (uint8_t r : flag_regs) {
-        Wire.beginTransmission(BQ25798_I2C_ADDR);
-        Wire.write(r);
-        Wire.endTransmission(false);
-        Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
-        while (Wire.available()) Wire.read();
-      }
-    }
-
-    // 5d. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
+    // 5c. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
     // After normal operation readBmeTemperature() may have left BME280 in NORMAL mode.
     // Harmless NACK if no BME280 populated.
     Wire.beginTransmission(0x76);
