@@ -10,39 +10,12 @@
 #include "InheroMr2Board.h"
 
 #include "BoardConfigContainer.h"
+#include "helpers/Rv3028Wake.h"
 #include "target.h"
 
 #include <Arduino.h>
 #include <Wire.h>
 #include <nrf_soc.h>
-
-namespace {
-
-void clearRtcTimerFlag() {
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_STATUS);
-  if (Wire.endTransmission(false) != 0) {
-    return;
-  }
-
-  Wire.requestFrom((uint8_t)RTC_I2C_ADDR, (uint8_t)1);
-  if (!Wire.available()) {
-    return;
-  }
-
-  uint8_t status = Wire.read();
-  if ((status & (1 << 3)) == 0) {
-    return;
-  }
-
-  status &= ~(1 << 3);
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_STATUS);
-  Wire.write(status);
-  Wire.endTransmission();
-}
-
-} // namespace
 
 // Static declarations
 static BoardConfigContainer boardConfig;
@@ -97,7 +70,7 @@ void InheroMr2Board::begin() {
 
     // SYSTEMOFF wake is a reset, so the FALLING-edge ISR never sees the RTC event.
     // Clear TF here before we arm RTC_INT pull-up + SENSE again.
-    clearRtcTimerFlag();
+    inhero::clearTimerFlag();
 
     // RTC INT: must have SENSE_Low for System Sleep wake-up
     NRF_GPIO->PIN_CNF[RTC_INT_PIN] =
@@ -1328,54 +1301,10 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 }
 
 void InheroMr2Board::configureRTCWake(uint32_t minutes) {
-  uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? LOW_VOLTAGE_SLEEP_MINUTES : minutes);
-  if (countdown_ticks == 0) {
-    countdown_ticks = 1;
-  }
-  // RV-3028 Timer Value register is 12-bit (max 4095)
-  if (countdown_ticks > 4095) {
-    countdown_ticks = 4095;
-  }
-  MESH_DEBUG_PRINTLN("PWRMGT: Configuring RTC wake in %u minutes",
-                     static_cast<unsigned>(countdown_ticks));
-
-  // === RTC Timer Configuration per Manual Section 4.8.2 ===
-  // Step 1: Stop Timer and clear flags
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x00); // TE=0, TD=00 (stop timer)
-  Wire.endTransmission();
-
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL2);
-  Wire.write(0x00); // TIE=0 (disable interrupt)
-  Wire.endTransmission();
-
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_STATUS);
-  Wire.write(0x00); // Clear TF flag
-  Wire.endTransmission();
-
-  // Step 2: Set Timer Value (ticks at 1/60 Hz)
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_TIMER_VALUE_0);
-  Wire.write(countdown_ticks & 0xFF);        // Lower 8 bits
-  Wire.write((countdown_ticks >> 8) & 0x0F); // Upper 4 bits
-  Wire.endTransmission();
-
-  // Step 3: Configure Timer (1/60 Hz clock, Single shot mode)
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x07); // TE=1 (Enable), TD=11 (1/60 Hz), TRPT=0 (Single shot)
-  Wire.endTransmission();
-
-  // Step 4: Enable Timer Interrupt
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_CTRL2);
-  Wire.write(0x10); // TIE=1 (Timer Interrupt Enable, bit 4)
-  Wire.endTransmission();
-
-  MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%u ticks at 1/60 Hz)", countdown_ticks);
+  uint16_t ticks = static_cast<uint16_t>(
+      minutes == 0 ? LOW_VOLTAGE_SLEEP_MINUTES
+                   : (minutes > 4095 ? 4095 : minutes));
+  inhero::configurePeriodicWake(ticks);
 }
 
 void InheroMr2Board::rtcInterruptHandler() {
