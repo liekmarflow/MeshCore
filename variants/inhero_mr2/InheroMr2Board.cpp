@@ -10,6 +10,7 @@
 #include "InheroMr2Board.h"
 
 #include "BoardConfigContainer.h"
+#include "helpers/BqLowPowerSetup.h"
 #include "helpers/CliCommands.h"
 #include "helpers/I2cBusRecovery.h"
 #include "helpers/Rv3028Wake.h"
@@ -74,71 +75,8 @@ void InheroMr2Board::begin() {
       MESH_DEBUG_PRINTLN("LV-Wake: CE re-latched HIGH (solar charging active)");
 #endif
 
-      // INA228 → Shutdown mode with readback verification (~3.5µA vs ~350µA continuous).
-      // I2C writes can fail silently — if this fails, 350µA wasted in System Sleep!
-      for (int retry = 0; retry < 3; retry++) {
-        Wire.beginTransmission(0x40);
-        Wire.write(0x01);  // ADC_CONFIG register
-        Wire.write(0x00);  // Shutdown mode (MSB)
-        Wire.write(0x00);  // (LSB)
-        if (Wire.endTransmission() != 0) {
-          delay(10);
-          continue;
-        }
-        delay(2);
-        // Readback verification
-        Wire.beginTransmission(0x40);
-        Wire.write(0x01);
-        Wire.endTransmission(false);
-        Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
-        uint16_t rb = 0;
-        if (Wire.available() >= 2) {
-          rb = (Wire.read() << 8) | Wire.read();
-        }
-        if ((rb & 0xF000) == 0x0000) break;
-        delay(10);
-      }
-
-      // INA228 — Release ALERT pin before sleep.
-      // The under-voltage alert is latched (ALATCH=1) → ALERT stays LOW.
-      // RAK4630 internal pull-up on P1.02 → ~330µA through pull-up into OD transistor.
-      // 1. Write DIAG_ALRT=0: ALATCH=0 (transparent mode) + clear all flag bits
-      Wire.beginTransmission(0x40);
-      Wire.write(0x0B);  // DIAG_ALRT register
-      Wire.write(0x00);  // MSB: ALATCH=0, CNVR=0, SLOWALERT=0, APOL=0
-      Wire.write(0x00);  // LSB: clear all flags
-      Wire.endTransmission();
-      // 2. Set BUVL=0 (no threshold → no alert condition in transparent mode)
-      Wire.beginTransmission(0x40);
-      Wire.write(0x08);  // BUVL register
-      Wire.write(0x00);
-      Wire.write(0x00);
-      Wire.endTransmission();
-
-      // BQ25798 — Disable ADC (saves ~500µA continuous draw)
-      Wire.beginTransmission(BQ25798_I2C_ADDR);
-      Wire.write(0x2E);  // ADC_CONTROL register
-      Wire.write(0x00);  // ADC_EN=0, ADC disabled
-      Wire.endTransmission();
-
-      // BQ25798 — Mask all interrupts + clear flags to de-assert INT pin.
-      // Without this, any pending flag holds INT LOW and INPUT_PULLUP wastes ~254µA.
-      { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
-        for (uint8_t r : mask_regs) {
-          Wire.beginTransmission(BQ25798_I2C_ADDR);
-          Wire.write(r);
-          Wire.write(0xFF);  // Mask all
-          Wire.endTransmission();
-        }
-        const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
-        for (uint8_t r : flag_regs) {
-          Wire.beginTransmission(BQ25798_I2C_ADDR);
-          Wire.write(r);
-          Wire.endTransmission(false);
-          Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
-          while (Wire.available()) Wire.read();
-        }
-      }
+      // Put INA228 + BQ25798 into a state that draws minimal current during System Sleep.
+      inhero::prepareIcsForSystemOff();
 
       // SX1262: Send SetSleep command AND latch NSS HIGH.
       // After System-ON reset, SX1262 may be in Standby RC (~600µA).
