@@ -616,7 +616,6 @@ void InheroMr2Board::configureRTCWake(uint32_t minutes) {
 }
 
 void InheroMr2Board::rtcInterruptHandler() {
-  // RTC countdown elapsed - device woke from SYSTEMOFF
   // Defer I2C work to the main loop to avoid ISR I2C collisions.
   rtc_irq_pending = true;
 }

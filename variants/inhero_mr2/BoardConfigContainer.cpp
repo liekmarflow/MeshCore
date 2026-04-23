@@ -1748,12 +1748,11 @@ void BoardConfigContainer::armLowVoltageAlert() {
   MESH_DEBUG_PRINTLN("INA228 Low-V Alert: ARMED @ %dmV (BUVL write %s)", sleep_mv, buvl_ok ? "OK" : "FAILED");
 }
 
-/// @brief Disarm INA228 low-voltage alert and detach ISR
 void BoardConfigContainer::disarmLowVoltageAlert() {
   if (!ina228DriverInstance) {
     return;
   }
-  
+
   detachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN));
   ina228DriverInstance->setUnderVoltageAlert(0);
   ina228DriverInstance->enableAlert(false, false, false);
@@ -1761,9 +1760,8 @@ void BoardConfigContainer::disarmLowVoltageAlert() {
   MESH_DEBUG_PRINTLN("INA228 Low-V Alert: DISARMED");
 }
 
-/// @brief ISR for INA228 ALERT pin — sets flag checked in tickPeriodic()
-/// @details Called on falling edge of INA228 ALERT (active-LOW, latched).
-///          Sets volatile flag; tickPeriodic() checks it and initiates shutdown.
+// ISR: falling edge on INA228 ALERT (active-LOW, latched). Just sets the flag;
+// tickPeriodic() consumes it and initiates shutdown.
 void BoardConfigContainer::lowVoltageAlertISR() {
   lowVoltageAlertFired = true;
 }
