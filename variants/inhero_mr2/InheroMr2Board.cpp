@@ -11,6 +11,7 @@
 
 #include "BoardConfigContainer.h"
 #include "helpers/CliCommands.h"
+#include "helpers/I2cBusRecovery.h"
 #include "helpers/Rv3028Wake.h"
 #include "target.h"
 
@@ -239,39 +240,7 @@ void InheroMr2Board::begin() {
 
   // === I2C Bus Recovery ===
   // After OTA/warm-reset, a slave may hold SDA low (stuck mid-transaction).
-  // Wire.begin() cannot recover this — toggle SCL manually to release the bus.
-  // Standard recovery: up to 9 clock pulses while SDA is monitored.
-  {
-    const uint8_t sda = PIN_BOARD_SDA;
-    const uint8_t scl = PIN_BOARD_SCL;
-
-    pinMode(sda, INPUT_PULLUP);
-    pinMode(scl, OUTPUT);
-    digitalWrite(scl, HIGH);
-
-    bool bus_stuck = (digitalRead(sda) == LOW);
-    if (bus_stuck) {
-      for (int i = 0; i < 9; i++) {
-        digitalWrite(scl, LOW);
-        delayMicroseconds(5);
-        digitalWrite(scl, HIGH);
-        delayMicroseconds(5);
-        if (digitalRead(sda) == HIGH) break;  // SDA released
-      }
-      // Generate STOP condition: SDA LOW→HIGH while SCL is HIGH
-      pinMode(sda, OUTPUT);
-      digitalWrite(sda, LOW);
-      delayMicroseconds(5);
-      digitalWrite(scl, HIGH);
-      delayMicroseconds(5);
-      digitalWrite(sda, HIGH);
-      delayMicroseconds(5);
-      MESH_DEBUG_PRINTLN("I2C bus recovery performed (SDA was stuck LOW)");
-    }
-    // Release pins for Wire library
-    pinMode(sda, INPUT);
-    pinMode(scl, INPUT);
-  }
+  inhero::recoverI2cBus(PIN_BOARD_SDA, PIN_BOARD_SCL);
 
   Wire.begin();
   delay(50); // Give I2C bus time to stabilize
