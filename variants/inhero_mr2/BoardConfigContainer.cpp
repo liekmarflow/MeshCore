@@ -1417,22 +1417,29 @@ void BoardConfigContainer::syncSOCToFull() {
   // Mark as fully charged
   socStats.current_soc_percent = 100.0f;
   socStats.soc_valid = true;
-  
+
   // Update temperature derating factor immediately
+  refreshTempDerating();
+
+  MESH_DEBUG_PRINTLN("SOC: Synced to 100%% (Charging Done) - INA228 baseline reset, d=%.2f",
+                     socStats.temp_derating_factor);
+}
+
+void BoardConfigContainer::refreshTempDerating() {
+  // BME280 fallback: if NTC hasn't updated for >5 min, try BME280.
+  // If BME280 also fails, lastValidBatteryTemp keeps its previous value
+  // (default 25°C = no derating).
   const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
-  uint32_t now_sync = millis();
-  if (lastTempUpdateMs == 0 || (now_sync - lastTempUpdateMs) > 300000UL) {
+  uint32_t now = millis();
+  if (lastTempUpdateMs == 0 || (now - lastTempUpdateMs) > 300000UL) {
     float bmeTemp = readBmeTemperature();
     if (bmeTemp > -100.0f && bmeTemp < 100.0f) {
       lastValidBatteryTemp = bmeTemp;
-      lastTempUpdateMs = now_sync;
+      lastTempUpdateMs = now;
     }
   }
   socStats.temp_derating_factor = getTemperatureDerating(props, lastValidBatteryTemp);
   socStats.last_battery_temp_c = lastValidBatteryTemp;
-  
-  MESH_DEBUG_PRINTLN("SOC: Synced to 100%% (Charging Done) - INA228 baseline reset, d=%.2f",
-                     socStats.temp_derating_factor);
 }
 
 /// @brief Manually set SOC to specific percentage (e.g. after reboot with known SOC)
@@ -1470,21 +1477,11 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
   // Set SOC and mark as valid
   socStats.current_soc_percent = soc_percent;
   socStats.soc_valid = true;
-  
+
   // Update temperature derating factor immediately so telem/TTL are correct
   // without waiting for the next periodic updateBatterySOC() cycle.
-  const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
-  uint32_t now_manual = millis();
-  if (lastTempUpdateMs == 0 || (now_manual - lastTempUpdateMs) > 300000UL) {
-    float bmeTemp = readBmeTemperature();
-    if (bmeTemp > -100.0f && bmeTemp < 100.0f) {
-      lastValidBatteryTemp = bmeTemp;
-      lastTempUpdateMs = now_manual;
-    }
-  }
-  socStats.temp_derating_factor = getTemperatureDerating(props, lastValidBatteryTemp);
-  socStats.last_battery_temp_c = lastValidBatteryTemp;
-  
+  refreshTempDerating();
+
   MESH_DEBUG_PRINTLN("SOC: Manually set to %.1f%% (CHARGE=%.1fmAh, Baseline=%.1fmAh, d=%.2f)",
                      soc_percent, current_charge_mah, socStats.ina228_baseline_mah,
                      socStats.temp_derating_factor);
@@ -1878,23 +1875,8 @@ void BoardConfigContainer::updateBatterySOC() {
   //      This covers Na-Ion and LTO setups where ts_ignore=true and no NTC is connected.
   //      BME280 measures PCB/ambient temperature, not battery temperature directly,
   //      but is a reasonable proxy (typically within ±3°C in a sealed enclosure).
-  const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
-  
-  // BME280 fallback: if NTC hasn't updated for >5 min, try BME280
-  uint32_t now_derating = millis();
-  if (lastTempUpdateMs == 0 || (now_derating - lastTempUpdateMs) > 300000UL) {
-    float bmeTemp = readBmeTemperature();
-    if (bmeTemp > -100.0f && bmeTemp < 100.0f) {
-      lastValidBatteryTemp = bmeTemp;
-      lastTempUpdateMs = now_derating;
-    }
-    // If BME280 also fails, lastValidBatteryTemp keeps its previous value (default 25°C = no derating)
-  }
-  
-  float derating = getTemperatureDerating(props, lastValidBatteryTemp);
-  socStats.temp_derating_factor = derating;
-  socStats.last_battery_temp_c = lastValidBatteryTemp;
-  
+  refreshTempDerating();
+
   // Calculate SOC percentage — purely Coulomb-based, NO temperature derating
   if (socStats.capacity_mah > 0) {
     socStats.current_soc_percent = (remaining_mah / socStats.capacity_mah) * 100.0f;

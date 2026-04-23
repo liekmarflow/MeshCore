@@ -286,6 +286,10 @@ private:
   static float lastValidBatteryTemp;  // Last valid battery temperature in °C (updated by getTelemetryData() or BME280 fallback, default 25.0 = no derating)
   static uint32_t lastTempUpdateMs;   // millis() of last valid temperature update (0 = never updated)
 
+  // Refresh socStats.temp_derating_factor and last_battery_temp_c.
+  // Falls back to BME280 if NTC has not updated for >5 min.
+  static void refreshTempDerating();
+
   bool configureBaseBQ();
   bool configureChemistry(BatteryType type);
   float performTcCalibration(float actual_temp_c); ///< Internal: calibrate NTC given reference temp (called by BME auto-cal)
