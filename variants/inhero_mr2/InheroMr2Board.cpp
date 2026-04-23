@@ -1327,12 +1327,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   while (1) __WFE();
 }
 
-/// @brief Configure RV-3028 RTC countdown timer for periodic wake-up
-/// @param minutes Wake-up interval in minutes (1-4095, RV-3028 12-bit limit)
 void InheroMr2Board::configureRTCWake(uint32_t minutes) {
-#if defined(INHERO_MR2)
-  rtc_clock.setLocked(true);
-#endif
   uint16_t countdown_ticks = static_cast<uint16_t>(minutes == 0 ? LOW_VOLTAGE_SLEEP_MINUTES : minutes);
   if (countdown_ticks == 0) {
     countdown_ticks = 1;
@@ -1381,13 +1376,8 @@ void InheroMr2Board::configureRTCWake(uint32_t minutes) {
   Wire.endTransmission();
 
   MESH_DEBUG_PRINTLN("PWRMGT: RTC countdown configured (%u ticks at 1/60 Hz)", countdown_ticks);
-
-#if defined(INHERO_MR2)
-  rtc_clock.setLocked(false);
-#endif
 }
 
-/// @brief RTC interrupt handler - called when countdown timer expires
 void InheroMr2Board::rtcInterruptHandler() {
   // RTC countdown elapsed - device woke from SYSTEMOFF
   // Defer I2C work to the main loop to avoid ISR I2C collisions.

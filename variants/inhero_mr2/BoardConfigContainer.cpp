@@ -6,7 +6,6 @@
  * Board Configuration Container Implementation
  */
 #include "BoardConfigContainer.h"
-#include "GuardedRTCClock.h"
 #include "InheroMr2Board.h"
 #include "target.h"
 
@@ -26,12 +25,11 @@
 #endif
 
 // rtc_clock is defined in target.cpp
-extern GuardedRTCClock rtc_clock;
+extern AutoDiscoverRTCClock rtc_clock;
 
-// Helper function to get RTC time safely
 namespace {
   inline uint32_t getRTCTime() {
-    return ((mesh::RTCClock&)rtc_clock).getCurrentTime();
+    return rtc_clock.getCurrentTime();
   }
 
   bool isRtcPeriodicWakeConfigured(uint16_t expected_minutes);
@@ -69,8 +67,6 @@ namespace {
   }
 
   void configureRtcPeriodicWake(uint16_t minutes) {
-    rtc_clock.setLocked(true);
-
     Wire.beginTransmission(RTC_I2C_ADDR);
     Wire.write(RV3028_REG_CTRL1);
     Wire.write(0x00);  // TE=0, TD=00 (stop timer)
@@ -102,8 +98,6 @@ namespace {
     Wire.write(RV3028_REG_CTRL2);
     Wire.write(0x10);  // TIE=1
     Wire.endTransmission();
-
-    rtc_clock.setLocked(false);
   }
 
   void blinkRed(uint8_t count, uint16_t on_ms, uint16_t off_ms, bool led_enabled) {
