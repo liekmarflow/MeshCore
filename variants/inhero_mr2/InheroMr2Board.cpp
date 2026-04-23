@@ -89,10 +89,8 @@ void InheroMr2Board::begin() {
       NRF_P0->LATCH = (1UL << RTC_INT_PIN);
       Wire.end();
 
-      // Disconnect all GPIO pull-ups to prevent leakage in System Sleep.
-      // Wire.begin() set SDA/SCL to INPUT_PULLUP; if an I2C device holds
-      // the line LOW, each pull-up wastes ~250µA. Wire.end() alone does NOT
-      // disable the pull-ups on nRF52.
+      // Disconnect GPIO pull-ups before System Sleep (Wire.end() keeps SDA/SCL
+      // pull-ups active on nRF52 — each held-LOW line wastes ~250µA).
       inhero::disconnectLeakyPullups();
 
       NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
@@ -123,19 +121,14 @@ void InheroMr2Board::begin() {
 
   pinMode(PIN_VBAT_READ, INPUT);
 
-  // BQ25798 CE pin: Drive LOW on every boot so the external FET stays OFF.
-  // Rev 1.1: DMN2004TK-7 FET inverts logic — LOW on GPIO = FET off = CE released.
-  // The external CE pull-up is 100k to REGN, so CE goes HIGH and charging stays disabled only when REGN is present.
-  // configureChemistry() will drive HIGH only after successful I2C configuration with a known battery type.
+  // BQ25798 CE: drive LOW on boot so the external FET stays OFF (Rev 1.1 inverts
+  // logic via DMN2004TK-7). configureChemistry() raises it after successful I2C init.
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
   digitalWrite(BQ_CE_PIN, LOW);
 #endif
 
-  // PE4259 RF switch power enable (VDD pin 6 on PE4259)
-  // P1.05 (GPIO 37) supplies VDD to the PE4259 SPDT antenna switch on the RAK4630.
-  // DIO2 of the SX1262 controls the CTRL pin (pin 4) for TX/RX path selection.
-  // Without VDD, the RF switch cannot operate and no TX/RX is possible.
+  // PE4259 RF switch VDD (P1.05 → PE4259 pin 6). Required for TX/RX; DIO2 drives CTRL.
   pinMode(SX126X_POWER_EN, OUTPUT);
   digitalWrite(SX126X_POWER_EN, HIGH);
   delay(10); // Give PE4259 time to power up
@@ -309,11 +302,8 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("SOC: Set to 0%% (low-voltage recovery)");
   }
 
-  // Enable DC/DC converter REG1 for improved power efficiency (~1.5mA savings)
-  // REG1: VDD 3.3V → 1.3V core (DC/DC vs LDO)
-  // REG0 (DCDCEN0) is NOT needed — RAK4630 is powered from TPS62840 3.3V rail (VDD),
-  // not from VBUS (USB). REG0 only applies to the VBUS→VDD_nRF path.
-  // Done after peripheral initialization to avoid voltage glitches
+  // Enable DC/DC REG1 (VDD 3.3V → 1.3V core, ~1.5mA saving). REG0 not needed —
+  // RAK4630 is powered from TPS62840 VDD, not VBUS. Done after peripheral init.
   NRF52BoardDCDC::begin();
 
   // LEDs already initialized in boardConfig.begin()
@@ -399,10 +389,8 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
 }
 
 bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
-  // Skip the in-app BLE DFU (unstable on nRF52 in MeshCore environment) and
-  // jump directly into the Adafruit bootloader's OTA DFU mode.
-  // enterOTADfu() sets GPREGRET=0xA8, disables SoftDevice & interrupts, then resets.
-  // The bootloader handles BLE advertising and firmware transfer natively.
+  // Skip in-app BLE DFU (unstable here) and jump to the Adafruit bootloader's
+  // native OTA DFU via enterOTADfu() (sets GPREGRET=0xA8 + reset).
   MESH_DEBUG_PRINTLN("OTA: Scheduling Adafruit bootloader DFU mode...");
 
   // Read BLE MAC address from nRF52 hardware registers (no Bluefruit needed)
@@ -467,13 +455,8 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   //    No BUVL monitoring needed in sleep — RTC wakes us for voltage check.
   Ina228Driver* ina = boardConfig.getIna228Driver();
   if (ina) {
-    // Release INA228 ALERT pin before shutdown.
-    // The under-voltage alert that triggered sleep is latched (ALATCH=1) — ALERT
-    // stays LOW. RAK4630 has internal pull-up on P1.02 → 3.3V through pull-up
-    // into OD transistor = ~330µA wasted in System Sleep.
-    // Fix: 1) Disable ALATCH by writing DIAG_ALRT=0 (transparent mode + clear flags)
-    //      2) Set BUVL=0 (no threshold → no alert condition in transparent mode)
-    //      3) Then shutdown ADC
+    // Release ALERT pin: latched LOW after LV trip wastes ~330µA through the
+    // RAK4630 pull-up. Clear ALATCH + BUVL (transparent mode) before ADC shutdown.
     ina->enableAlert(false, false, false);  // DIAG_ALRT=0: ALATCH=0, clear all flags
     ina->setUnderVoltageAlert(0);           // BUVL=0: disable under-voltage comparison
     ina->shutdown();
@@ -498,11 +481,9 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
 #endif
 
-    // 5b. INA228 + BQ25798 -> minimum sleep current.
-    // Must be AFTER CE=HIGH (charge enable may re-enable BQ ADC internally).
-    // INA228 was already shut down via driver in step 2; the helper repeats the
-    // raw-I2C sequence with readback, which is harmless and adds robustness if
-    // the driver call silently failed.
+    // 5b. INA228 + BQ25798 \u2192 minimum sleep current. Must be AFTER CE=HIGH
+    // (charge enable may re-enable BQ ADC). Repeats INA228 shutdown via raw I2C
+    // with readback as a safety net if the driver call in step 2 silently failed.
     inhero::prepareIcsForSystemOff();
 
     // 5c. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)

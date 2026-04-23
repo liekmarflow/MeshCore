@@ -431,8 +431,7 @@ bool BoardConfigContainer::probeRtc() {
   Wire.beginTransmission(0x52);
   if (Wire.endTransmission() != 0) return false;
 
-  // User-RAM 0x1F write/readback with two patterns (catches stuck bits).
-  // Save original first, restore afterwards — keeps user data intact.
+  // User-RAM 0x1F write/readback (two patterns, save/restore original).
   Wire.beginTransmission(0x52);
   Wire.write(0x1F);
   if (Wire.endTransmission(false) != 0) return false;
@@ -956,10 +955,8 @@ bool BoardConfigContainer::configureBaseBQ() {
   bq.setTsCool(BQ25798_TS_COOL_5C);
   bq.setTsWarm(BQ25798_TS_WARM_55C);  // 37.7% REGN → ~52°C with Inhero divider (default 45°C was ~42°C)
 
-  // JEITA WARM zone: keep VREG unchanged (no voltage reduction).
-  // Default JEITA_VSET = VREG-400mV causes VBAT_OVP for LiFePO4 (3.5V - 0.4V = 3.1V, OVP at 3.22V)
-  // and is unnecessarily conservative for Li-Ion (4.1V - 0.4V = 3.7V).
-  // Both chemistries use safe charge voltages (4.1V / 3.5V), no reduction needed.
+  // JEITA WARM: keep VREG unchanged. Default -400mV triggers VBAT_OVP on LiFePO4
+  // and is unnecessarily conservative for Li-Ion (4.1V / 3.5V are already safe).
   bq.setJeitaVSet(BQ25798_JEITA_VSET_UNCHANGED);
 
   // Disable auto battery discharge during VBAT_OVP (EN_AUTO_IBATDIS).
@@ -1326,10 +1323,7 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   return true;
 }
 
-// Get Time To Live in hours
-// Based on the 7-day rolling average of daily net energy deficit (avg_7day_daily_net_mah),
-//          calculated from hourly INA228 Coulomb-counter samples in a 168h ring buffer.
-//          Formula: TTL = (current_soc% * capacity_mah) / abs(avg_7day_daily_net_mah) * 24h
+// Time To Live in hours (see calculateTTL() for the full formula/model).
 uint16_t BoardConfigContainer::getTTL_Hours() const {
   return socStats.ttl_hours;
 }
@@ -1635,11 +1629,8 @@ float BoardConfigContainer::readBmeTemperature() {
 #endif
 }
 
-// Arm INA228 low-voltage alert for current battery chemistry
-// Programs INA228 BUVL register with lowv_sleep_mv threshold.
-//          Alert fires when VBAT drops below this level → ISR → volatile flag → tickPeriodic() → System Sleep.
-//          Always active when battery type is configured (no CLI toggle).
-//          BAT_UNKNOWN: alert disabled (threshold = 0).
+// Arm INA228 BUVL alert at the chemistry's lowv_sleep_mv threshold.
+// Fires → ISR → flag → tickPeriodic() → System Sleep. BAT_UNKNOWN = disabled.
 void BoardConfigContainer::armLowVoltageAlert() {
   if (!ina228DriverInstance) {
     return;
@@ -1787,12 +1778,8 @@ void BoardConfigContainer::updateBatterySOC() {
   // Derating only affects TTL calculation (extractable capacity) and is shown
   // separately in CLI output as "derated SOC%".
 
-  // Temperature source priority:
-  //   1. NTC via BQ25798 TS ADC (cached in lastValidBatteryTemp by getTelemetryData())
-  //   2. BME280 fallback — used when NTC has not provided a reading for >5 minutes.
-  //      This covers Na-Ion and LTO setups where ts_ignore=true and no NTC is connected.
-  //      BME280 measures PCB/ambient temperature, not battery temperature directly,
-  //      but is a reasonable proxy (typically within ±3°C in a sealed enclosure).
+  // Temperature source priority: 1) NTC via BQ25798 TS ADC (cached),
+  // 2) BME280 fallback after >5min of no NTC (covers ts_ignore chemistries).
   refreshTempDerating();
 
   // Calculate SOC percentage — purely Coulomb-based, NO temperature derating
@@ -2096,20 +2083,9 @@ const BoardConfigContainer::BatteryProperties* BoardConfigContainer::getBatteryP
   return nullptr;  // Should never happen if battery_properties is complete
 }
 
-// Temperature derating factor for a battery chemistry
-// At cold temperatures, the internal resistance of a battery increases,
-//          reducing the extractable capacity — even though the stored charge
-//          (measured by the coulomb counter) remains unchanged. This function
-//          returns a factor 0.0–1.0 that scales the nominal capacity to reflect
-//          the actually available (extractable) capacity.
-
-//          Model:  f(T) = 1.0                                  for T >= T_ref
-//                  f(T) = max(f_min, 1.0 - k * (T_ref - T))   for T <  T_ref
-
-//          The linear model is a conservative approximation sufficient for SOC/TTL
-//          display purposes. Real curves are slightly concave (capacity drops faster
-//          at extreme cold), but the f_min clamp prevents unrealistic values.
-
+// Temperature derating factor (0..1) — extractable-capacity scaling at cold temps.
+// Linear model: f(T)=1 for T>=T_ref, else max(f_min, 1 - k*(T_ref-T)). Used only
+// for TTL/display, never for SOC% (SOC is purely Coulomb-based).
 float BoardConfigContainer::getTemperatureDerating(const BatteryProperties* props, float temp_c) {
   if (!props) return 1.0f;
   if (temp_c >= props->temp_ref_c) return 1.0f;
