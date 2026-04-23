@@ -17,7 +17,8 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <MeshCore.h>
-#include <nrf_wdt.h>
+
+#include "helpers/Watchdog.h"
 #include <nrf_soc.h>  // For NRF_POWER (GPREGRET2)
 
 #if ENV_INCLUDE_BME280
@@ -72,59 +73,13 @@ uint32_t BoardConfigContainer::lastTempUpdateMs = 0;  // 0 = never updated
 // Rev 1.1: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → volatile flag → tickPeriodic().
 // No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
 
-// Watchdog state
-static bool wdt_enabled = false;
-
 // PG-Stuck recovery: timestamp of last HIZ toggle (0 = never)
 static uint32_t lastPgStuckToggleTime = 0;
 #define PG_STUCK_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes between toggles
 
-/// @brief Initialize and start the hardware watchdog timer
-/// @details Configures nRF52 WDT with 600 second timeout for OTA compatibility. Only enabled in release builds.
-///          Watchdog continues running during sleep and pauses during debug.
-void BoardConfigContainer::setupWatchdog() {
-  #ifndef DEBUG_MODE  // Only activate in release builds
-    NRF_WDT->CONFIG = (WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos) |     // Run during sleep
-                      (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos);     // Pause during debug
-    NRF_WDT->CRV = 32768 * 600;  // 600 seconds (10 min) @ 32.768 kHz - allows OTA updates
-    NRF_WDT->RREN = WDT_RREN_RR0_Enabled << WDT_RREN_RR0_Pos;  // Enable reload register 0
-    NRF_WDT->TASKS_START = 1;    // Start watchdog
-    wdt_enabled = true;
-    MESH_DEBUG_PRINTLN("Watchdog enabled: 600s timeout");
-    
-    // Visual feedback: blink LED 3 times to indicate WDT is active
-    #ifdef LED_BLUE
-      if (leds_enabled) {
-        for (int i = 0; i < 3; i++) {
-          digitalWrite(LED_BLUE, HIGH);
-          delay(100);
-          digitalWrite(LED_BLUE, LOW);
-          delay(100);
-        }
-      }
-    #endif
-  #else
-    MESH_DEBUG_PRINTLN("Watchdog disabled (DEBUG_MODE)");
-  #endif
-}
-
-/// @brief Feed the watchdog timer to prevent system reset
-/// @details Should be called regularly from main loop. No-op in debug builds.
-void BoardConfigContainer::feedWatchdog() {
-  #ifndef DEBUG_MODE
-    if (wdt_enabled) {
-      NRF_WDT->RR[0] = WDT_RR_RR_Reload;  // Reload watchdog
-    }
-  #endif
-}
-
-/// @brief Disable the watchdog timer (for OTA updates)
-/// @details Note: nRF52 WDT cannot be stopped once started. This only sets flag to stop feeding.
-void BoardConfigContainer::disableWatchdog() {
-  #ifndef DEBUG_MODE
-    wdt_enabled = false;  // Stop feeding the watchdog
-  #endif
-}
+void BoardConfigContainer::setupWatchdog() { inhero::setupWatchdog(leds_enabled); }
+void BoardConfigContainer::feedWatchdog()  { inhero::feedWatchdog(); }
+void BoardConfigContainer::disableWatchdog() { inhero::disableWatchdog(); }
 
 /// @brief Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
 /// @details BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
