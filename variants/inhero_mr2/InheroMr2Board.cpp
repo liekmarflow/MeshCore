@@ -13,6 +13,7 @@
 #include "helpers/CliCommands.h"
 #include "helpers/I2cBusRecovery.h"
 #include "helpers/Rv3028Wake.h"
+#include "helpers/UsbAutoManagement.h"
 #include "target.h"
 
 #include <Arduino.h>
@@ -23,33 +24,6 @@
 static BoardConfigContainer boardConfig;
 volatile bool InheroMr2Board::rtc_irq_pending = false;
 volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
-
-// USB power auto-management
-static bool usb_active = true;  // USB starts enabled (Serial.begin in main)
-
-static bool isUSBPowered() {
-  return (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk) != 0;
-}
-
-static void disableUSB() {
-  if (usb_active) {
-    Serial.end();
-    NRF_USBD->ENABLE = 0;
-    usb_active = false;
-    BoardConfigContainer::setUsbConnected(false);
-    MESH_DEBUG_PRINTLN("USB disabled");
-  }
-}
-
-static void enableUSB() {
-  if (!usb_active) {
-    NRF_USBD->ENABLE = 1;
-    Serial.begin(115200);
-    usb_active = true;
-    BoardConfigContainer::setUsbConnected(true);
-    MESH_DEBUG_PRINTLN("USB enabled");
-  }
-}
 
 // ===== Public Methods =====
 
@@ -411,21 +385,13 @@ void InheroMr2Board::begin() {
   BoardConfigContainer::setupWatchdog();
 
   // Set initial USB IINDPM limit based on VBUS state at boot
-  if (isUSBPowered()) {
+  if (inhero::isUsbPowered()) {
     BoardConfigContainer::setUsbConnected(true);
   }
 }
 
 void InheroMr2Board::tick() {
-  // USB auto-management: enable/disable USB peripheral based on VBUS presence.
-  // After Serial.end(), Serial.available() returns 0 and Serial.read() returns -1,
-  // so no serial guard is needed in the main loop.
-  if (!usb_active && isUSBPowered()) {
-    enableUSB();
-  }
-  if (usb_active && !isUSBPowered()) {
-    disableUSB();
-  }
+  inhero::serviceUsbAutoManagement();
 
   // Deferred OTA DFU reset: wait for CLI reply to be sent, then enter bootloader
   if (ota_dfu_reset_at != 0 && millis() >= ota_dfu_reset_at) {
