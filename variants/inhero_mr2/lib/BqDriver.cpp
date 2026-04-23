@@ -567,3 +567,32 @@ uint8_t BqDriver::readReg(uint8_t reg) {
   }
   return buffer[0];
 }
+
+// Static, raw-Wire helpers — safe pre-begin().
+void BqDriver::maskAllInterrupts(TwoWire& wire, uint8_t addr) {
+  static const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
+  for (uint8_t r : mask_regs) {
+    wire.beginTransmission(addr);
+    wire.write(r);
+    wire.write(0xFF);
+    wire.endTransmission();
+  }
+}
+
+void BqDriver::clearInterruptFlags(TwoWire& wire, uint8_t addr) {
+  static const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
+  for (uint8_t r : flag_regs) {
+    wire.beginTransmission(addr);
+    wire.write(r);
+    wire.endTransmission(false);
+    wire.requestFrom(addr, (uint8_t)1);
+    while (wire.available()) wire.read();
+  }
+}
+
+void BqDriver::disableAdc(TwoWire& wire, uint8_t addr) {
+  wire.beginTransmission(addr);
+  wire.write(0x2E);  // ADC_CONTROL
+  wire.write(0x00);
+  wire.endTransmission();
+}

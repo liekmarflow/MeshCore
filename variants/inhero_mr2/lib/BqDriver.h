@@ -196,6 +196,23 @@ public:
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
 
+  // Low-level BQ25798 housekeeping via raw TwoWire. These are safe to call
+  // before begin() — used on the low-voltage wake path where the driver
+  // instance has not been constructed yet.
+
+  // Mask every charger- and fault-interrupt source (MASK regs 0x28..0x2D) so
+  // the INT line stays HIGH when INT is not wired to an MCU IRQ. Otherwise a
+  // pull-up on INT wastes current (~254µA with RAK4630 INPUT_PULLUP).
+  static void maskAllInterrupts(TwoWire& wire = Wire, uint8_t addr = 0x6B);
+
+  // Read flag regs 0x22..0x27 (read-to-clear) to de-assert the INT line.
+  // Status regs 0x1B/0x20/0x21 must NOT be touched here — they are read-only.
+  static void clearInterruptFlags(TwoWire& wire = Wire, uint8_t addr = 0x6B);
+
+  // Disable the BQ25798 ADC (saves ~500µA continuous draw). Used when entering
+  // System Sleep; re-enabled on wake by the driver's normal startup path.
+  static void disableAdc(TwoWire& wire = Wire, uint8_t addr = 0x6B);
+
   // ADC status/result accessors
   bool getADCEnabled();
   uint16_t getVBUS();

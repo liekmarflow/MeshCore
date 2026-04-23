@@ -8,6 +8,7 @@
 #include <Wire.h>
 
 #include "../InheroMr2Board.h"
+#include "../lib/BqDriver.h"
 
 namespace inhero {
 
@@ -52,29 +53,12 @@ void prepareIcsForSystemOff() {
   Wire.write(0x00);
   Wire.endTransmission();
 
-  // BQ25798 -> disable ADC (saves ~500uA continuous draw)
-  Wire.beginTransmission(BQ25798_I2C_ADDR);
-  Wire.write(0x2E);  // ADC_CONTROL
-  Wire.write(0x00);
-  Wire.endTransmission();
-
-  // BQ25798 -> mask all interrupts + clear flags so INT pin de-asserts.
-  // Otherwise any pending flag holds INT LOW and INPUT_PULLUP wastes ~254uA.
-  static const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
-  for (uint8_t r : mask_regs) {
-    Wire.beginTransmission(BQ25798_I2C_ADDR);
-    Wire.write(r);
-    Wire.write(0xFF);
-    Wire.endTransmission();
-  }
-  static const uint8_t flag_regs[] = {0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
-  for (uint8_t r : flag_regs) {
-    Wire.beginTransmission(BQ25798_I2C_ADDR);
-    Wire.write(r);
-    Wire.endTransmission(false);
-    Wire.requestFrom((uint8_t)BQ25798_I2C_ADDR, (uint8_t)1);
-    while (Wire.available()) Wire.read();
-  }
+  // BQ25798 -> low-power housekeeping. These static helpers use raw Wire and
+  // work even when the driver instance has not been constructed yet (LV-Wake).
+  BqDriver::disableAdc();           // ~500uA saving
+  BqDriver::maskAllInterrupts();    // prevent INT holding LOW
+  BqDriver::clearInterruptFlags();  // de-assert latched INT
 }
 
 } // namespace inhero
+
