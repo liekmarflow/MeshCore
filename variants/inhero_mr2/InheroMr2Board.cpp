@@ -14,6 +14,7 @@
 #include "helpers/CliCommands.h"
 #include "helpers/I2cBusRecovery.h"
 #include "helpers/Rv3028Wake.h"
+#include "helpers/SystemSleepGpio.h"
 #include "helpers/UsbAutoManagement.h"
 #include "target.h"
 
@@ -81,7 +82,7 @@ void InheroMr2Board::begin() {
       // SX1262: Send SetSleep command AND latch NSS HIGH.
       // After System-ON reset, SX1262 may be in Standby RC (~600µA).
       // Both are needed: SetSleep puts it to Cold Sleep, NSS latch prevents re-wake.
-      prepareRadioForSystemOff(false);
+      inhero::prepareRadioForSystemOff(false);
 
       configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
       NRF_P0->LATCH = (1UL << RTC_INT_PIN);
@@ -91,7 +92,7 @@ void InheroMr2Board::begin() {
       // Wire.begin() set SDA/SCL to INPUT_PULLUP; if an I2C device holds
       // the line LOW, each pull-up wastes ~250µA. Wire.end() alone does NOT
       // disable the pull-ups on nRF52.
-      disconnectLeakyPullups();
+      inhero::disconnectLeakyPullups();
 
       NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
       sd_power_system_off();
@@ -209,7 +210,7 @@ void InheroMr2Board::begin() {
         MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", LOW_VOLTAGE_SLEEP_MINUTES);
 
         delay(100);
-        prepareRadioForSystemOff(false);
+        inhero::prepareRadioForSystemOff(false);
 
         // INA228 → Shutdown mode with readback verification
         for (int retry = 0; retry < 3; retry++) {
@@ -280,7 +281,7 @@ void InheroMr2Board::begin() {
         NRF_P0->LATCH = (1UL << RTC_INT_PIN);
 
         Wire.end();
-        disconnectLeakyPullups();
+        inhero::disconnectLeakyPullups();
         NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
 
         sd_power_system_off();
@@ -498,155 +499,6 @@ uint16_t InheroMr2Board::getLowVoltageWakeThreshold() {
   return BoardConfigContainer::getLowVoltageWakeThreshold(chemType);
 }
 
-/// @brief Put SX1262 radio and SPI pins into lowest power state for System Sleep.
-/// Must be called before ANY sd_power_system_off() call — both from initiateShutdown()
-/// and Early Boot quick-shutdown paths.
-///
-/// @param radioInitialized true if SPI + radio have been initialized (normal shutdown),
-///                         false if called from Early Boot before SPI.begin() / radio.begin().
-///
-/// CRITICAL: Do NOT call SPI.end() here! SPI.end() runs nrf_gpio_cfg_default() which
-/// briefly puts NSS/SCK into "disconnected input" (floating). The SX1262's internal 48kΩ
-/// pull-up isn't fast enough — floating SCK triggers a wake from Cold Sleep to Standby RC
-/// (~600µA). Once awake, only an explicit SPI SetSleep command can put it back — but we've
-/// already released SPI.
-///
-/// Instead, pre-configure the GPIO PORT registers (OUTSET/PIN_CNF) while SPIM is still
-/// active. These are "shadow" values that take effect when SPIM is disabled. System Sleep
-/// stops all peripherals including SPIM, and the GPIO PORT seamlessly takes over — no
-/// glitch, no floating pins, SX1262 stays in Cold Sleep (~160nA).
-void InheroMr2Board::prepareRadioForSystemOff(bool radioInitialized) {
-  if (radioInitialized) {
-    // Put SX1262 into Cold Sleep via SPI while SPIM is still active
-    radio_driver.powerOff();  // calls radio.sleep(false) — cold sleep, lowest power
-    delay(10);
-  } else {
-    // Early Boot: SPI/RadioLib not initialized. The SX1262 may be in:
-    //   a) POR Standby RC (~600µA) — first power-on or VDD glitch
-    //   b) Cold Sleep (~160nA) — if previous shutdown latched pins correctly
-    // Case (b) is fine, case (a) wastes ~600µA. We can't tell which, so always
-    // send SetSleep to ensure Cold Sleep.
-    //
-    // Use bit-banged SPI — completely independent of Arduino SPIClass and SPIM
-    // peripheral configuration. variant.h defines SPI pins as WB header pins
-    // (P0.03/P0.29/P0.30) which are NOT the LoRa radio pins (P1.11/P1.12/P1.13).
-    // Bit-bang directly on P_LORA_* pins avoids all BSP/SPIM conflicts.
-
-    // Configure SPI GPIOs
-    pinMode(P_LORA_NSS, OUTPUT);
-    digitalWrite(P_LORA_NSS, HIGH);
-    pinMode(P_LORA_SCLK, OUTPUT);
-    digitalWrite(P_LORA_SCLK, LOW);   // CPOL=0: idle LOW
-    pinMode(P_LORA_MOSI, OUTPUT);
-    digitalWrite(P_LORA_MOSI, LOW);
-    pinMode(P_LORA_BUSY, INPUT);
-
-    // SX1262 Wake-Up + SetSleep with correct NSS double-cycle.
-    //
-    // SX1262 Datasheet §13.1.1: "When exiting sleep mode using the falling
-    // edge of NSS pin, the SPI command is NOT interpreted by the transceiver
-    // so a SUBSEQUENT falling edge of NSS is therefore necessary."
-    //
-    // Phase 1: Wake-up cycle (NSS LOW → wait BUSY LOW → NSS HIGH)
-    // If SX1262 is in Cold Sleep: NSS LOW wakes it, BUSY goes HIGH (~3.5ms),
-    //   then LOW when ready. We wait for BUSY LOW.
-    // If SX1262 is in Standby RC: NSS LOW does nothing, BUSY already LOW.
-    // Either way, after this phase SX1262 is in Standby RC and ready.
-    digitalWrite(P_LORA_NSS, LOW);
-    delayMicroseconds(2);
-    // Wait for BUSY LOW — SX1262 ready after wake-up or already awake
-    uint32_t t0 = millis();
-    while (digitalRead(P_LORA_BUSY) == HIGH && (millis() - t0) < 10) {
-      delayMicroseconds(100);
-    }
-    digitalWrite(P_LORA_NSS, HIGH);  // End wake-up cycle
-    delayMicroseconds(10);           // Minimum NSS HIGH time
-
-    // Phase 2: Actual SetSleep command on fresh NSS falling edge
-    // Opcode 0x84, config 0x00 = Cold Start (no config retention, TCXO off)
-    // SPI Mode 0 (CPOL=0, CPHA=0): data sampled on rising edge, MSB first
-    static const uint8_t cmd[2] = { 0x84, 0x00 };
-
-    digitalWrite(P_LORA_NSS, LOW);
-    delayMicroseconds(2);  // NSS setup time
-
-    for (int b = 0; b < 2; b++) {
-      uint8_t byte = cmd[b];
-      for (int i = 7; i >= 0; i--) {
-        digitalWrite(P_LORA_MOSI, (byte >> i) & 1);
-        delayMicroseconds(1);
-        digitalWrite(P_LORA_SCLK, HIGH);
-        delayMicroseconds(1);
-        digitalWrite(P_LORA_SCLK, LOW);
-        delayMicroseconds(1);
-      }
-    }
-
-    digitalWrite(P_LORA_MOSI, LOW);
-    delayMicroseconds(1);
-    digitalWrite(P_LORA_NSS, HIGH);
-
-    delay(1);  // Allow SX1262 to enter Cold Sleep (~500ns typ)
-  }
-
-  // Power off PE4259 RF switch (cut VDD to antenna switch)
-  digitalWrite(SX126X_POWER_EN, LOW);
-
-  // Latch ALL SX1262 SPI input pins to defined states during System OFF.
-  // If SCLK/MOSI float (INPUT_DISCONNECT → ~VDD/2), the SX1262 CMOS input
-  // buffers draw shoot-through current (hundreds of µA).
-  // NSS=HIGH (keep Cold Sleep), SCLK=LOW (CPOL=0 idle), MOSI=LOW (idle).
-  uint32_t pin_cfg_out = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos) |
-                          (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
-                          (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
-                          (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
-                          (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
-  NRF_P1->OUTSET = (1UL << 10);                         // NSS  (P1.10) = HIGH
-  NRF_P1->OUTCLR = (1UL << 11) | (1UL << 12);          // SCLK (P1.11) = LOW, MOSI (P1.12) = LOW
-  NRF_P1->PIN_CNF[10] = pin_cfg_out;  // NSS
-  NRF_P1->PIN_CNF[11] = pin_cfg_out;  // SCLK
-  NRF_P1->PIN_CNF[12] = pin_cfg_out;  // MOSI
-}
-
-/// @brief Set ALL GPIO pins to INPUT_DISCONNECT except the 3 pins needed during System Sleep.
-/// Must be called AFTER Wire.end(), AFTER prepareRadioForSystemOff(), and AFTER all I2C/SPI.
-///
-/// Comprehensive approach: Instead of chasing individual leaky pins, reset ALL pins to the
-/// power-on-reset default (Input, Disconnected, No pull). This eliminates ALL possible
-/// current leakage through GPIO — pull-ups driving OD devices LOW, OUTPUT pins driving
-/// LEDs/loads, etc.
-///
-/// CRITICAL: Adafruit BSP init() runs NRF_P0->OUTSET = NRF_P1->OUTSET = 0xFFFFFFFF on
-/// every boot BEFORE our code. Any pin left as OUTPUT from the previous System Sleep cycle
-/// gets its output latch set HIGH. For LEDs (P1.03, P1.04) this means LEDs turn ON.
-/// For CE (P0.04) this means charge enable pulse. By setting unused pins to INPUT_DISCONNECT,
-/// DIR=Input prevents the BSP OUTSET from causing physical pin changes on the next boot.
-///
-/// Only 2 pins are preserved:
-///   P0.04  (BQ_CE_PIN)   — OUTPUT HIGH: solar charging active during sleep
-///   P0.17  (RTC_INT_PIN) — INPUT_PULLUP + SENSE_Low: System Sleep wake source
-/// NSS (P1.10) has internal pull-up inside RAK4630 — no external latch needed.
-void InheroMr2Board::disconnectLeakyPullups() {
-  uint32_t pin_cfg_discon = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
-                            (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
-                            (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
-                            (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
-                            (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
-
-  // P0: pins 0–31, skip P0.04 (CE) and P0.17 (RTC INT)
-  for (uint8_t pin = 0; pin < 32; pin++) {
-    if (pin == 4 || pin == 17) continue;  // BQ_CE_PIN, RTC_INT_PIN
-    NRF_P0->PIN_CNF[pin] = pin_cfg_discon;
-  }
-
-  // P1: pins 0–15, skip SX1262 SPI pins latched by prepareRadioForSystemOff()
-  // NSS (P1.10)=HIGH, SCLK (P1.11)=LOW, MOSI (P1.12)=LOW
-  for (uint8_t pin = 0; pin < 16; pin++) {
-    if (pin == 10 || pin == 11 || pin == 12) continue;  // NSS, SCLK, MOSI
-    NRF_P1->PIN_CNF[pin] = pin_cfg_discon;
-  }
-}
-
 /// @brief Initiate controlled shutdown with filesystem protection (Rev 1.1)
 /// @param reason Shutdown reason code (stored in GPREGRET2 for next boot)
 ///
@@ -679,7 +531,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   }
 
   // 3. SX1262 sleep + SPI cleanup (prevents ~4mA leakage in System Sleep)
-  prepareRadioForSystemOff();
+  inhero::prepareRadioForSystemOff();
 
   // 4. LEDs off before sleep
   digitalWrite(PIN_LED1, LOW);
@@ -747,7 +599,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     Wire.end();
 
     // 9. Disconnect all GPIO pull-ups on OD/I2C pins to prevent leakage
-    disconnectLeakyPullups();
+    inhero::disconnectLeakyPullups();
 
     // 10. Store shutdown reason for Early Boot decision
     NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason;
@@ -763,7 +615,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 
   // Non-low-voltage shutdown (user request, thermal): use System OFF
   Wire.end();
-  disconnectLeakyPullups();
+  inhero::disconnectLeakyPullups();
   NRF_POWER->GPREGRET2 = reason;
 
   MESH_DEBUG_PRINTLN("PWRMGT: Entering SYSTEMOFF");

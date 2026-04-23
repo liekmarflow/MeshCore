@@ -62,13 +62,6 @@ public:
 
   static void rtcInterruptHandler();
 
-  // Must be called before sd_power_system_off() to prevent ~4mA SX1262 leakage.
-  // radioInitialized=false in Early Boot (before SPI.begin), true after full init.
-  static void prepareRadioForSystemOff(bool radioInitialized = true);
-
-  // Must be called AFTER Wire.end() and before sd_power_system_off().
-  static void disconnectLeakyPullups();
-
   const char *getManufacturerName() const override { return "Inhero MR2"; }
   void reboot() override { NVIC_SystemReset(); }
 
