@@ -8,6 +8,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - Either use the 3-pin battery connector with TS/NTC, or close the onboard NTC solder bridge on the back side.
 - Firmware NTC type: NCP15XH103F03RC (10k @ 25C, Beta 3380).
 - Purpose: The charger uses the TS pin for JEITA/frost logic.
+- → [FAQ #2 — Battery packs without NTC](FAQ.md#2-can-i-use-battery-packs-without-a-built-in-ntc)
 
 ## 2) Connect Antennas
 - Never operate without an antenna — risk of damage to the RF frontend.
@@ -34,17 +35,20 @@ This guide walks you through commissioning and the most important CLI commands.
   - or set board.bat lto2s
   - or set board.bat naion1s
 - Defines charge parameters and low-voltage thresholds.
+- → [FAQ #1](FAQ.md#1-which-battery-chemistry-should-i-choose) | [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Which battery chemistry should I choose?
 
 ## 7) Set Battery Capacity
 - Command: set board.batcap <mAh>
 - Example: set board.batcap 10000
 - Important for accurate SOC calculation.
+- → [FAQ #4 — What mAh value?](FAQ.md#4-what-mah-value-should-i-enter-for-set-boardbatcap)
 
 ## 8) Set Maximum Charge Current
 - Command: set board.imax <mA>
 - Firmware range: 50 to 1500 mA (BQ25798 minimum: 50mA).
 - Choose to match your solar setup so currents fit the PG check.
 - Rule of thumb: panel power / panel voltage * 1.2
+- → [FAQ #5 — Why set imax?](FAQ.md#5-why-is-it-important-to-set-the-maximum-charge-current-with-set-boardimax)
 
 ## 9) Set Frost Charge Current Reduction
 - Command: set board.fmax <0%|20%|40%|100%>
@@ -56,6 +60,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - Below -5°C (T-Cold): Charging always completely blocked by JEITA.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
 - Note: For LTO and Na-Ion, JEITA is disabled (fmax has no effect, charges even in frost).
+- → [FAQ #6 — What does fmax control?](FAQ.md#6-what-does-set-boardfmax-control)
 
 ## 10) Enable MPPT
 - Command: set board.mppt <0|1>
@@ -65,9 +70,13 @@ This guide walks you through commissioning and the most important CLI commands.
 ## 11) Enable/Disable LEDs
 - Command: set board.leds <on|off> or set board.leds <1|0>
 - Controls heartbeat LED and BQ status LED (boot LEDs remain active).
+- → [FAQ #17 — What do the LEDs mean?](FAQ.md#17-what-do-the-leds-mean)
 
 ## 12) Fully Charge Battery (SOC Sync)
 - Fully charge the battery once via USB so the SOC synchronizes cleanly.
+- → [FAQ #11 — SOC shows 0% or N/A?](FAQ.md#11-why-does-the-soc-show-0-or-na)
+
+> **Cold weather note:** SOC% is purely Coulomb-based and does not change with temperature. However, `get board.telem` shows both the stored and extractable capacity when it's cold: `SOC:95.0% (78%)`. The firmware uses a Trapped Charge model — at low SOC and cold temperatures, the extractable value drops steeply (the bottom of the discharge curve is "locked"). See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work) for details.
 
 ## Additional Notes (Practical)
 - After setting the battery chemistry, a quick check with `get board.bat` confirms the setting was saved.
@@ -119,6 +128,8 @@ Note: `set board.fmax` has no effect on LTO and Na-Ion (JEITA disabled).
 - For 1W panels, a battery capacity of >7Ah is recommended.
 - This applies only with south-facing, vertical mounting, and an unshaded location.
 - In worse solar conditions, either use 2W or increase battery capacity for "winter survival".
+
+→ [FAQ #8 — Which solar panels?](FAQ.md#8-which-solar-panels-can-i-connect)
 
 ## USB Charging
 - The board can also be charged via USB-C (5V).
@@ -182,6 +193,7 @@ get board.conf
 - `get board.selftest` - I²C hardware probe (`INA:OK BQ:OK RTC:OK BME:OK`). RTC includes a write/readback verify (state `WR_FAIL` on mismatch).
 - `get board.conf` - Summary of all configs (B, F, M, I, Vco, V0).
 - `get board.tccal` - NTC temperature calibration offset in °C (0.00 = default).
+  - → [FAQ #12 — When should I run tccal?](FAQ.md#12-when-should-i-run-set-boardtccal)
 
 ---
 
@@ -190,5 +202,7 @@ get board.conf
 - [README.md](README.md) — Overview, feature matrix and diagnostics
 - [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
+- [FAQ.md](FAQ.md) — Frequently asked questions
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

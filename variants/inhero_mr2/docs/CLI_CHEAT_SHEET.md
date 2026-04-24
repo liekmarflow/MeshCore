@@ -5,6 +5,8 @@
 All board-specific CLI commands at a glance.
 Prefix is always `board.` — i.e. `get board.<cmd>` or `set board.<cmd> <value>`.
 
+See [FAQ.md](FAQ.md) for explanations of key parameters (`imax`, `fmax`, `batcap`) and [DATASHEET.md](DATASHEET.md#supported-battery-chemistries) for chemistry details.
+
 ---
 
 ## Setters (Change Configuration)
@@ -18,6 +20,7 @@ set board.bat naion1s          # Na-Ion 1S (3.1V nominal)
 set board.bat none             # No battery / unknown (charging disabled)
 
 # Battery capacity (100–100000 mAh)
+# Rule of thumb: 90% of nominal capacity (see FAQ #4)
 set board.batcap 10000
 
 # Maximum charge current (50–1500 mA)
@@ -46,6 +49,8 @@ set board.soc 85.0
 
 ```bash
 # NTC temperature calibration
+# Best practice: run in the early morning before sunrise,
+# when battery temperature has equalized with ambient (see FAQ #12).
 set board.tccal                # Auto-calibration via BME280
 set board.tccal reset          # Reset offset to 0.00
 ```
@@ -183,4 +188,6 @@ get board.cinfo
 - [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
+- [FAQ.md](FAQ.md) — Frequently asked questions
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

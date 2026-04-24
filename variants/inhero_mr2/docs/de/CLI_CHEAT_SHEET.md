@@ -5,6 +5,8 @@
 Alle board-spezifischen CLI-Befehle auf einen Blick.
 Präfix ist immer `board.` – also `get board.<cmd>` bzw. `set board.<cmd> <wert>`.
 
+Siehe [FAQ.md](FAQ.md) für Erläuterungen der wichtigsten Parameter (`imax`, `fmax`, `batcap`) und [DATASHEET.md](DATASHEET.md#unterstützte-akkuchemien) für Chemie-Details.
+
 ---
 
 ## Setter (Konfiguration ändern)
@@ -18,6 +20,7 @@ set board.bat naion1s          # Na-Ion 1S (3.1V nominal)
 set board.bat none             # Kein Akku / unbekannt (Laden deaktiviert)
 
 # Akkukapazität (100–100000 mAh)
+# Faustregel: 90% der Nennkapazität (siehe FAQ #4)
 set board.batcap 10000
 
 # Maximaler Ladestrom (50–1500 mA)
@@ -46,6 +49,8 @@ set board.soc 85.0
 
 ```bash
 # NTC-Temperatur-Kalibrierung
+# Best Practice: Am frühen Morgen vor Sonnenaufgang ausführen,
+# wenn sich die Akkutemperatur an die Umgebung angeglichen hat (siehe FAQ #12).
 set board.tccal                # Auto-Kalibrierung via BME280
 set board.tccal reset          # Offset auf 0.00 zurücksetzen
 ```
@@ -183,4 +188,6 @@ get board.cinfo
 - [DATASHEET.md](DATASHEET.md) — Hardware-Spezifikationen und Pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
 - [QUICK_START.md](QUICK_START.md) — Schnellstart für Inbetriebnahme und CLI-Setup
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Akkuchemie-Vergleich und Einsatzempfehlungen
+- [FAQ.md](FAQ.md) — Häufig gestellte Fragen
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation

@@ -22,7 +22,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Watchdog Timer (WDT)** | nRF52840 hardware watchdog. Automatically reboots the board if the firmware hangs – essential for unattended long-term operation. |
 | **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled System Sleep with RTC wake. Solar charging remains active during sleep (CE pin latched). |
 | **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
-| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~5–6 °C in cold range, ~2–3 °C in warm/hot range). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see README for details. |
+| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~5–6 °C in cold range, ~2–3 °C in warm/hot range). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see [README.md — JEITA](README.md#jeita-temperature-zone-configuration) for details. **Note:** JEITA thresholds are evaluated by the BQ25798 directly in hardware. The `set board.tccal` calibration corrects only the CLI/telemetry temperature readout and does not affect JEITA behavior — see [FAQ #12](FAQ.md#12-when-should-i-run-set-boardtccal). |
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has **no hardware reverse polarity protection** on the battery or solar input. Connecting a battery or solar panel with reversed polarity will cause **immediate, irreversible damage** to the board. Always double-check the polarity before connecting any power source.
 
@@ -48,7 +48,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Charger** | BQ25798 (MPPT, JEITA) |
 | **Max. Charge Current** | 50 – 1500 mA (configurable) |
 | **Power Monitor** | INA228 (Coulomb Counter, ALERT) |
-| **RTC** | RV-3028-C7 (time base / wake-up timer) |
+| **RTC** | RV-3028-C7 (time base / wake-up timer). See [FAQ #23](FAQ.md#23-why-does-the-repeater-board-need-a-correct-time) |
 | **Buck Converter** | TPS62840 (3.3 V rail, max. 750 mA) |
 | **System-Off Current** | via 3.3V off switch ~15 µA |
 | **System Sleep Current** | < 500 µA (firmware sleep with GPIO latch, CE active, RTC wake) |
@@ -124,9 +124,11 @@ The nRF52840 USB peripheral is automatically managed based on VBUS detection:
 - **VBUS removed** → USB peripheral disabled (saves ~0.8–1.0 mA)
 - **Boot without USB** → USB disabled on first loop iteration
 
-No manual CLI commands are required. USB is always available when a cable is connected.
+No manual CLI commands are required. USB is always available when a cable is connected. See also [FAQ #7 — USB charging](FAQ.md#7-can-i-charge-the-board-via-usb).
 
 > **⚠ Warning:** Since VBUS-USB and VBUS-BQ (solar input) are connected via the Schottky diode, a **short circuit on the solar connector** will also short VBUS-USB. Never short-circuit the solar input while USB is connected.
+
+See also [FAQ #16 — 3.3V off switch](FAQ.md#16-what-does-the-33v-off-switch-do-and-when-would-i-use-it) for practical use cases.
 
 ---
 
@@ -163,7 +165,7 @@ No manual CLI commands are required. USB is always available when a cable is con
 
 | Label (→ image) | Description |
 |-----------------|-------------|
-| **Solder-Bridge** (close for onboard Temp-Sensor) | Solder bridge for the onboard NTC temperature sensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Closed** = onboard NTC active. **Open** = external NTC of type NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) or compatible required via TS pin on the battery connector. |
+| **Solder-Bridge** (close for onboard Temp-Sensor) | Solder bridge for the onboard NTC temperature sensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Closed** = onboard NTC active. **Open** = external NTC of type NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) or compatible required via TS pin on the battery connector. See [FAQ #2](FAQ.md#2-can-i-use-battery-packs-without-a-built-in-ntc). |
 
 ---
 
@@ -199,6 +201,8 @@ No manual CLI commands are required. USB is always available when a cable is con
 | **Na-Ion 1S** | 3.1 V | 3.9 V | 2500 mV | 2700 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
+> **Choosing the right chemistry:** See [BATTERY_GUIDE.md](BATTERY_GUIDE.md) for a detailed comparison of pros, cons, and deployment recommendations. A brief summary is also in [FAQ #1](FAQ.md#1-which-battery-chemistry-should-i-choose).
+
 ---
 
 ## Firmware Environments
@@ -227,5 +231,7 @@ No manual CLI commands are required. USB is always available when a cable is con
 - [README.md](README.md) – Overview, feature matrix and diagnostics
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [QUICK_START.md](QUICK_START.md) – Quick start for commissioning and CLI setup
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) – Battery chemistry comparison and deployment guide
+- [FAQ.md](FAQ.md) – Frequently asked questions
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – All board-specific CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Complete technical documentation

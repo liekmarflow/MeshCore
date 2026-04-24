@@ -26,7 +26,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **High-Efficiency Rail:** 3.3V rail via TPS62840 for maximum efficiency.
 - **Robust Monitoring:** INA228 Coulomb Counter for precise SOC tracking (essential for LiFePO4 chemistry) and long-term energy statistics.
 - **Universal Solar Input:** 3.6V – 24V with autonomous MPPT tracking and integrated protection against "stuck states" (hardware watchdog logic).
-- **Environmental Sensing & Timekeeping:** Integrated BME280 and RV-3028 RTC for autonomous wake-up management and precise time base.
+- **Environmental Sensing & Timekeeping:** Integrated BME280 and RV-3028 RTC for autonomous wake-up management and precise time base. See [FAQ #23](FAQ.md#23-why-does-the-repeater-board-need-a-correct-time) for why a correct clock matters.
 - **Form Factor:** Only 45 × 40 mm – optimized for low-profile enclosures and minimal mechanical stress.
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has no hardware reverse polarity protection on the battery or solar input. Connecting with reversed polarity will cause immediate, irreversible damage. Always verify correct polarity before connecting any power source.
@@ -108,6 +108,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 - **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The Companion App uses a Li-Ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
 - **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%. See [TELEMETRY.md](TELEMETRY.md) for details on how this affects the app display.
 - **TODO**: Remove once MeshCore supports native SOC% transmission.
+- → [FAQ #11 — SOC shows 0% or N/A?](FAQ.md#11-why-does-the-soc-show-0-or-na)
 
 ### Time-To-Live (TTL) Prediction
 - **Time base:** 7-day moving average (`avg_7day_daily_net_mah`) of daily net energy consumption
@@ -333,6 +334,8 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 2. **PG stuck at sunrise**: VBUS rises slowly, BQ fails to qualify the source
    - Solution: `checkAndFixSolarLogic()` toggles HIZ when VBUS ≥ 4.5V + PG=0 (5min cooldown)
 
+→ [FAQ #9 — Red LED blinks / battery not charging](FAQ.md#9-the-red-led-bq-status-led-blinks-slowly-and-the-battery-is-not-charging)
+
 ## Regulatory Notes & CE Compliance (RED 2014/53/EU)
 
 The Inhero MR-2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware has been tested for compliance with the European Radio Equipment Directive (RED 2014/53/EU) by an accredited test laboratory. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
@@ -366,5 +369,7 @@ The Inhero MR-2 is a module intended for professional developers and qualified u
 - [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetry channels explained (what the app displays)
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
+- [FAQ.md](FAQ.md) — Frequently asked questions
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

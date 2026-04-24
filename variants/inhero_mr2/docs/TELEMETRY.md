@@ -125,4 +125,6 @@ Order in CayenneLPP packet:
 - [DATASHEET.md](DATASHEET.md) — Hardware specifications and pinout
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
+- [FAQ.md](FAQ.md) — Frequently asked questions
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation

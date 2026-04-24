@@ -55,7 +55,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 |------------|----------|-----|-----|---------|
 | **RAK4630** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa Transceiver |
 | **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ Shunt, 1.6A max, Coulomb Counter, BUVL Alert |
-| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up |
+| **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up. Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) zur Bedeutung der Uhrzeit. |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-batteriespannungen)) |
 | **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
 | **TPS62840** | Buck Converter | - | EN via 3.3V_off-Schalter | 750mA, 3.3V Rail |
@@ -997,6 +997,8 @@ Day 3:    VBAT = 2.95V, SOC = 42%
 - [DATASHEET.md](DATASHEET.md) — Hardware-Spezifikationen und Pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
 - [QUICK_START.md](QUICK_START.md) — Inbetriebnahme und Konfiguration
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Akkuchemie-Vergleich und Einsatzempfehlungen
+- [FAQ.md](FAQ.md) — Häufig gestellte Fragen
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle CLI-Befehle auf einen Blick
 
 ### Datasheets

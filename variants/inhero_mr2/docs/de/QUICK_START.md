@@ -8,6 +8,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Entweder den 3-poligen Akkuanschluss mit TS/NTC nutzen oder die Onboard-NTC-Lötbrücke auf der Rückseite schließen.
 - Firmware-NTC-Typ: NCP15XH103F03RC (10k @ 25C, Beta 3380).
 - Zweck: Der Charger nutzt den TS-Pin für JEITA/Frost-Logik.
+- → [FAQ #2 — Akkupacks ohne NTC](FAQ.md#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen)
 
 ## 2) Antennen anschließen
 - Nie ohne Antenne betreiben, sonst Gefahr für das RF-Frontend.
@@ -34,17 +35,20 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
   - oder set board.bat lto2s
   - oder set board.bat naion1s
 - Legt Ladeparameter und Low-Voltage-Schwellen fest.
+- → [FAQ #1](FAQ.md#1-welche-akkuchemie-soll-ich-einsetzen) | [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Welche Akkuchemie soll ich einsetzen?
 
 ## 7) Akkukapazität setzen
 - Command: set board.batcap <mAh>
 - Beispiel: set board.batcap 10000
 - Wichtig für korrekte SOC-Berechnung.
+- → [FAQ #4 — Welcher mAh-Wert?](FAQ.md#4-welchen-mah-wert-gebe-ich-bei-set-boardbatcap-ein)
 
 ## 8) Maximalen Ladestrom setzen
 - Command: set board.imax <mA>
 - Bereich laut Firmware: 50 bis 1500 mA (BQ25798-Minimum: 50mA).
 - Passend zum Solar-Setup wählen, damit die Ströme zum PG-Check passen.
 - Faustformel: Panelleistung / Panelspannung * 1.2
+- → [FAQ #5 — Warum imax setzen?](FAQ.md#5-warum-ist-es-wichtig-den-maximalen-ladestrom-set-boardimax-einzustellen)
 
 ## 9) Frost-Ladestromabsenkung einstellen
 - Command: set board.fmax <0%|20%|40%|100%>
@@ -56,6 +60,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
 - Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
 - Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (fmax ohne Wirkung, lädt auch bei Frost).
+- → [FAQ #6 — Was steuert fmax?](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst)
 
 ## 10) MPPT aktivieren
 - Command: set board.mppt <0|1>
@@ -65,9 +70,13 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 ## 11) LEDs aktivieren/deaktivieren
 - Command: set board.leds <on|off> oder set board.leds <1|0>
 - Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
+- → [FAQ #17 — Was bedeuten die LEDs?](FAQ.md#17-was-bedeuten-die-leds)
 
 ## 12) Akku voll laden (SOC-Sync)
 - Den Akku einmal komplett über USB aufladen, damit der SOC sauber synchronisiert.
+- → [FAQ #11 — SOC zeigt 0% oder N/A?](FAQ.md#11-warum-zeigt-der-soc-0-oder-na-an)
+
+> **Hinweis Kältebetrieb:** SOC% ist rein Coulomb-basiert und ändert sich nur durch reale Ladungsflüsse. Bei Kälte sperrt das Trapped-Charge-Modell den Boden der Entladekurve — bei niedrigem SOC fällt die entnehmbare Kapazität steil, und `get board.telem` zeigt den derateten Wert in Klammern: `SOC:95.0% (78%)`. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating) für Details.
 
 ## Zusatzhinweise (Praxis)
 - Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
@@ -118,6 +127,8 @@ Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktivier
 - Bei 1W-Panels wird eine Akkukapazität von >9Ah empfohlen.
 - Gilt nur bei Südausrichtung, vertikaler Montage und unverschattetem Standort.
 - Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazität für "Winterüberleben" erhöhen.
+
+→ [FAQ #8 — Welche Solarpanels?](FAQ.md#8-welche-solarpanels-kann-ich-anschließen)
 
 ## USB-Laden
 - Das Board kann auch über USB-C (5V) geladen werden.
@@ -181,6 +192,7 @@ get board.conf
 - `get board.selftest` - I²C-Hardware-Probe (`INA:OK BQ:OK RTC:OK BME:OK`). RTC inkl. Write/Readback-Verifikation (Zustand `WR_FAIL` bei Mismatch).
 - `get board.conf` - Kurzübersicht aller Konfigs (B, F, M, I, Vco, V0).
 - `get board.tccal` - NTC-Temperatur-Kalibrieroffset in °C (0.00 = default).
+  - → [FAQ #12 — Wann tccal ausführen?](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen)
 
 ---
 
@@ -189,5 +201,7 @@ get board.conf
 - [README.md](README.md) — Übersicht, Feature-Matrix und Diagnose
 - [DATASHEET.md](DATASHEET.md) — Hardware-Spezifikationen und Pinout
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Akkuchemie-Vergleich und Einsatzempfehlungen
+- [FAQ.md](FAQ.md) — Häufig gestellte Fragen
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle board-spezifischen CLI-Befehle auf einen Blick
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation

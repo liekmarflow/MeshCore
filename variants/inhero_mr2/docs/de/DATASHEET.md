@@ -22,7 +22,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Watchdog Timer (WDT)** | Hardware-Watchdog des nRF52840. Startet das Board automatisch neu, wenn die Firmware hängt – wichtig für den unbeaufsichtigten Dauerbetrieb. |
 | **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System Sleep mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
 | **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem 3.3V_off-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
-| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe README für Details. |
+| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe [README.md — JEITA](README.md#jeita-temperaturzonen-konfiguration) für Details. **Hinweis:** Die JEITA-Schwellen werden vom BQ25798 direkt in Hardware ausgewertet. Die `set board.tccal`-Kalibrierung korrigiert nur die CLI-/Telemetrie-Temperaturanzeige und beeinflusst das JEITA-Verhalten nicht — siehe [FAQ #12](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen). |
 
 > **⚠ WARNUNG — Kein Verpolschutz:** Das Board verfügt über **keinen Hardware-Verpolschutz** an Akku- oder Solareingang. Ein verpolter Anschluss führt zu **sofortiger, irreversibler Beschädigung** des Boards. Vor dem Anschließen immer die Polarität prüfen.
 
@@ -48,7 +48,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Laderegler** | BQ25798 (MPPT, JEITA) |
 | **Max. Ladestrom** | 50 – 1500 mA (konfigurierbar) |
 | **Leistungsmonitor** | INA228 (Coulomb Counter, ALERT) |
-| **RTC** | RV-3028-C7 (Zeitbasis/Aufweck-Timer) |
+| **RTC** | RV-3028-C7 (Zeitbasis/Aufweck-Timer). Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) |
 | **Buck Converter** | TPS62840 (3.3V-Rail, max. 750 mA) |
 | **System-Off-Strom** | via 3.3V off Switch ~15 µA |
 | **System-Sleep-Strom** | < 500 µA (Firmware-Sleep mit GPIO-Latch, CE aktiv, RTC-Wake) |
@@ -124,9 +124,11 @@ Die nRF52840-USB-Peripherie wird automatisch basierend auf VBUS-Erkennung verwal
 - **VBUS entfernt** → USB-Peripherie deaktiviert (spart ~0,8–1,0 mA)
 - **Boot ohne USB** → USB wird beim ersten Loop-Durchlauf deaktiviert
 
-Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel angeschlossen ist.
+Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel angeschlossen ist. Siehe auch [FAQ #7 — USB-Laden](FAQ.md#7-kann-ich-das-board-über-usb-laden).
 
 > **⚠ Warnung:** Da VBUS-USB und VBUS-BQ (Solareingang) über die Schottky-Diode verbunden sind, führt ein **Kurzschluss am Solarstecker** auch zum Kurzschluss von VBUS-USB. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
+
+Siehe auch [FAQ #16 — 3.3V-off-Schalter](FAQ.md#16-was-macht-der-schalter-33v-off-und-wann-verwende-ich-ihn) für praktische Anwendungsfälle.
 
 ---
 
@@ -163,7 +165,7 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 
 | Label (→ Bild) | Beschreibung |
 |----------------|-------------|
-| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC vom Typ NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel über TS-Pin des Batterie-Steckers erforderlich. |
+| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC vom Typ NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel über TS-Pin des Batterie-Steckers erforderlich. Siehe [FAQ #2](FAQ.md#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen). |
 
 ---
 
@@ -199,6 +201,8 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 | **Na-Ion 1S** | 3,1 V | 3,9 V | 2500 mV | 2700 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
+> **Die richtige Chemie wählen:** Siehe [BATTERY_GUIDE.md](BATTERY_GUIDE.md) für einen detaillierten Vergleich von Vor-/Nachteilen und Einsatzempfehlungen. Eine Kurzübersicht gibt es auch in [FAQ #1](FAQ.md#1-welche-akkuchemie-soll-ich-einsetzen).
+
 ---
 
 ## Firmware-Umgebungen
@@ -228,5 +232,7 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 - [README.md](README.md) – Übersicht, Feature-Matrix und Diagnose
 - [TELEMETRY.md](TELEMETRY.md) — Telemetrie-Kanäle erklärt (was die App anzeigt)
 - [QUICK_START.md](QUICK_START.md) – Schnelleinstieg und CLI-Konfiguration
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) – Akkuchemie-Vergleich und Einsatzempfehlungen
+- [FAQ.md](FAQ.md) – Häufig gestellte Fragen
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) – Alle board-spezifischen CLI-Kommandos
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) – Vollständige technische Dokumentation
