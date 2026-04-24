@@ -137,13 +137,13 @@ Beispiel: 2-W-Panel, Li-Ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.ima
 
 ### 7. Kann ich das Board über USB laden?
 
-**Ja.** USB-C VBUS (5 V) ist über eine **SS34-Schottky-Diode** mit dem BQ25798-VBUS-Eingang verbunden — dem **gleichen Eingang** wie das Solarpanel (siehe [DATASHEET.md — USB-Ladepfad](DATASHEET.md#usb-ladepfad)). Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen den beiden Quellen.
+**Ja.** USB-C VBUS (5 V) ist über eine **Schottky-Diode** mit dem BQ25798-VBUS-Eingang verbunden — dem **gleichen Eingang** wie das Solarpanel (siehe [DATASHEET.md — USB-Ladepfad](DATASHEET.md#usb-ladepfad)). Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen den beiden Quellen.
 
 Bei erkanntem USB (nRF52840 VBUS-Sense) begrenzt die Firmware automatisch den Eingangsstrom auf **500 mA** (USB 2.0 Spec). Wird USB entfernt, wird das Eingangsstrom-Limit aus Akkuspannung und `board.imax` neu berechnet.
 
 Es ist jeweils die Quelle aktiv, die die höhere Spannung am VBUS-Eingang liefert: Wenn die USB-Spannung (abzüglich Schottky-Drop) höher ist als die Solarspannung, lädt USB. Andernfalls lädt Solar. Beide Quellen können nicht gleichzeitig laden.
 
-> **⚠ WARNUNG:** Die SS34-Diode verhindert Rückfluss vom Solarpanel zum USB-Bus, aber Strom **kann** von USB-VBUS durch den Solaranschluss abfließen. Ein **Kurzschluss am Solaranschluss verursacht auch einen Kurzschluss am USB-VBUS**. Niemals den Solareingang kurzschließen, solange USB angeschlossen ist.
+> **⚠ WARNUNG:** Die Schottky-Diode verhindert Rückfluss vom Solarpanel zum USB-Bus, aber Strom **kann** von USB-VBUS durch den Solaranschluss abfließen. Ein **Kurzschluss am Solaranschluss verursacht auch einen Kurzschluss am USB-VBUS**. Niemals den Solareingang kurzschließen, solange USB angeschlossen ist.
 
 ---
 

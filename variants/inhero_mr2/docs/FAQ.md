@@ -137,13 +137,13 @@ Example: 2 W panel, Li-Ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax
 
 ### 7. Can I charge the board via USB?
 
-**Yes.** USB-C VBUS (5 V) is connected to the BQ25798 VBUS input via an **SS34 Schottky diode** — the **same single input** as the solar panel (see [DATASHEET.md — USB Charging Path](DATASHEET.md#usb-charging-path)). The BQ25798 has only one VBUS input and does not distinguish between the two sources.
+**Yes.** USB-C VBUS (5 V) is connected to the BQ25798 VBUS input via a **Schottky diode** — the **same single input** as the solar panel (see [DATASHEET.md — USB Charging Path](DATASHEET.md#usb-charging-path)). The BQ25798 has only one VBUS input and does not distinguish between the two sources.
 
 When USB is detected (nRF52840 VBUS sense), the firmware automatically limits the input current to **500 mA** (USB 2.0 spec). When USB is removed, the input current limit is recalculated from battery voltage and `board.imax`.
 
 Whichever source provides the higher voltage at the VBUS input is active: If USB voltage (minus Schottky drop) exceeds the solar voltage, USB charges. Otherwise, solar charges. Both sources cannot charge simultaneously.
 
-> **⚠ WARNING:** The SS34 diode prevents backflow from the solar panel to the USB bus, but current **can** flow from USB-VBUS out through the solar connector. A **short circuit on the solar connector will also short USB-VBUS**. Never short-circuit the solar input while USB is connected.
+> **⚠ WARNING:** The Schottky diode prevents backflow from the solar panel to the USB bus, but current **can** flow from USB-VBUS out through the solar connector. A **short circuit on the solar connector will also short USB-VBUS**. Never short-circuit the solar input while USB is connected.
 
 ---
 
