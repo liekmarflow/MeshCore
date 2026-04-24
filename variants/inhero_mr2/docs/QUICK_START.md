@@ -19,11 +19,11 @@ This guide walks you through commissioning and the most important CLI commands.
 
 ## 4) Configure Repeater via USB
 - Connect the repeater to a computer via USB cable.
-- Go to https://flasher.meshcore.co.uk/ -> Repeater Setup to configure (LoRa settings, name, admin password, etc.).
+- Go to https://meshcore.io/flasher -> Repeater Setup to configure (LoRa settings, name, admin password, etc.).
 - This sets the basic parameters on the device.
 
 ## 5) Open CLI
-- https://flasher.meshcore.co.uk/ -> Console
+- https://meshcore.io/flasher -> Console
 - or MeshCore App -> Manage -> Command-Line
 - Board-specific commands are set here.
 
