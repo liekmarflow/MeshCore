@@ -1,119 +1,71 @@
-## About MeshCore
+# MeshCore — Inhero MR-2 Fork
 
-MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
+This repository is a downstream fork of [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore)
+maintained for the **Inhero MR-2** LoRa repeater hardware. It carries
+hardware-specific firmware code, a tested release branch, and complete
+operator documentation for the MR-2 board.
 
-## 🔍 What is MeshCore?
+The upstream MeshCore project README is preserved as
+[`README.upstream.md`](README.upstream.md).
 
-MeshCore now supports a range of LoRa devices, allowing for easy flashing without the need to compile firmware manually. Users can flash a pre-built binary using tools like Adafruit ESPTool and interact with the network through a serial console.
-MeshCore provides the ability to create wireless mesh networks, similar to Meshtastic and Reticulum but with a focus on lightweight multi-hop packet routing for embedded projects. Unlike Meshtastic, which is tailored for casual LoRa communication, or Reticulum, which offers advanced networking, MeshCore balances simplicity with scalability, making it ideal for custom embedded solutions., where devices (nodes) can communicate over long distances by relaying messages through intermediate nodes. This is especially useful in off-grid, emergency, or tactical situations where traditional communication infrastructure is unavailable.
+---
 
-## ⚡ Key Features
+## Inhero MR-2 Variant
 
-* Multi-Hop Packet Routing
-  * Devices can forward messages across multiple nodes, extending range beyond a single radio's reach.
-  * Supports up to a configurable number of hops to balance network efficiency and prevent excessive traffic.
-  * Nodes use fixed roles where "Companion" nodes are not repeating messages at all to prevent adverse routing paths from being used.
-* Supports LoRa Radios – Works with Heltec, RAK Wireless, and other LoRa-based hardware.
-* Decentralized & Resilient – No central server or internet required; the network is self-healing.
-* Low Power Consumption – Ideal for battery-powered or solar-powered devices.
-* Simple to Deploy – Pre-built example applications make it easy to get started.
+- **Hardware:** RAK4630 (nRF52840 + SX1262), BQ25798 buck/boost charger,
+  INA228 coulomb counter, RV-3028 RTC, BME280, TPS62840 3.3 V rail,
+  universal 3.6–24 V solar input with autonomous MPPT.
+- **Form factor:** 45 × 40 mm.
+- **Idle consumption:** 6.0 mA @ 4.2 V / 7.7 mA @ 3.3 V (USB off, no TX).
+- **Battery chemistries:** Li-Ion, LiFePO4, LTO, Na-Ion.
+- **Hardware revision:** Rev 1.1.
 
-## 🎯 What Can You Use MeshCore For?
+### Documentation
 
-* Off-Grid Communication: Stay connected even in remote areas.
-* Emergency Response & Disaster Recovery: Set up instant networks where infrastructure is down.
-* Outdoor Activities: Hiking, camping, and adventure racing communication.
-* Tactical & Security Applications: Military, law enforcement, and private security use cases.
-* IoT & Sensor Networks: Collect data from remote sensors and relay it back to a central location.
+All variant documentation lives under [`variants/inhero_mr2/docs/`](variants/inhero_mr2/docs/):
 
-## 🚀 How to Get Started
+| Document | English | Deutsch |
+|---|---|---|
+| Variant overview | [README.md](variants/inhero_mr2/docs/README.md) | [de/README.md](variants/inhero_mr2/docs/de/README.md) |
+| Quick start | [QUICK_START.md](variants/inhero_mr2/docs/QUICK_START.md) | [de/QUICK_START.md](variants/inhero_mr2/docs/de/QUICK_START.md) |
+| Datasheet | [DATASHEET.md](variants/inhero_mr2/docs/DATASHEET.md) | [de/DATASHEET.md](variants/inhero_mr2/docs/de/DATASHEET.md) |
+| Battery guide | [BATTERY_GUIDE.md](variants/inhero_mr2/docs/BATTERY_GUIDE.md) | [de/BATTERY_GUIDE.md](variants/inhero_mr2/docs/de/BATTERY_GUIDE.md) |
+| CLI cheat sheet | [CLI_CHEAT_SHEET.md](variants/inhero_mr2/docs/CLI_CHEAT_SHEET.md) | [de/CLI_CHEAT_SHEET.md](variants/inhero_mr2/docs/de/CLI_CHEAT_SHEET.md) |
+| Telemetry | [TELEMETRY.md](variants/inhero_mr2/docs/TELEMETRY.md) | [de/TELEMETRY.md](variants/inhero_mr2/docs/de/TELEMETRY.md) |
+| FAQ | [FAQ.md](variants/inhero_mr2/docs/FAQ.md) | [de/FAQ.md](variants/inhero_mr2/docs/de/FAQ.md) |
+| Implementation summary | [IMPLEMENTATION_SUMMARY.md](variants/inhero_mr2/docs/IMPLEMENTATION_SUMMARY.md) | [de/IMPLEMENTATION_SUMMARY.md](variants/inhero_mr2/docs/de/IMPLEMENTATION_SUMMARY.md) |
 
-- Watch the [MeshCore Intro Video](https://www.youtube.com/watch?v=t1qne8uJBAc) by Andy Kirby.
-- Read through our [Frequently Asked Questions](./docs/faq.md) section.
-- Flash the MeshCore firmware on a supported device.
-- Connect with a supported client.
+### Building the firmware
 
-For developers;
+PlatformIO environment: `Inhero_MR2_repeater`.
 
-- Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
-- Clone and open the MeshCore repository in Visual Studio Code.
-- See the example applications you can modify and run:
-  - [Companion Radio](./examples/companion_radio) - For use with an external chat app, over BLE, USB or WiFi.
-  - [KISS Modem](./examples/kiss_modem) - Serial KISS protocol bridge for host applications. ([protocol docs](./docs/kiss_modem_protocol.md))
-  - [Simple Repeater](./examples/simple_repeater) - Extends network coverage by relaying messages.
-  - [Simple Room Server](./examples/simple_room_server) - A simple BBS server for shared Posts.
-  - [Simple Secure Chat](./examples/simple_secure_chat) - Secure terminal based text communication between devices.
-  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry and alerting.
+```bash
+pio run -e Inhero_MR2_repeater
+```
 
-The Simple Secure Chat example can be interacted with through the Serial Monitor in Visual Studio Code, or with a Serial USB Terminal on Android.
+Build artifacts are written to `.pio/build/Inhero_MR2_repeater/`. Pre-built
+binaries are attached to GitHub Releases.
 
-## ⚡️ MeshCore Flasher
+### Flashing
 
-We have prebuilt firmware ready to flash on supported devices.
+The board exposes the standard nRF52 UF2 bootloader. Drag-and-drop the UF2
+from a release asset onto the `RAK4630`/`FTHR840` mass-storage device that
+appears after a double tap on the reset button. See
+[QUICK_START.md](variants/inhero_mr2/docs/QUICK_START.md) for the full procedure.
 
-- Launch https://flasher.meshcore.co.uk
-- Select a supported device
-- Flash one of the firmware types:
-  - Companion, Repeater or Room Server
-- Once flashing is complete, you can connect with one of the MeshCore clients below.
+---
 
-## 📱 MeshCore Clients
+## Relation to upstream
 
-**Companion Firmware**
+- This fork tracks selected upstream changes manually; it is **not** a
+  rolling mirror. The MR-2 variant lives in `variants/inhero_mr2/` and
+  does not affect any other board.
+- Earlier work was proposed upstream as a pull request that was later
+  withdrawn. The MR-2 variant is now maintained here as a standalone
+  product fork with its own releases.
+- For the upstream MeshCore project, ecosystem documentation, and other
+  supported boards, see [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).
 
-The companion firmware can be connected to via BLE, USB or WiFi depending on the firmware type you flashed.
+## License
 
-- Web: https://app.meshcore.nz
-- Android: https://play.google.com/store/apps/details?id=com.liamcottle.meshcore.android
-- iOS: https://apps.apple.com/us/app/meshcore/id6742354151?platform=iphone
-- NodeJS: https://github.com/liamcottle/meshcore.js
-- Python: https://github.com/fdlamotte/meshcore-cli
-
-**Repeater and Room Server Firmware**
-
-The repeater and room server firmwares can be setup via USB in the web config tool.
-
-- https://config.meshcore.dev
-
-They can also be managed via LoRa in the mobile app by using the Remote Management feature.
-
-## 🛠 Hardware Compatibility
-
-MeshCore is designed for devices listed in the [MeshCore Flasher](https://flasher.meshcore.co.uk)
-
-## 📜 License
-
-MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
-
-## Contributing
-
-Please submit PR's using 'dev' as the base branch!
-For minor changes just submit your PR and we'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. Is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
-
-Here are some general principals you should try to adhere to:
-* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
-* No dynamic memory allocation, except during setup/begin functions.
-* Use the same brace and indenting style that's in the core source modules. (A .clang-format is prob going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
-
-Help us prioritize! Please react with thumbs-up to issues/PRs you care about most. We look at reaction counts when planning work.
-
-## Road-Map / To-Do
-
-There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In very rough chronological order:
-- [X] Companion radio: UI redesign
-- [X] Repeater + Room Server: add ACL's (like Sensor Node has)
-- [X] Standardise Bridge mode for repeaters
-- [ ] Repeater/Bridge: Standardise the Transport Codes for zoning/filtering
-- [X] Core + Repeater: enhanced zero-hop neighbour discovery
-- [ ] Core: round-trip manual path support
-- [ ] Companion + Apps: support for multiple sub-meshes (and 'off-grid' client repeat mode)
-- [ ] Core + Apps: support for LZW message compression
-- [ ] Core: dynamic CR (Coding Rate) for weak vs strong hops
-- [ ] Core: new framework for hosting multiple virtual nodes on one physical device
-- [ ] V2 protocol spec: discussion and consensus around V2 packet protocol, including path hashes, new encryption specs, etc
-
-## 📞 Get Support
-
-- Report bugs and request features on the [GitHub Issues](https://github.com/ripplebiz/MeshCore/issues) page.
-- Find additional guides and components on [my site](https://buymeacoffee.com/ripplebiz).
-- Join [MeshCore Discord](https://discord.gg/BMwCtwHj5V) to chat with the developers and get help from the community.
+Same as upstream MeshCore — see [`license.txt`](license.txt).
