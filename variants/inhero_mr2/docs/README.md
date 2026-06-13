@@ -338,7 +338,7 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 
 ## Regulatory Notes & CE Compliance (RED 2014/53/EU)
 
-The Inhero MR-2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware has been tested for compliance with the European Radio Equipment Directive (RED 2014/53/EU) by an accredited test laboratory. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
+The Inhero MR-2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware is **CE-marked and conforms to the European Radio Equipment Directive (RED 2014/53/EU)**; the corresponding tests were carried out by an accredited test laboratory and an EU Declaration of Conformity is on file. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
 
 **Requirements for legally compliant operation of radio firmware:**
 Since the final transmission characteristics (TX power, frequency, duty cycle) are largely determined by the software installed by the user (e.g. MeshCore) and the chosen antenna, the following European limits (per EN 300 220 and EN 300 328, ERC/REC 70-03 Annex 1) must be strictly observed:

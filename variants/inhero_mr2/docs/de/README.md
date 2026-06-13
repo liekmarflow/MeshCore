@@ -338,7 +338,7 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 
 ## Regulatorische Hinweise & CE-Konformität (RED 2014/53/EU)
 
-Das Inhero MR-2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware wurde durch ein akkreditiertes Prüflabor auf Konformität gemäß der europäischen Funkanlagenrichtlinie (RED 2014/53/EU) getestet. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+Das Inhero MR-2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
 
 **Vorgaben für den gesetzeskonformen Betrieb der Funk-Firmware:**
 Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss sichergestellt werden, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) zwingend eingehalten werden:
