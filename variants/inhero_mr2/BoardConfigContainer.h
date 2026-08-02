@@ -275,15 +275,18 @@ private:
   void runMpptCycle();             // Single MPPT cycle
   static MpptStatistics mpptStats; // MPPT statistics data
   static BatterySOCStats socStats; // Battery SOC statistics
-  static BatteryType cachedBatteryType; // Cached battery type for static methods (set by begin()/setBatteryType())
-  
-  bool BQ_INITIALIZED = false;
-  bool INA228_INITIALIZED = false;
+  // Cached battery type for static methods (set by begin()/setBatteryType())
+  static BatteryType cachedBatteryType;
+
+  bool bqInitialized = false;
+  bool ina228Initialized = false;
   bool lowVoltageRecovery = false;  // Set in begin() if booting from low-voltage sleep (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static bool usbInputActive; // True when USB VBUS detected — caps IINDPM to 500mA
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
-  static float lastValidBatteryTemp;  // Last valid battery temperature in °C (updated by getTelemetryData() or BME280 fallback, default 25.0 = no derating)
+  // Last valid battery temperature in °C, updated by getTelemetryData() or
+  // BME280 fallback (default 25.0 = no derating)
+  static float lastValidBatteryTemp;
   static uint32_t lastTempUpdateMs;   // millis() of last valid temperature update (0 = never updated)
 
   // Refresh socStats.temp_derating_factor and last_battery_temp_c.
@@ -298,6 +301,7 @@ private:
   static constexpr const char* FROSTKEY = "frost";
   static constexpr const char* MAXCHARGECURRENTKEY = "maxChrg";
   static constexpr const char* MPPTENABLEKEY = "mpptEn";
+  static constexpr const char* LEDSKEY = "leds_en";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
 
@@ -307,7 +311,6 @@ private:
   bool loadBatteryCapacity(float& capacity_mah) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
 
-  
   // MPPT Statistics helper
   static void updateMpptStats();
 

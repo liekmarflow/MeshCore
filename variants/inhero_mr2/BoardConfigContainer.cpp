@@ -13,7 +13,6 @@
 #include "lib/Ina228Driver.h"
 #include "lib/SimplePreferences.h"
 
-#include <ArduinoJson.h>
 #include <FreeRTOS.h>
 #include <task.h>
 #include <MeshCore.h>
@@ -66,10 +65,10 @@ BoardConfigContainer::BatteryType BoardConfigContainer::cachedBatteryType = BAT_
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 bool BoardConfigContainer::usbInputActive = false;  // Default: no USB connected
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
-float BoardConfigContainer::lastValidBatteryTemp = 25.0f;  // Default: 25°C (= no derating until first valid reading)
+float BoardConfigContainer::lastValidBatteryTemp = 25.0f;  // 25°C = no derating until first valid reading
 uint32_t BoardConfigContainer::lastTempUpdateMs = 0;  // 0 = never updated
 
-// Battery voltage thresholds moved to BatteryProperties structure (see .h file)
+// Battery voltage thresholds live in the BatteryProperties table (see .h file)
 // Rev 1.1: INA228 ALERT pin (P1.02) triggers low-voltage sleep via ISR → volatile flag → tickPeriodic().
 // No hardware UVLO (TPS EN tied to VDD). Low-voltage handling is always active when battery configured.
 
@@ -81,12 +80,11 @@ void BoardConfigContainer::setupWatchdog() { inhero::setupWatchdog(leds_enabled)
 void BoardConfigContainer::feedWatchdog()  { inhero::feedWatchdog(); }
 void BoardConfigContainer::disableWatchdog() { inhero::disableWatchdog(); }
 
-// Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state)
-// BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0.
-//          This function restores MPPT=1 when PG returns to 1.
-
-//          CRITICAL: Only runs when PowerGood=1 to avoid false positives.
-//          Exception: PG-Stuck recovery toggles HIZ when VBUS is present but PG=0.
+// Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state).
+// BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0;
+// this restores MPPT=1 when PG returns to 1.
+// Only runs when PowerGood=1 to avoid false positives; exception: PG-stuck
+// recovery toggles HIZ when VBUS is present but PG=0.
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -140,36 +138,36 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
 // Single MPPT cycle — called from tickPeriodic() every 60s
 // Checks solar logic and updates MPPT stats.
 void BoardConfigContainer::runMpptCycle() {
-    // Clear any pending BQ25798 flags so the INT line stays de-asserted
-    // (we don't wire INT to an MCU IRQ, but leaving flags latched costs current).
-    if (bqDriverInstance) {
-      BqDriver::clearInterruptFlags();
-    }
+  // Clear any pending BQ25798 flags so the INT line stays de-asserted
+  // (we don't wire INT to an MCU IRQ, but leaving flags latched costs current).
+  if (bqDriverInstance) {
+    BqDriver::clearInterruptFlags();
+  }
 
-    checkAndFixSolarLogic();
-    bool mpptEnabled;
-    BoardConfigContainer::loadMpptEnabled(mpptEnabled);
-    if (mpptEnabled && bqDriverInstance) {
-      updateMpptStats();
-    }
+  checkAndFixSolarLogic();
+  bool mpptEnabled;
+  BoardConfigContainer::loadMpptEnabled(mpptEnabled);
+  if (mpptEnabled && bqDriverInstance) {
+    updateMpptStats();
+  }
 }
 
-// Stops heartbeat task and disarms alerts before OTA
-// MPPT and SOC work are tick-based (no tasks to stop).
-//          Only the heartbeat LED task and INA228 alert need cleanup.
+// Stops heartbeat task and disarms alerts before OTA.
+// MPPT and SOC work are tick-based (no tasks to stop);
+// only the heartbeat LED task and INA228 alert need cleanup.
 void BoardConfigContainer::stopBackgroundTasks() {
   MESH_DEBUG_PRINTLN("Stopping background tasks for OTA...");
-  
+
   // Delete heartbeat task if running
   if (heartbeatTaskHandle != NULL) {
     vTaskDelete(heartbeatTaskHandle);
     heartbeatTaskHandle = NULL;
     MESH_DEBUG_PRINTLN("Heartbeat task stopped");
   }
-  
+
   // Disarm INA228 low-voltage alert (Rev 1.1)
   disarmLowVoltageAlert();
-  
+
   delay(200);
   MESH_DEBUG_PRINTLN("Background cleanup complete");
 }
@@ -194,13 +192,13 @@ void BoardConfigContainer::heartbeatTask(void* pvParameters) {
 // Enable or disable heartbeat LED and BQ25798 stat LED
 bool BoardConfigContainer::setLEDsEnabled(bool enabled) {
   leds_enabled = enabled;
-  
+
   // Save to filesystem
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  prefs.putString("leds_en", enabled ? "1" : "0");
+  prefs.putString(LEDSKEY, enabled ? "1" : "0");
   prefs.end();
-  
+
   // Control heartbeat task
   if (enabled) {
     // Start heartbeat if not running
@@ -217,12 +215,12 @@ bool BoardConfigContainer::setLEDsEnabled(bool enabled) {
       digitalWrite(LED_BLUE, LOW);
     }
   }
-  
+
   // Control BQ25798 STAT LED (only if BQ is initialized)
-  if (BQ_INITIALIZED && bqDriverInstance) {
+  if (bqInitialized && bqDriverInstance) {
     bqDriverInstance->setStatPinEnable(enabled);
   }
-  
+
   return true;
 }
 
@@ -235,14 +233,14 @@ bool BoardConfigContainer::getLEDsEnabled() const {
 // Should be called when MPPT status changes or periodically for time accounting
 void BoardConfigContainer::updateMpptStats() {
   if (!bqDriverInstance) return;
-  
+
   static bool lastMpptStatus = false;
   static bool initialized = false;
-  
+
   // Get current time - prefer RTC, fallback to millis()
   uint32_t currentTime;
   uint32_t rtcTime = getRTCTime();
-  
+
   // Check if RTC is initialized (returns > 0 if time was set)
   // AutoDiscoverRTCClock returns 0 if no RTC found and time not set
   if (rtcTime > 1000000000) { // Sanity check: After year 2001
@@ -259,9 +257,9 @@ void BoardConfigContainer::updateMpptStats() {
     // RTC not available or not set - use millis() in seconds
     currentTime = millis() / 1000;
   }
-  
+
   bool currentMpptStatus = bqDriverInstance->getMPPTenable();
-  
+
   // Initialize on first run
   if (!initialized) {
     mpptStats.lastUpdateTime = currentTime;
@@ -269,10 +267,10 @@ void BoardConfigContainer::updateMpptStats() {
     initialized = true;
     return;
   }
-  
+
   // Calculate elapsed time since last update
   uint32_t elapsedSeconds = currentTime - mpptStats.lastUpdateTime;
-  
+
   // Sanity check: If more than 48 hours passed, reset
   const uint32_t MAX_INTERVAL_SEC = 48UL * 60UL * 60UL;
   if (elapsedSeconds > MAX_INTERVAL_SEC) {
@@ -280,13 +278,13 @@ void BoardConfigContainer::updateMpptStats() {
     lastMpptStatus = currentMpptStatus;
     return;
   }
-  
+
   uint32_t elapsedMinutes = elapsedSeconds / 60;
-  
+
   if (elapsedMinutes == 0 && lastMpptStatus == currentMpptStatus) {
     return; // No time passed and no status change
   }
-  
+
   // Add time to current hour accumulator if MPPT was enabled
   if (lastMpptStatus && elapsedMinutes > 0) {
     mpptStats.currentHourMinutes += elapsedMinutes;
@@ -294,7 +292,7 @@ void BoardConfigContainer::updateMpptStats() {
       mpptStats.currentHourMinutes = 60; // Cap at 60 minutes per hour
     }
   }
-  
+
   // Calculate energy harvested since last update if MPPT was enabled
   if (lastMpptStatus && elapsedSeconds > 0) {
     // Use last measured power and integrate over time: E = P × t
@@ -303,7 +301,7 @@ void BoardConfigContainer::updateMpptStats() {
     uint32_t energy_mWh = (uint32_t)(mpptStats.lastPower_mW * hours);
     mpptStats.currentHourEnergy_mWh += energy_mWh;
   }
-  
+
   // Sample current solar power for next integration period
   if (currentMpptStatus) {
     uint16_t vbat_mppt = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
@@ -315,24 +313,24 @@ void BoardConfigContainer::updateMpptStats() {
   } else {
     mpptStats.lastPower_mW = 0; // No power when MPPT disabled
   }
-  
+
   mpptStats.lastUpdateTime = currentTime;
   lastMpptStatus = currentMpptStatus;
-  
+
   // Check if we need to move to the next hour
   static uint32_t lastHourCheck = 0;
   uint32_t currentHour = currentTime / 3600;
   uint32_t lastHour = lastHourCheck / 3600;
-  
+
   if (currentHour > lastHour) {
     // Store the completed hour's data
     mpptStats.hours[mpptStats.currentIndex].mpptEnabledMinutes = mpptStats.currentHourMinutes;
     mpptStats.hours[mpptStats.currentIndex].timestamp = currentTime;
     mpptStats.hours[mpptStats.currentIndex].harvestedEnergy_mWh = mpptStats.currentHourEnergy_mWh;
-    
+
     // Move to next index (circular buffer)
     mpptStats.currentIndex = (mpptStats.currentIndex + 1) % MPPT_STATS_HOURS;
-    
+
     // Reset for new hour
     mpptStats.currentHourMinutes = 0;
     mpptStats.currentHourEnergy_mWh = 0;
@@ -353,20 +351,20 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   if (!buffer || bufferSize == 0) {
     return;
   }
-  
+
   // Clear buffer to prevent garbage data
   memset(buffer, 0, bufferSize);
-  
+
   // Check if BQ25798 is initialized and responsive
-  if (!BQ_INITIALIZED) {
+  if (!bqInitialized) {
     snprintf(buffer, bufferSize, "BQ25798 not initialized");
     return;
   }
-  
+
   const char* powerGood = bq.getChargerStatusPowerGood() ? "PG" : "!PG";
   const char* statusString = "Unknown";  // Initialize with default value
   bq25798_charging_status status = bq.getChargingStatus();
-  
+
   switch (status) {
   case bq25798_charging_status::BQ25798_CHARGER_STATE_NOT_CHARGING: {
     statusString = "!CHG";
@@ -400,7 +398,7 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
     statusString = "Unknown";
     break;
   }
-  
+
   if (lastPgStuckToggleTime == 0) {
     snprintf(buffer, bufferSize, "%s / %s HIZ:never", powerGood, statusString);
   } else {
@@ -415,17 +413,7 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
   }
 }
 
-// Reads BQ25798 status/fault registers and produces a compact diagnostic string
-// Register layout (BQ25798 datasheet SLUSDV2B):
-//   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]
-//   0x1C STATUS_1: CHG_STAT[7:5] VBUS_STAT[4:1] BC12[0]
-//   0x1D STATUS_2: ICO[7:6] rsvd[5:3] TREG[2] DPDM[1] VBAT_PRESENT[0]
-//   0x1E STATUS_3: ACRB2[7] ACRB1[6] ADC_DONE[5] VSYS[4] CHG_TMR[3] TRICHG_TMR[2] PRECHG_TMR[1] rsvd[0]
-//   0x1F STATUS_4: rsvd[7:5] VBATOTG_LOW[4] TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
-//   0x20 FAULT_0:  IBAT_REG[7] VBUS_OVP[6] VBAT_OVP[5] IBUS_OCP[4] IBAT_OCP[3] CONV_OCP[2] VAC2_OVP[1] VAC1_OVP[0]
-//   0x21 FAULT_1:  rsvd[7] OTG_UVP[6] OTG_OVP[5] rsvd[4] VSYS_SHORT[3] VSYS_OVP[2] rsvd[1:0]
-//   0x0F CTRL_0:   AUTO_IBATDIS[7] FORCE_IBATDIS[6] EN_CHG[5] EN_ICO[4] FORCE_ICO[3] EN_HIZ[2] EN_TERM[1] EN_BACKUP[0]
-//   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
+// RV-3028 self-test: address ACK plus user-RAM write/readback (see getSelfTest()).
 bool BoardConfigContainer::probeRtc() {
   // Address ACK
   Wire.beginTransmission(0x52);
@@ -485,11 +473,22 @@ void BoardConfigContainer::getSelfTest(char* buffer, uint32_t bufferSize) {
   snprintf(buffer, bufferSize, "INA:%s BQ:%s RTC:%s BME:%s", ina, bq, rtc, bme);
 }
 
+// Reads BQ25798 status/fault registers and produces a compact diagnostic string.
+// Register layout (BQ25798 datasheet SLUSDV2B):
+//   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]
+//   0x1C STATUS_1: CHG_STAT[7:5] VBUS_STAT[4:1] BC12[0]
+//   0x1D STATUS_2: ICO[7:6] rsvd[5:3] TREG[2] DPDM[1] VBAT_PRESENT[0]
+//   0x1E STATUS_3: ACRB2[7] ACRB1[6] ADC_DONE[5] VSYS[4] CHG_TMR[3] TRICHG_TMR[2] PRECHG_TMR[1] rsvd[0]
+//   0x1F STATUS_4: rsvd[7:5] VBATOTG_LOW[4] TS_COLD[3] TS_COOL[2] TS_WARM[1] TS_HOT[0]
+//   0x20 FAULT_0:  IBAT_REG[7] VBUS_OVP[6] VBAT_OVP[5] IBUS_OCP[4] IBAT_OCP[3] CONV_OCP[2] VAC2_OVP[1] VAC1_OVP[0]
+//   0x21 FAULT_1:  rsvd[7] OTG_UVP[6] OTG_OVP[5] rsvd[4] VSYS_SHORT[3] VSYS_OVP[2] rsvd[1:0]
+//   0x0F CTRL_0:   AUTO_IBATDIS[7] FORCE_IBATDIS[6] EN_CHG[5] EN_ICO[4] FORCE_ICO[3] EN_HIZ[2] EN_TERM[1] EN_BACKUP[0]
+//   0x18 NTC_1:    TS_COOL[7:6] TS_WARM[5:4] BHOT[3:2] BCOLD[1] TS_IGNORE[0]
 void BoardConfigContainer::getBqDiagnostics(char* buffer, uint32_t bufferSize) {
   if (!buffer || bufferSize == 0) return;
   memset(buffer, 0, bufferSize);
 
-  if (!BQ_INITIALIZED) {
+  if (!bqInitialized) {
     snprintf(buffer, bufferSize, "BQ not init");
     return;
   }
@@ -546,12 +545,12 @@ bool BoardConfigContainer::begin() {
   pinMode(LED_RED, OUTPUT);   // Red LED (P1.04)
   digitalWrite(LED_BLUE, LOW);
   digitalWrite(LED_RED, LOW);
-  
+
   // Load LED enable state from filesystem (default: enabled)
   SimplePreferences prefs_led;
-  if (prefs_led.begin("inheromr2")) {
+  if (prefs_led.begin(PREFS_NAMESPACE)) {
     char led_buffer[8];
-    prefs_led.getString("leds_en", led_buffer, sizeof(led_buffer), "1");
+    prefs_led.getString(LEDSKEY, led_buffer, sizeof(led_buffer), "1");
     leds_enabled = (strcmp(led_buffer, "1") == 0);
     prefs_led.end();
   } else {
@@ -559,24 +558,24 @@ bool BoardConfigContainer::begin() {
   }
 
   bool skip_fs_writes = ((NRF_POWER->GPREGRET2 & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE);
-  
+
   // === MR2 Hardware (Rev 1.1): INA228 Power Monitor with ALERT-based low-voltage sleep ===
   // MR2 uses INA228 at 0x40 (A0=GND, A1=GND)
   MESH_DEBUG_PRINTLN("=== INA228 Detection @ 0x40 ===");
   delay(10);  // Let serial output flush
-  
+
   // Visual indicator: Red LED on = INA228 detection in progress
   if (leds_enabled) {
     digitalWrite(LED_RED, HIGH);
     delay(50);
   }
-  
+
   // First test I2C communication
   Wire.beginTransmission(0x40);
   uint8_t i2c_result = Wire.endTransmission();
   MESH_DEBUG_PRINTLN("INA228: I2C probe result = %d (0=OK)", i2c_result);
   delay(10);
-  
+
   if (i2c_result == 0) {
     // Device responds, read ID registers
     Wire.beginTransmission(0x40);
@@ -588,7 +587,7 @@ bool BoardConfigContainer::begin() {
       MESH_DEBUG_PRINTLN("INA228: MFG_ID = 0x%04X (expect 0x5449)", mfg_id);
       delay(10);
     }
-    
+
     Wire.beginTransmission(0x40);
     Wire.write(0x3F);  // Device ID register
     Wire.endTransmission(false);
@@ -598,18 +597,18 @@ bool BoardConfigContainer::begin() {
       MESH_DEBUG_PRINTLN("INA228: DEV_ID = 0x%04X (expect 0x0228)", dev_id);
       delay(10);
     }
-    
+
     // Try to initialize
     if (ina228.begin(100.0f)) {  // 100mΩ shunt resistor (optimal SNR for 10mA standby / 1A max)
-      INA228_INITIALIZED = true;
+      ina228Initialized = true;
       ina228DriverInstance = &ina228;
-      
+
       // Turn off red LED (INA228 detection complete)
       if (leds_enabled) {
         digitalWrite(LED_RED, LOW);
         delay(10);
       }
-      
+
       // Blue LED flash: INA228 initialized
       if (leds_enabled) {
         digitalWrite(LED_BLUE, HIGH);
@@ -617,7 +616,7 @@ bool BoardConfigContainer::begin() {
         digitalWrite(LED_BLUE, LOW);
         delay(100);
       }
-      
+
       // Arm INA228 low-voltage alert for this battery chemistry
       // Rev 1.1: Always active when battery type is configured (no CLI toggle)
       // ISR on ALERT pin → volatile flag → tickPeriodic() → System Sleep with GPIO latch
@@ -626,18 +625,18 @@ bool BoardConfigContainer::begin() {
       // NOTE: Low-voltage recovery SOC=0% is handled in InheroMr2Board::begin()
       // (after setLowVoltageRecovery()), not here, because lowVoltageRecovery isn't set yet.
     } else {
-      MESH_DEBUG_PRINTLN("✗ INA228 begin() failed (check MFG_ID/DEV_ID above)");
-      INA228_INITIALIZED = false;
+      MESH_DEBUG_PRINTLN("INA228 begin() failed (check MFG_ID/DEV_ID above)");
+      ina228Initialized = false;
     }
   } else {
-    MESH_DEBUG_PRINTLN("✗ INA228 no I2C ACK @ 0x40");
-    INA228_INITIALIZED = false;
+    MESH_DEBUG_PRINTLN("INA228 no I2C ACK @ 0x40");
+    ina228Initialized = false;
   }
   delay(10);
 
   // Initialize BQ25798
   if (bq.begin()) {
-    BQ_INITIALIZED = true;
+    bqInitialized = true;
     bqDriverInstance = &bq;
     MESH_DEBUG_PRINTLN("BQ25798 found. ");
 
@@ -650,9 +649,9 @@ bool BoardConfigContainer::begin() {
     }
   } else {
     MESH_DEBUG_PRINTLN("BQ25798 not found.");
-    BQ_INITIALIZED = false;
+    bqInitialized = false;
   }
-  
+
   // Load NTC temperature calibration offset (applies to all BQ temperature readings)
   float tc_offset = 0.0f;
   if (loadTcCalOffset(tc_offset)) {
@@ -661,7 +660,7 @@ bool BoardConfigContainer::begin() {
   } else {
     MESH_DEBUG_PRINTLN("TC using default calibration (0.0)");
   }
-  
+
   // === RV-3028 RTC Initialization ===
   // Address probe + user-RAM write/readback test (catches "zombie" RTCs that
   // ACK on bus but reject writes — see probeRtc() for details).
@@ -682,11 +681,11 @@ bool BoardConfigContainer::begin() {
     MESH_DEBUG_PRINTLN("RV-3028 RTC self-test failed (attempt %d)", attempt + 1);
     delay(20);
   }
-  
+
   // === MR2 Configuration ===
   SimplePreferences prefs_init;
   prefs_init.begin(PREFS_NAMESPACE);
-  
+
   BatteryType bat = DEFAULT_BATTERY_TYPE;
   FrostChargeBehaviour frost = DEFAULT_FROST_BEHAVIOUR;
   uint16_t maxChargeCurrent_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
@@ -728,7 +727,8 @@ bool BoardConfigContainer::begin() {
 
   // Heartbeat LED task (GPIO only — no I2C, safe as FreeRTOS task)
   if (heartbeatTaskHandle == NULL && leds_enabled) {
-    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::heartbeatTask, "Heartbeat", 1024, NULL, 1, &heartbeatTaskHandle);
+    BaseType_t taskCreated = xTaskCreate(BoardConfigContainer::heartbeatTask, "Heartbeat", 1024,
+                                         NULL, 1, &heartbeatTaskHandle);
     if (taskCreated != pdPASS) {
       MESH_DEBUG_PRINTLN("Failed to create Heartbeat task!");
       return false;
@@ -740,15 +740,15 @@ bool BoardConfigContainer::begin() {
   pinMode(BQ_INT_PIN, INPUT_PULLUP);
 
   // Check if all critical components initialized
-  bool all_components_ok = BQ_INITIALIZED && INA228_INITIALIZED && rtc_initialized;
-  
+  bool all_components_ok = bqInitialized && ina228Initialized && rtc_initialized;
+
   if (!all_components_ok) {
     // Start permanent slow red LED blink to indicate missing component
-    MESH_DEBUG_PRINTLN("⚠️ Missing components - starting error LED");
-    if (!BQ_INITIALIZED) MESH_DEBUG_PRINTLN("  - BQ25798 missing");
-    if (!INA228_INITIALIZED) MESH_DEBUG_PRINTLN("  - INA228 missing");
+    MESH_DEBUG_PRINTLN("WARNING: Missing components - starting error LED");
+    if (!bqInitialized) MESH_DEBUG_PRINTLN("  - BQ25798 missing");
+    if (!ina228Initialized) MESH_DEBUG_PRINTLN("  - INA228 missing");
     if (!rtc_initialized) MESH_DEBUG_PRINTLN("  - RV-3028 RTC missing");
-    
+
     // Create error LED blink task (GPIO only)
     if (leds_enabled) {
       xTaskCreate([](void* param) {
@@ -761,10 +761,10 @@ bool BoardConfigContainer::begin() {
       }, "ErrorLED", 512, NULL, 1, NULL);
     }
   }
-  
+
   // MPPT, SOC updates, and voltage monitoring are handled in tickPeriodic()
   // (called from InheroMr2Board::tick() — no FreeRTOS tasks doing I2C)
-  
+
   // Load battery capacity from preferences (or default based on chemistry)
   float cap_mah = 0.0f;
   loadBatteryCapacity(cap_mah);
@@ -773,14 +773,14 @@ bool BoardConfigContainer::begin() {
   MESH_DEBUG_PRINTLN("SOC: capacity=%.0f mAh, nominal=%.2f V", cap_mah, socStats.nominal_voltage);
 
   // MR2 requires BQ25798 + INA228 (RTC is optional for basic operation)
-  return BQ_INITIALIZED && INA228_INITIALIZED;
+  return bqInitialized && ina228Initialized;
 }
 
 // Loads battery type from preferences
 bool BoardConfigContainer::loadBatType(BatteryType& type) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[10];
   if (prefs.getString(BATTKEY, buffer, sizeof(buffer), "") > 0) {
     type = this->getBatteryTypeFromCommandString(buffer);
@@ -791,7 +791,7 @@ bool BoardConfigContainer::loadBatType(BatteryType& type) const {
       return false;
     }
   }
-  
+
   // No preference found - use default
   type = DEFAULT_BATTERY_TYPE;
   return false;
@@ -801,7 +801,7 @@ bool BoardConfigContainer::loadBatType(BatteryType& type) const {
 bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[10];
   if (prefs.getString(FROSTKEY, buffer, sizeof(buffer), "") > 0) {
     behaviour = this->getFrostChargeBehaviourFromCommandString(buffer);
@@ -812,7 +812,7 @@ bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
       return false;
     }
   }
-  
+
   // No preference found - use default
   behaviour = DEFAULT_FROST_BEHAVIOUR;
   return false;
@@ -822,7 +822,7 @@ bool BoardConfigContainer::loadFrost(FrostChargeBehaviour& behaviour) const {
 bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[10];
 
   if (prefs.getString(MAXCHARGECURRENTKEY, buffer, sizeof(buffer), "") > 0) {
@@ -837,7 +837,7 @@ bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
       return false;
     }
   }
-  
+
   // No preference found - use default
   maxCharge_mA = DEFAULT_MAX_CHARGE_CURRENT_MA;
   return false;
@@ -847,10 +847,10 @@ bool BoardConfigContainer::loadMaxChrgI(uint16_t& maxCharge_mA) const {
 bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[10];
 
-  if (prefs.getString("mpptEn", buffer, sizeof(buffer), "") > 0) {
+  if (prefs.getString(MPPTENABLEKEY, buffer, sizeof(buffer), "") > 0) {
     if (buffer[0] != '\0') {
       enabled = buffer[0] == '1' ? true : false;
       return true;
@@ -859,22 +859,22 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
       return false;
     }
   }
-  
+
   // No preference found - use default
   enabled = DEFAULT_MPPT_ENABLED;
   return false;
 }
 
-// Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature)
-// Note: Battery voltage/current from INA228 (24-bit ADC, ±0.1% accuracy)
-//                  Solar data and battery temperature from BQ25798 ADC
-
+// Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature).
+// Battery voltage/current come from the INA228 (24-bit ADC, ±0.1% accuracy);
+// solar data and battery temperature from the BQ25798 ADC.
+//
 // Temperature availability depends on power conditions:
 //   VBUS > 3.4V  → BQ25798 ADC runs → temperature available
 //   VBAT >= 3.2V → BQ25798 ADC runs → temperature available
 //   VBAT < 3.2V  → TS channel disabled (datasheet 9.3.16) → temperature = N/A
 //   VBAT < 2.9V  → ADC cannot operate at all → temperature = N/A, solar = 0
-
+//
 // Temperature sentinel values (propagated from BqDriver::calculateBatteryTemp):
 //   -999.0f = I2C communication error or NTC unavailable
 //   -888.0f = ADC not ready / TS disabled due to low VBAT
@@ -883,7 +883,7 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
 //   Values outside -50..+90°C are treated as invalid → displayed as "N/A"
 const Telemetry* BoardConfigContainer::getTelemetryData() {
   static Telemetry telemetry;
-  
+
   // Battery voltage/current ALWAYS from INA228 (no fallback to BQ25798)
   // INA228 for precise battery monitoring
   uint16_t batt_voltage = 0;
@@ -911,27 +911,27 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   // Temperature: BQ25798 TS ADC reads NTC via REGN-biased divider.
   // Error codes from calculateBatteryTemp: -999 (I2C), -888 (ADC not ready), -99 (open), 99 (short).
   // Valid NTC range: approx -40..+85 °C. Anything outside -50..+90 is treated as unavailable.
-  float bqTemp = bqData->batterie.temperature;
+  float bqTemp = bqData->battery.temperature;
   if (bqTemp >= -50.0f && bqTemp <= 90.0f) {
-    telemetry.batterie.temperature = bqTemp + tcCalOffset;
+    telemetry.battery.temperature = bqTemp + tcCalOffset;
     // Cache for temperature derating in updateBatterySOC() (static context)
-    lastValidBatteryTemp = telemetry.batterie.temperature;
+    lastValidBatteryTemp = telemetry.battery.temperature;
     lastTempUpdateMs = millis();
   } else {
     // NTC unavailable (no solar / I2C error / ADC not ready) → propagate sentinel
-    telemetry.batterie.temperature = -999.0f;
+    telemetry.battery.temperature = -999.0f;
   }
 
-  telemetry.batterie.voltage = batt_voltage;
-  telemetry.batterie.current = batt_current;
-  telemetry.batterie.power = batt_power;
+  telemetry.battery.voltage = batt_voltage;
+  telemetry.battery.current = batt_current;
+  telemetry.battery.power = batt_power;
 
   return &telemetry;
 }
 
 // Configures base BQ25798 settings (timers, watchdog, input limits, MPPT)
 bool BoardConfigContainer::configureBaseBQ() {
-  if (!BQ_INITIALIZED) {
+  if (!bqInitialized) {
     return false;
   }
 
@@ -974,7 +974,7 @@ bool BoardConfigContainer::configureBaseBQ() {
 
 // Configures battery chemistry-specific parameters (cell count, charge voltage)
 bool BoardConfigContainer::configureChemistry(BatteryType type) {
-  if (!BQ_INITIALIZED) {
+  if (!bqInitialized) {
     return false;
   }
 
@@ -994,7 +994,9 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
 #ifdef BQ_CE_PIN
   pinMode(BQ_CE_PIN, OUTPUT);
   digitalWrite(BQ_CE_PIN, props->charge_enable ? HIGH : LOW);
-  MESH_DEBUG_PRINTLN("BQ CE pin %s (charge_enable=%d)", props->charge_enable ? "HIGH (enabled via FET)" : "LOW (disabled via FET)", props->charge_enable);
+  MESH_DEBUG_PRINTLN("BQ CE pin %s (charge_enable=%d)",
+                     props->charge_enable ? "HIGH (enabled via FET)" : "LOW (disabled via FET)",
+                     props->charge_enable);
 #endif
 
   // Apply TS_IGNORE before potential early return — configureBaseBQ() resets it to false,
@@ -1010,9 +1012,9 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
     return true;  // No further configuration needed for unknown battery
   }
 
-  // Configure chemistry-specific parameters
-  // Configure cell count
-  bq25798_cell_count_t cellCount = (type == BoardConfigContainer::BatteryType::LTO_2S) ? BQ25798_CELL_COUNT_2S : BQ25798_CELL_COUNT_1S;
+  // Configure chemistry-specific parameters, starting with the cell count
+  bq25798_cell_count_t cellCount = (type == BoardConfigContainer::BatteryType::LTO_2S)
+                                       ? BQ25798_CELL_COUNT_2S : BQ25798_CELL_COUNT_1S;
   bq.setCellCount(cellCount);
 
   bq.setChargeLimitV(props->charge_voltage);
@@ -1059,11 +1061,11 @@ bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
   // Save to preferences first
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   if (!prefs.putString(MPPTENABLEKEY, enableMPPT ? "1" : "0")) {
     return false;
   }
-  
+
   // Set the hardware register
   if (!enableMPPT) {
     // Disable MPPT in hardware
@@ -1072,14 +1074,14 @@ bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
     // Enable MPPT in hardware register
     bq.setMPPTenable(true);
   }
-  
+
   return true;
 }
 
 // Gets current maximum charge voltage
 float BoardConfigContainer::getMaxChargeVoltage() const {
   return bq.getChargeLimitV();
-};
+}
 
 // Sets battery type and reconfigures BQ accordingly
 bool BoardConfigContainer::setBatteryType(BatteryType type) {
@@ -1106,18 +1108,18 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
     armLowVoltageAlert();
     delay(10);
   }
-  
+
   // Store battery type in preferences
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
   prefs.putString(BATTKEY, getBatteryTypeCommandString(type));
-  
+
   // Safety: When switching to Li-Ion or LiFePO4, reset frost charge to NO_CHARGE
   // These chemistries should not be charged at low temperatures
   if (type == BatteryType::LIION_1S || type == BatteryType::LIFEPO4_1S) {
     setFrostChargeBehaviour(FrostChargeBehaviour::NO_CHARGE);
   }
-  
+
   return bqBaseConfigured && bqConfigured;
 }
 
@@ -1184,9 +1186,9 @@ void BoardConfigContainer::setUsbConnected(bool connected) {
   }
 }
 
-// Calculate IINDPM for solar input from battery chemistry and charge current
+// Calculate IINDPM for solar input from battery chemistry and charge current.
 // Power conservation: I_in = IINDPM_MARGIN × (V_charge × I_charge) / V_panel.
-//          Prevents weak panels from POORSRC fault after PG qualification.
+// Prevents weak panels from POORSRC fault after PG qualification.
 float BoardConfigContainer::calculateSolarIINDPM() {
   const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
   if (!props || !props->charge_enable) {
@@ -1226,7 +1228,8 @@ void BoardConfigContainer::updateSolarIINDPM() {
   bqDriverInstance->setInputLimitA(iindpm);
   MESH_DEBUG_PRINTLN("Solar IINDPM = %dmA (Vchg=%.1fV, margin=%.1fx, Vpanel=%.0fV)",
                      (int)(iindpm * 1000),
-                     getBatteryProperties(cachedBatteryType) ? getBatteryProperties(cachedBatteryType)->charge_voltage : 0.0f,
+                     getBatteryProperties(cachedBatteryType)
+                         ? getBatteryProperties(cachedBatteryType)->charge_voltage : 0.0f,
                      IINDPM_MARGIN, IINDPM_PANEL_V);
 }
 
@@ -1238,30 +1241,30 @@ float BoardConfigContainer::getMpptEnabledPercentage7Day() const {
   if (!mpptEnabled) {
     return 0.0f;
   }
-  
+
   uint32_t totalMinutes = 0;
   uint32_t enabledMinutes = 0;
   uint32_t validHours = 0;
-  
+
   // Count backwards through the circular buffer
   for (int i = 0; i < MPPT_STATS_HOURS; i++) {
     int index = (mpptStats.currentIndex - 1 - i + MPPT_STATS_HOURS) % MPPT_STATS_HOURS;
-    
+
     // Skip entries that haven't been filled yet (timestamp == 0)
     if (mpptStats.hours[index].timestamp == 0) {
       continue;
     }
-    
+
     validHours++;
     enabledMinutes += mpptStats.hours[index].mpptEnabledMinutes;
   }
-  
+
   if (validHours == 0) {
     return 0.0f; // No data yet
   }
-  
+
   totalMinutes = validHours * 60; // Each hour has 60 minutes
-  
+
   return (enabledMinutes * 100.0f) / totalMinutes;
 }
 
@@ -1287,7 +1290,7 @@ float BoardConfigContainer::getBatteryCapacity() const {
 bool BoardConfigContainer::isBatteryCapacitySet() const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[20];
   size_t len = prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "");
   return (len > 0 && buffer[0] != '\0');
@@ -1298,27 +1301,27 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   if (capacity_mah < 100.0f || capacity_mah > 100000.0f) {
     return false;  // Sanity check
   }
-  
+
   // Store user-configured capacity in mAh
   socStats.capacity_mah = capacity_mah;
-  
+
   // Get nominal voltage for current chemistry
   BatteryType batType = getBatteryType();
   float v_nominal = getNominalVoltage(batType);
   socStats.nominal_voltage = v_nominal;
-  
+
   // Invalidate SOC until next "Charging Done" sync
   socStats.soc_valid = false;
-  
+
   // Save to preferences
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[20];
   snprintf(buffer, sizeof(buffer), "%.1f", capacity_mah);
   prefs.putString(BATTERY_CAPACITY_KEY, buffer);
-  
-  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV", 
+
+  MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV",
                      capacity_mah, v_nominal);
   return true;
 }
@@ -1339,14 +1342,14 @@ void BoardConfigContainer::syncSOCToFull() {
   if (!ina228DriverInstance) {
     return;
   }
-  
+
   // Reset INA228 Coulomb Counter (clears ENERGY and CHARGE registers)
   ina228DriverInstance->resetCoulombCounter();
-  
+
   // Set baseline to 0 (we just reset the counter)
   socStats.ina228_baseline_mah = 0;
   socStats.last_soc_update_ms = millis();   // Reset time reference
-  
+
   // Mark as fully charged
   socStats.current_soc_percent = 100.0f;
   socStats.soc_valid = true;
@@ -1381,30 +1384,30 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
     MESH_DEBUG_PRINTLN("SOC: Cannot set - INA228 not initialized");
     return false;
   }
-  
+
   // Validate SOC range
   if (soc_percent < 0.0f || soc_percent > 100.0f) {
     MESH_DEBUG_PRINTLN("SOC: Invalid value %.1f%% (must be 0-100)", soc_percent);
     return false;
   }
-  
+
   if (socStats.capacity_mah <= 0) {
     MESH_DEBUG_PRINTLN("SOC: Cannot set - battery capacity unknown");
     return false;
   }
-  
+
   // Read current CHARGE register value
   float current_charge_mah = ina228DriverInstance->readCharge_mAh();
-  
+
   // Calculate remaining capacity at desired SOC
   float remaining_mah = (soc_percent / 100.0f) * socStats.capacity_mah;
-  
+
   // Calculate baseline: charge_mah = baseline + net_charge
   // We want: remaining_mah = capacity + net_charge = capacity + (charge - baseline)
   // Therefore: baseline = charge - (remaining - capacity)
   socStats.ina228_baseline_mah = current_charge_mah - (remaining_mah - socStats.capacity_mah);
   socStats.last_soc_update_ms = millis();   // Reset time reference
-  
+
   // Set SOC and mark as valid
   socStats.current_soc_percent = soc_percent;
   socStats.soc_valid = true;
@@ -1416,7 +1419,7 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
   MESH_DEBUG_PRINTLN("SOC: Manually set to %.1f%% (CHARGE=%.1fmAh, Baseline=%.1fmAh, d=%.2f)",
                      soc_percent, current_charge_mah, socStats.ina228_baseline_mah,
                      socStats.temp_derating_factor);
-  
+
   return true;
 }
 
@@ -1424,7 +1427,7 @@ bool BoardConfigContainer::setSOCManually(float soc_percent) {
 bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[20];
   if (prefs.getString(BATTERY_CAPACITY_KEY, buffer, sizeof(buffer), "") > 0) {
     if (buffer[0] != '\0') {
@@ -1432,7 +1435,7 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
       return (capacity_mah > 0.0f);
     }
   }
-  
+
   // Default capacity based on battery type (estimate)
   BatteryType type;
   if (loadBatType(type)) {
@@ -1454,7 +1457,7 @@ bool BoardConfigContainer::loadBatteryCapacity(float& capacity_mah) const {
   } else {
     capacity_mah = 2000.0f;  // Default fallback
   }
-  
+
   return false;  // Not loaded from prefs
 }
 
@@ -1469,19 +1472,19 @@ Ina228Driver* BoardConfigContainer::getIna228Driver() {
 bool BoardConfigContainer::loadTcCalOffset(float& offset) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[20];
   if (prefs.getString(TCCAL_KEY, buffer, sizeof(buffer), "") > 0) {
     if (buffer[0] != '\0') {
       offset = atof(buffer);
-      
+
       // Validate offset is in reasonable range (±20°C)
       if (offset >= -20.0f && offset <= 20.0f) {
         return true;
       }
     }
   }
-  
+
   // Default: no offset
   offset = 0.0f;
   return false;
@@ -1492,22 +1495,22 @@ bool BoardConfigContainer::setTcCalOffset(float offset_c) {
   // Clamp to reasonable range
   if (offset_c < -20.0f) offset_c = -20.0f;
   if (offset_c > 20.0f) offset_c = 20.0f;
-  
+
   // Apply to runtime variable
   tcCalOffset = offset_c;
-  
+
   // Save to preferences
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
-  
+
   char buffer[20];
   snprintf(buffer, sizeof(buffer), "%.2f", offset_c);
-  
+
   if (prefs.putString(TCCAL_KEY, buffer)) {
-    MESH_DEBUG_PRINTLN("TC calibration offset saved: %.2f °C", offset_c);
+    MESH_DEBUG_PRINTLN("TC calibration offset saved: %.2f C", offset_c);
     return true;
   }
-  
+
   return false;
 }
 
@@ -1522,51 +1525,51 @@ float BoardConfigContainer::performTcCalibration(float actual_temp_c) {
   if (!bqDriverInstance) {
     return -999.0f;
   }
-  
+
   // Temporarily remove any existing offset to get raw NTC readings
   float old_offset = tcCalOffset;
   tcCalOffset = 0.0f;
-  
+
   // Average multiple NTC readings to reduce ADC noise
   const int NUM_SAMPLES = 5;
   const int SAMPLE_DELAY_MS = 200;
   float ntc_sum = 0.0f;
   int valid_count = 0;
-  
+
   for (int i = 0; i < NUM_SAMPLES; i++) {
     if (i > 0) delay(SAMPLE_DELAY_MS);
-    
+
     const Telemetry* bqData = bqDriverInstance->getTelemetryData(0);  // TC calibration: VBAT unknown, assume sufficient
     if (!bqData) continue;
-    
-    float raw = bqData->batterie.temperature;
+
+    float raw = bqData->battery.temperature;
     // Skip error codes
     if (raw <= -800.0f || raw >= 98.0f) continue;
-    
+
     ntc_sum += raw;
     valid_count++;
   }
-  
+
   if (valid_count < 3) {
     tcCalOffset = old_offset;  // Restore old offset
     MESH_DEBUG_PRINTLN("TC Cal: Only %d/%d valid NTC readings", valid_count, NUM_SAMPLES);
     return -999.0f;
   }
-  
+
   float raw_ntc_avg = ntc_sum / valid_count;
-  
+
   // Compute offset: calibrated = raw + offset  →  offset = reference - raw
   float new_offset = actual_temp_c - raw_ntc_avg;
-  
-  MESH_DEBUG_PRINTLN("TC Cal: ref=%.2f NTC_avg=%.2f (%d samples) offset=%.2f", 
+
+  MESH_DEBUG_PRINTLN("TC Cal: ref=%.2f NTC_avg=%.2f (%d samples) offset=%.2f",
                      actual_temp_c, raw_ntc_avg, valid_count, new_offset);
-  
+
   // Store persistently
   if (!setTcCalOffset(new_offset)) {
     tcCalOffset = old_offset;  // Restore on failure
     return -999.0f;
   }
-  
+
   return new_offset;
 }
 
@@ -1578,7 +1581,7 @@ float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
   const int SAMPLE_DELAY_MS = 200;
   float bme_sum = 0.0f;
   int valid_count = 0;
-  
+
   for (int i = 0; i < NUM_SAMPLES; i++) {
     float t = readBmeTemperature();
     if (t <= -900.0f) continue;
@@ -1586,19 +1589,19 @@ float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
     valid_count++;
     if (i < NUM_SAMPLES - 1) delay(SAMPLE_DELAY_MS);
   }
-  
+
   if (valid_count < 3) {
     MESH_DEBUG_PRINTLN("TC Cal: Only %d/%d valid BME readings", valid_count, NUM_SAMPLES);
     return -999.0f;
   }
-  
+
   float bme_avg = bme_sum / valid_count;
   MESH_DEBUG_PRINTLN("TC Cal: BME avg=%.2f (%d samples)", bme_avg, valid_count);
-  
+
   if (bme_temp_out) {
     *bme_temp_out = bme_avg;
   }
-  
+
   return performTcCalibration(bme_avg);
 }
 
@@ -1635,11 +1638,11 @@ void BoardConfigContainer::armLowVoltageAlert() {
   if (!ina228DriverInstance) {
     return;
   }
-  
+
   BatteryType bat_type = getBatteryType();
   const BatteryProperties* props = getBatteryProperties(bat_type);
   uint16_t sleep_mv = props ? props->lowv_sleep_mv : 0;
-  
+
   if (bat_type == BAT_UNKNOWN || sleep_mv == 0) {
     // No battery configured — disarm alert
     ina228DriverInstance->setUnderVoltageAlert(0);
@@ -1647,14 +1650,14 @@ void BoardConfigContainer::armLowVoltageAlert() {
     MESH_DEBUG_PRINTLN("INA228 Low-V Alert: DISABLED (BAT_UNKNOWN)");
     return;
   }
-  
+
   bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(sleep_mv);
   ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
-  
+
   // Attach ISR on ALERT pin (active-LOW, falling edge)
   pinMode(INA_ALERT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN), lowVoltageAlertISR, FALLING);
-  
+
   MESH_DEBUG_PRINTLN("INA228 Low-V Alert: ARMED @ %dmV (BUVL write %s)", sleep_mv, buvl_ok ? "OK" : "FAILED");
 }
 
@@ -1694,7 +1697,7 @@ void BoardConfigContainer::updateBatterySOC() {
   if (!ina228DriverInstance) {
     return;
   }
-  
+
   // Periodic SHUNT_CAL self-heal (~every 5 min via static counter)
   // If SHUNT_CAL got wiped (clone chip glitch, I2C error, etc.),
   // CURRENT and CHARGE registers read 0 forever → stats stay at 0.
@@ -1703,20 +1706,20 @@ void BoardConfigContainer::updateBatterySOC() {
     scal_check_counter = 0;
     ina228DriverInstance->validateAndRepairShuntCal();
   }
-  
+
   // Read INA228 Hardware Coulomb Counter (mAh) - TWO'S COMPLEMENT, has correct sign!
   // Positive = charging (into battery), Negative = discharging (from battery)
   float charge_mah = ina228DriverInstance->readCharge_mAh();
-  
+
   uint32_t now_ms = millis();
   socStats.last_soc_update_ms = now_ms;
   socStats.soc_update_count++;
-  
+
   // Update current hour statistics (track charged/discharged charge in mAh)
   // This runs ALWAYS, independent of SOC validity
   static float last_charge_mah = 0.0f;
   static bool first_read = true;
-  
+
   if (first_read) {
     // Initialize baseline on first read, don't count initial value as delta
     last_charge_mah = charge_mah;
@@ -1724,7 +1727,7 @@ void BoardConfigContainer::updateBatterySOC() {
   } else {
     float delta_mah = charge_mah - last_charge_mah;
     last_charge_mah = charge_mah;
-    
+
     // Handle potential counter wrap or reset (ignore huge jumps > 10Ah)
     if (delta_mah > 10000.0f || delta_mah < -10000.0f) {
       MESH_DEBUG_PRINTLN("SOC: Large charge delta %.0fmAh - ignoring (counter reset?)", delta_mah);
@@ -1741,7 +1744,7 @@ void BoardConfigContainer::updateBatterySOC() {
     }
   }
   socStats.last_charge_reading_mah = charge_mah;  // Always update for diagnostics
-  
+
   // Check if BQ reports charging done → auto-sync
   if (bqDriverInstance) {
     bq25798_charging_status status = bqDriverInstance->getChargingStatus();
@@ -1759,19 +1762,19 @@ void BoardConfigContainer::updateBatterySOC() {
       }
     }
   }
-  
+
   // SOC calculation is only valid after first "Charging Done" sync via syncSOCToFull()
   if (!socStats.soc_valid) {
     return;  // Wait for first sync
   }
-  
+
   // Net charge since last baseline reset (using CHARGE register in mAh)
   // Driver inverted: positive = charged into battery, negative = discharged from battery
   float net_charge_mah = charge_mah - socStats.ina228_baseline_mah;
-  
+
   // Remaining capacity = Initial capacity + net charge (positive=charged adds, negative=discharged subtracts)
   float remaining_mah = socStats.capacity_mah + net_charge_mah;
-  
+
   // Temperature derating: calculate factor for TTL and display purposes.
   // The derating factor is NOT applied to SOC% — SOC% is purely Coulomb-based
   // (remaining_mah / capacity_mah) and represents the actual stored charge.
@@ -1785,25 +1788,24 @@ void BoardConfigContainer::updateBatterySOC() {
   // Calculate SOC percentage — purely Coulomb-based, NO temperature derating
   if (socStats.capacity_mah > 0) {
     socStats.current_soc_percent = (remaining_mah / socStats.capacity_mah) * 100.0f;
-    
+
     // Clamp to 0-100%
     if (socStats.current_soc_percent > 100.0f) socStats.current_soc_percent = 100.0f;
     if (socStats.current_soc_percent < 0.0f) socStats.current_soc_percent = 0.0f;
   }
 }
 
-// Update daily balance statistics (mAh-based)
-// Update hourly battery statistics and advance rolling window
 uint32_t BoardConfigContainer::getRTCTimestamp() {
   return getRTCTime();
 }
 
+// Update hourly battery statistics and advance rolling window
 void BoardConfigContainer::updateHourlyStats() {
   uint32_t currentTime = getRTCTime();
-  
+
   // Calculate hour boundary (align to full hours)
   uint32_t currentHour = (currentTime / 3600) * 3600;  // Truncate to hour boundary
-  
+
   // Check if hour has changed
   if (socStats.lastHourUpdateTime == 0) {
     // First run - initialize
@@ -1811,34 +1813,34 @@ void BoardConfigContainer::updateHourlyStats() {
     MESH_DEBUG_PRINTLN("SOC: Hourly stats initialized at timestamp %u", currentHour);
     return;
   }
-  
+
   uint32_t lastHour = (socStats.lastHourUpdateTime / 3600) * 3600;
-  
+
   if (currentHour > lastHour) {
     // Hour boundary crossed - save current hour stats
-    MESH_DEBUG_PRINTLN("SOC: Hour changed (%u -> %u) - saving stats: C:%.1f D:%.1f S:%.1f mAh", 
+    MESH_DEBUG_PRINTLN("SOC: Hour changed (%u -> %u) - saving stats: C:%.1f D:%.1f S:%.1f mAh",
                        lastHour, currentHour,
                        socStats.current_hour_charged_mah,
                        socStats.current_hour_discharged_mah,
                        socStats.current_hour_solar_mah);
-    
+
     // Move to next hour slot in circular buffer
     uint8_t nextIndex = (socStats.currentIndex + 1) % HOURLY_STATS_HOURS;
-    
+
     // Save completed hour's stats
     HourlyBatteryStats& completedHour = socStats.hours[socStats.currentIndex];
     completedHour.timestamp = lastHour;
     completedHour.charged_mah = socStats.current_hour_charged_mah;
     completedHour.discharged_mah = socStats.current_hour_discharged_mah;
     completedHour.solar_mah = socStats.current_hour_solar_mah;
-    
+
     // Reset accumulators for new hour
     socStats.currentIndex = nextIndex;
     socStats.current_hour_charged_mah = 0.0f;
     socStats.current_hour_discharged_mah = 0.0f;
     socStats.current_hour_solar_mah = 0.0f;
     socStats.lastHourUpdateTime = currentHour;
-    
+
     // Recalculate rolling window statistics (24h and 3-day averages)
     calculateRollingStats();
   }
@@ -1851,7 +1853,7 @@ void BoardConfigContainer::calculateRollingStats() {
   float sum_24h_discharged = 0.0f;
   float sum_24h_solar = 0.0f;
   int valid_hours_24h = 0;
-  
+
   // Sum up last 24 hours (most recent 24 entries)
   for (int i = 0; i < 24 && i < HOURLY_STATS_HOURS; i++) {
     int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
@@ -1862,19 +1864,19 @@ void BoardConfigContainer::calculateRollingStats() {
       valid_hours_24h++;
     }
   }
-  
+
   // Last 24h net: solar - discharged (positive = surplus, negative = deficit)
   socStats.last_24h_net_mah = sum_24h_solar - sum_24h_discharged;
   socStats.last_24h_charged_mah = sum_24h_charged;
   socStats.last_24h_discharged_mah = sum_24h_discharged;
   socStats.living_on_battery = (socStats.last_24h_net_mah < 0.0f);
-  
+
   // Calculate 3-day average daily net (72 hours)
   float sum_72h_charged = 0.0f;
   float sum_72h_discharged = 0.0f;
   float sum_72h_solar = 0.0f;
   int valid_hours_72h = 0;
-  
+
   for (int i = 0; i < 72 && i < HOURLY_STATS_HOURS; i++) {
     int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
     if (socStats.hours[idx].timestamp != 0) {
@@ -1884,7 +1886,7 @@ void BoardConfigContainer::calculateRollingStats() {
       valid_hours_72h++;
     }
   }
-  
+
   // Average daily net over 3 days (divide 72h sum by 3)
   if (valid_hours_72h >= 24) {  // Need at least 24h of data
     float net_72h = sum_72h_solar - sum_72h_discharged;
@@ -1896,13 +1898,13 @@ void BoardConfigContainer::calculateRollingStats() {
     socStats.avg_3day_daily_charged_mah = 0.0f;
     socStats.avg_3day_daily_discharged_mah = 0.0f;
   }
-  
+
   // Calculate 7-day average daily net (168 hours)
   float sum_168h_charged = 0.0f;
   float sum_168h_discharged = 0.0f;
   float sum_168h_solar = 0.0f;
   int valid_hours_168h = 0;
-  
+
   for (int i = 0; i < 168 && i < HOURLY_STATS_HOURS; i++) {
     int idx = (socStats.currentIndex - 1 - i + HOURLY_STATS_HOURS) % HOURLY_STATS_HOURS;
     if (socStats.hours[idx].timestamp != 0) {
@@ -1912,7 +1914,7 @@ void BoardConfigContainer::calculateRollingStats() {
       valid_hours_168h++;
     }
   }
-  
+
   // Average daily net over 7 days (divide 168h sum by 7)
   if (valid_hours_168h >= 24) {  // Need at least 24h of data
     float net_168h = sum_168h_solar - sum_168h_discharged;
@@ -1924,46 +1926,46 @@ void BoardConfigContainer::calculateRollingStats() {
     socStats.avg_7day_daily_charged_mah = 0.0f;
     socStats.avg_7day_daily_discharged_mah = 0.0f;
   }
-  
+
   MESH_DEBUG_PRINTLN("SOC: Rolling stats - 24h net: %+.1fmAh, 3d avg: %+.1fmAh/day, 7d avg: %+.1fmAh/day",
                      socStats.last_24h_net_mah, socStats.avg_3day_daily_net_mah, socStats.avg_7day_daily_net_mah);
-  
+
   // Calculate TTL
   calculateTTL();
 }
 
-// Calculate Time To Live (hours until battery empty)
-// TTL is based on the **7-day rolling average** of daily net energy consumption
-//          (avg_7day_daily_net_mah). This average is computed from a 168-hour (7-day)
-//          ring buffer of hourly INA228 Coulomb-counter measurements (charged/discharged/solar mAh).
-
-//          Data flow:
-//          1. INA228 hardware Coulomb counter measures charge flow continuously (24-bit ADC)
-//          2. updateHourlyStats() samples the counter every hour, storing per-hour deltas
-//             (charged_mah, discharged_mah, solar_mah) in hours[168] ring buffer
-//          3. calculateRollingStats() sums the last 168 hours and divides by 7 to get
-//             avg_7day_daily_net_mah (= solar - discharged per day)
-//          4. This method extrapolates: remaining_mah / deficit_per_day * 24 = TTL hours
-
-//          Preconditions for TTL > 0:
-//          - living_on_battery == true (24h net is negative, i.e. energy deficit)
-//          - avg_7day_daily_net_mah < 0 (7-day average shows net discharge)
-//          - capacity_mah > 0 (battery capacity is known)
-//          - At least 24 hours of valid hourly data exist in the ring buffer
-
-//          When the device is solar-powered with energy surplus (net >= 0),
-//          TTL is 0 and callers interpret this as "infinite" via living_on_battery flag.
+// Calculate Time To Live (hours until battery empty).
+// TTL is based on the 7-day rolling average of daily net energy consumption
+// (avg_7day_daily_net_mah), computed from a 168-hour ring buffer of hourly
+// INA228 Coulomb-counter measurements (charged/discharged/solar mAh).
+//
+// Data flow:
+//   1. INA228 hardware Coulomb counter measures charge flow continuously (24-bit ADC)
+//   2. updateHourlyStats() samples the counter every hour, storing per-hour deltas
+//      (charged_mah, discharged_mah, solar_mah) in the hours[168] ring buffer
+//   3. calculateRollingStats() sums the last 168 hours and divides by 7 to get
+//      avg_7day_daily_net_mah (= solar - discharged per day)
+//   4. This method extrapolates: remaining_mah / deficit_per_day * 24 = TTL hours
+//
+// Preconditions for TTL > 0:
+//   - living_on_battery == true (24h net is negative, i.e. energy deficit)
+//   - avg_7day_daily_net_mah < 0 (7-day average shows net discharge)
+//   - capacity_mah > 0 (battery capacity is known)
+//   - at least 24 hours of valid hourly data exist in the ring buffer
+//
+// When the device is solar-powered with energy surplus (net >= 0), TTL is 0
+// and callers interpret this as "infinite" via the living_on_battery flag.
 void BoardConfigContainer::calculateTTL() {
   if (!socStats.living_on_battery || socStats.avg_7day_daily_net_mah >= 0) {
     socStats.ttl_hours = 0;  // Not draining or charging
     return;
   }
-  
+
   if (socStats.capacity_mah <= 0) {
     socStats.ttl_hours = 0;  // Capacity unknown
     return;
   }
-  
+
   // Trapped Charge model: cold temperatures "lock" the bottom of the discharge
   // curve — the cell shuts down (OCV near cutoff + TX-peak IR-drop) while charge
   // is still physically stored.  trapped_mah is the unusable floor.
@@ -1975,30 +1977,31 @@ void BoardConfigContainer::calculateTTL() {
   float trapped_mah = socStats.capacity_mah * (1.0f - socStats.temp_derating_factor);
   float extractable_mah = remaining_mah - trapped_mah;
   if (extractable_mah < 0.0f) extractable_mah = 0.0f;
-  
+
   // Daily deficit (negative value)
   float deficit_per_day = -socStats.avg_7day_daily_net_mah;
-  
+
   if (deficit_per_day <= 0) {
     socStats.ttl_hours = 0;
     return;
   }
-  
+
   // Days until empty (based on extractable capacity)
   float days_remaining = extractable_mah / deficit_per_day;
-  
+
   // Convert to hours
   socStats.ttl_hours = (uint16_t)(days_remaining * 24.0f);
-  
+
   MESH_DEBUG_PRINTLN("TTL: %.1f days (%.0f mAh stored, %.0f trapped, %.0f extractable @d=%.2f, -%.0f mAh/day)",
-                     days_remaining, remaining_mah, trapped_mah, extractable_mah, socStats.temp_derating_factor, deficit_per_day);
+                     days_remaining, remaining_mah, trapped_mah, extractable_mah,
+                     socStats.temp_derating_factor, deficit_per_day);
 }
 
 // ===== Tick-based Periodic Dispatch =====
 
-// Called from InheroMr2Board::tick() — dispatches all periodic I2C work
+// Called from InheroMr2Board::tick() — dispatches all periodic I2C work with
 // millis()-based scheduling in the main loop context.
-//          Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
+// Also checks the ISR-set lowVoltageAlertFired flag for immediate shutdown.
 void BoardConfigContainer::tickPeriodic() {
   // First-call init: clear MPPT stats
   if (!tickInitialized) {
@@ -2008,7 +2011,7 @@ void BoardConfigContainer::tickPeriodic() {
 
   // Check low-voltage alert flag (set by INA228 ALERT ISR)
   if (lowVoltageAlertFired) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired — initiating System Sleep");
+    MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired - initiating System Sleep");
     blinkRed(1, 100, 100, leds_enabled);
     blinkRed(3, 300, 300, leds_enabled);
 

@@ -90,14 +90,14 @@ bool appendBoardTelemetry(BoardConfigContainer& cfg, CayenneLPP& telemetry) {
 
   uint16_t ttlHours = cfg.getTTL_Hours();
   bool isInfiniteTtl = (socStats && socStats->soc_valid && !socStats->living_on_battery);
-  constexpr float MAX_TTL_DAYS = 990.0f;  // max encodable LPP distance value
+  constexpr float MAX_TTL_DAYS = 990.0f;  // sentinel reported when TTL is effectively infinite
 
   // Battery: VBAT[V], SOC[%] (opt), IBAT[A], TBAT[°C], TTL[d] (opt)
-  telemetry.addVoltage(batteryChannel, telemetryData->batterie.voltage / 1000.0f);
+  telemetry.addVoltage(batteryChannel, telemetryData->battery.voltage / 1000.0f);
   if (hasValidSoc) telemetry.addPercentage(batteryChannel, socPercent);
-  telemetry.addCurrent(batteryChannel, telemetryData->batterie.current / 1000.0f);
-  if (telemetryData->batterie.temperature > -100.0f) {
-    telemetry.addTemperature(batteryChannel, telemetryData->batterie.temperature);
+  telemetry.addCurrent(batteryChannel, telemetryData->battery.current / 1000.0f);
+  if (telemetryData->battery.temperature > -100.0f) {
+    telemetry.addTemperature(batteryChannel, telemetryData->battery.temperature);
   }
   if (ttlHours > 0) {
     telemetry.addDistance(batteryChannel, ttlHours / 24.0f);
@@ -208,7 +208,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
       return true;
     }
 
-    float precise_current_ma = telemetry->batterie.current;
+    float precise_current_ma = telemetry->battery.current;
     float soc = cfg.getStateOfCharge();
     const BatterySOCStats* socStats = cfg.getSOCStats();
 
@@ -224,10 +224,10 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     else                          snprintf(sol_current_str, sizeof(sol_current_str), "%dmA", (int)sol_current);
 
     char temp_str[8];
-    if (telemetry->batterie.temperature <= -100.0f) {
+    if (telemetry->battery.temperature <= -100.0f) {
       snprintf(temp_str, sizeof(temp_str), "N/A");
     } else {
-      snprintf(temp_str, sizeof(temp_str), "%.0fC", telemetry->batterie.temperature);
+      snprintf(temp_str, sizeof(temp_str), "%.0fC", telemetry->battery.temperature);
     }
 
     if (socStats && socStats->soc_valid) {
@@ -239,16 +239,16 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
         if (derated_soc < 0.0f) derated_soc = 0.0f;
         if (derated_soc > 100.0f) derated_soc = 100.0f;
         snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% (%.0f%%) S:%.2fV/%s",
-                 telemetry->batterie.voltage / 1000.0f, bat_current_str, temp_str,
+                 telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
                  soc, derated_soc, telemetry->solar.voltage / 1000.0f, sol_current_str);
       } else {
         snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% S:%.2fV/%s",
-                 telemetry->batterie.voltage / 1000.0f, bat_current_str, temp_str,
+                 telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
                  soc, telemetry->solar.voltage / 1000.0f, sol_current_str);
       }
     } else {
       snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:N/A S:%.2fV/%s",
-               telemetry->batterie.voltage / 1000.0f, bat_current_str, temp_str,
+               telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
                telemetry->solar.voltage / 1000.0f, sol_current_str);
     }
     return true;

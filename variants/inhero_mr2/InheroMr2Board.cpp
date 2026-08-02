@@ -6,7 +6,6 @@
  * Inhero MR-2 Board Implementation
  */
 
-// Includes
 #include "InheroMr2Board.h"
 
 #include "BoardConfigContainer.h"
@@ -23,7 +22,6 @@
 #include <Wire.h>
 #include <nrf_soc.h>
 
-// Static declarations
 static BoardConfigContainer boardConfig;
 volatile bool InheroMr2Board::rtc_irq_pending = false;
 volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
@@ -59,7 +57,7 @@ void InheroMr2Board::begin() {
         (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
         (GPIO_PIN_CNF_SENSE_Low << GPIO_PIN_CNF_SENSE_Pos);
 
-    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
     uint16_t wake_threshold = getLowVoltageWakeThreshold();
 
     MESH_DEBUG_PRINTLN("LV-Wake: VBAT=%dmV, wake=%dmV", vbat_mv, wake_threshold);
@@ -113,7 +111,7 @@ void InheroMr2Board::begin() {
 
     NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
     // setLowVoltageRecovery + setSOCManually deferred to after boardConfig.begin()
-    MESH_DEBUG_PRINTLN("LV-Wake: Voltage recovered (%dmV >= %dmV) — normal boot", vbat_mv, wake_threshold);
+    MESH_DEBUG_PRINTLN("LV-Wake: Voltage recovered (%dmV >= %dmV) - normal boot", vbat_mv, wake_threshold);
   }
 
   // === Standard boot path (ColdBoot, recovery, or non-LV wake) ===
@@ -152,7 +150,6 @@ void InheroMr2Board::begin() {
   Wire.begin();
   delay(50); // Give I2C bus time to stabilize
 
-  // MR2 Rev 1.1 hardware — no detection needed
   MESH_DEBUG_PRINTLN("Inhero MR2 - Hardware Rev 1.1 (INA228 ALERT + RTC + CE-FET)");
 
   // === CRITICAL: Configure RTC INT pin for wake-up from System Sleep ===
@@ -177,7 +174,7 @@ void InheroMr2Board::begin() {
 
   if (!isLowVoltageRecovery) {
     MESH_DEBUG_PRINTLN("Early Boot: Reading VBAT from INA228 @ 0x40...");
-    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, 0x40);
+    uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
     MESH_DEBUG_PRINTLN("Early Boot: readVBATDirect returned %dmV", vbat_mv);
 
     if (vbat_mv == 0) {
@@ -208,7 +205,7 @@ void InheroMr2Board::begin() {
 
         // INA228 → Shutdown mode with readback verification
         for (int retry = 0; retry < 3; retry++) {
-          Wire.beginTransmission(0x40);
+          Wire.beginTransmission(INA228_I2C_ADDR);
           Wire.write(0x01);  // ADC_CONFIG register
           Wire.write(0x00);  // Shutdown (MSB)
           Wire.write(0x00);  // (LSB)
@@ -217,10 +214,10 @@ void InheroMr2Board::begin() {
             continue;
           }
           delay(2);
-          Wire.beginTransmission(0x40);
+          Wire.beginTransmission(INA228_I2C_ADDR);
           Wire.write(0x01);
           Wire.endTransmission(false);
-          Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+          Wire.requestFrom((uint8_t)INA228_I2C_ADDR, (uint8_t)2);
           uint16_t rb = 0;
           if (Wire.available() >= 2) {
             rb = (Wire.read() << 8) | Wire.read();
@@ -230,10 +227,10 @@ void InheroMr2Board::begin() {
         }
 
         // Read DIAG_ALRT to clear any latched alert flag
-        Wire.beginTransmission(0x40);
+        Wire.beginTransmission(INA228_I2C_ADDR);
         Wire.write(0x0B);
         Wire.endTransmission(false);
-        Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+        Wire.requestFrom((uint8_t)INA228_I2C_ADDR, (uint8_t)2);
         while (Wire.available()) Wire.read();
 
         // Latch BQ CE pin HIGH (solar charging active in sleep)
@@ -248,7 +245,8 @@ void InheroMr2Board::begin() {
         Wire.endTransmission();
 
         // BQ25798 — Mask all interrupts + clear flags to de-assert INT
-        { const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
+        {
+          const uint8_t mask_regs[] = {0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D};
           for (uint8_t r : mask_regs) {
             Wire.beginTransmission(BQ25798_I2C_ADDR);
             Wire.write(r);
@@ -266,7 +264,7 @@ void InheroMr2Board::begin() {
         }
 
         // BME280 — Force Sleep mode
-        Wire.beginTransmission(0x76);
+        Wire.beginTransmission(BME280_I2C_ADDR);
         Wire.write(0xF4);  // ctrl_meas
         Wire.write(0x00);  // Sleep mode
         Wire.endTransmission();
@@ -385,7 +383,7 @@ uint16_t InheroMr2Board::getBattMilliVolts() {
   if (!telemetry) {
     return 0;
   }
-  return telemetry->batterie.voltage;
+  return telemetry->battery.voltage;
 }
 
 bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
@@ -489,7 +487,7 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
     // 5c. BME280 @ 0x76 — Force Sleep mode (saves ~1-7µA)
     // After normal operation readBmeTemperature() may have left BME280 in NORMAL mode.
     // Harmless NACK if no BME280 populated.
-    Wire.beginTransmission(0x76);
+    Wire.beginTransmission(BME280_I2C_ADDR);
     Wire.write(0xF4);  // ctrl_meas register
     Wire.write(0x00);  // MODE=00 (Sleep), all oversampling off
     Wire.endTransmission();

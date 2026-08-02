@@ -7,7 +7,7 @@
  */
 
 #include "Ina228Driver.h"
-#include "../../../src/MeshCore.h"  // For MESH_DEBUG_PRINTLN
+#include <MeshCore.h>  // for MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
   : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
@@ -34,7 +34,7 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
                         (INA228_ADC_CT_4120us << 6)      |  // VSHCT: 4120µs for current/SOC accuracy
                         (INA228_ADC_CT_540us << 3)       |  // VTCT: 540µs (temp less critical)
                         (INA228_ADC_AVG_256 << 0);          // AVG: 256 samples
-  // Expected: 0xFFCB (was 0xF003 without conversion time config)
+  // Expected value: 0xFFCB
   
   // Write ADC_CONFIG with retry and verify
   // Sometimes the first write after readVBATDirect() fails
@@ -111,10 +111,7 @@ bool Ina228Driver::isConnected() {
     return false;  // Invalid DEV_ID (bus error)
   }
   
-  // RELAXED: Accept any valid DEV_ID since some INA228 clones report 0x2281
-  // We already verified MFG_ID = 0x5449 (TI), that's sufficient
-  // Original check: (dev_id & 0x0FFF) != 0x228
-  // Observed:  0x2281 (clone/variant), but MFG_ID is correct
+  // Accept any non-error DEV_ID — some INA228 clones report 0x2281 instead of 0x228.
 
   return true;  // Accept device if MFG_ID was valid
 }
@@ -248,11 +245,8 @@ uint16_t Ina228Driver::readVBATDirect(TwoWire* wire, uint8_t i2c_addr) {
   // VBUS LSB = 195.3125 µV
   float vbus_v = vbus_raw * 195.3125e-6;
   uint16_t vbus_mv = (uint16_t)(vbus_v * 1000.0f);
-  
-  // Sanity check: Battery voltage should be between 2V and 15V
-  // If implausible, still return value for debugging
-  
-  return vbus_mv;  // Convert to mV
+
+  return vbus_mv;
 }
 
 int32_t Ina228Driver::readPower_mW() {
@@ -335,7 +329,7 @@ bool Ina228Driver::validateAndRepairShuntCal() {
   if (actual == expected) return true;  // OK
   
   // SHUNT_CAL is wrong — repair it!
-  MESH_DEBUG_PRINTLN("INA228: SHUNT_CAL corrupted! Expected=%u, Got=%u — repairing", expected, actual);
+  MESH_DEBUG_PRINTLN("INA228: SHUNT_CAL corrupted! Expected=%u, Got=%u - repairing", expected, actual);
   writeRegister16(INA228_REG_SHUNT_CAL, expected);
   delay(2);
   
@@ -365,7 +359,8 @@ bool Ina228Driver::setUnderVoltageAlert(uint16_t voltage_mv) {
     if (readback == buvl_value) {
       return true;
     }
-    MESH_DEBUG_PRINTLN("INA228: BUVL write mismatch (wrote=0x%04X, read=0x%04X), retry %d", buvl_value, readback, retry);
+    MESH_DEBUG_PRINTLN("INA228: BUVL write mismatch (wrote=0x%04X, read=0x%04X), retry %d",
+                       buvl_value, readback, retry);
     delay(10);
   }
   MESH_DEBUG_PRINTLN("INA228: BUVL write FAILED after 3 retries!");
@@ -441,7 +436,7 @@ uint16_t Ina228Driver::readRegister16(uint8_t reg) {
 
   Wire.requestFrom(_i2c_addr, (uint8_t)2);
   if (Wire.available() < 2) {
-      return 0;
+    return 0;
   }
 
   uint16_t value = Wire.read() << 8;  // MSB
@@ -456,7 +451,7 @@ int32_t Ina228Driver::readRegister24(uint8_t reg) {
 
   Wire.requestFrom(_i2c_addr, (uint8_t)3);
   if (Wire.available() < 3) {
-      return 0;
+    return 0;
   }
 
   int32_t value = Wire.read() << 16;  // MSB
@@ -478,7 +473,7 @@ int64_t Ina228Driver::readRegister40(uint8_t reg) {
 
   Wire.requestFrom(_i2c_addr, (uint8_t)5);
   if (Wire.available() < 5) {
-      return 0;
+    return 0;
   }
 
   int64_t value = (int64_t)Wire.read() << 32;  // MSB

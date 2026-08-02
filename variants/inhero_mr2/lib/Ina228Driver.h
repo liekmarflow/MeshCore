@@ -86,152 +86,121 @@
 #define INA228_DIAG_ALRT_CNVRF    (1 << 1)   // Conversion Ready Flag
 #define INA228_DIAG_ALRT_MEMSTAT  (1 << 0)   // Memory Status
 
-/// Battery telemetry from INA228
+// Battery telemetry from INA228
 typedef struct {
-  uint16_t voltage_mv;       ///< Battery voltage in mV
-  int16_t current_ma;        ///< Battery current in mA (+ = charging, - = discharging)
-  int32_t power_mw;          ///< Battery power in mW
-  int32_t energy_mwh;        ///< Accumulated energy in mWh (since last reset)
-  float charge_mah;          ///< Accumulated charge in mAh (since last reset)
-  float die_temp_c;          ///< Die temperature in °C
+  uint16_t voltage_mv;       // Battery voltage in mV
+  int16_t current_ma;        // Battery current in mA (+ = charging, - = discharging)
+  int32_t power_mw;          // Battery power in mW
+  int32_t energy_mwh;        // Accumulated energy in mWh (since last reset)
+  float charge_mah;          // Accumulated charge in mAh (since last reset)
+  float die_temp_c;          // Die temperature in °C
 } Ina228BatteryData;
 
 class Ina228Driver {
 public:
-  /// @brief Constructor
-  /// @param i2c_addr I2C address of INA228 (default INA228_I2C_ADDR_DEFAULT for A0=A1=GND)
+  // i2c_addr default is for A0=A1=GND
   Ina228Driver(uint8_t i2c_addr = INA228_I2C_ADDR_DEFAULT);
 
-  /// @brief Initialize INA228 with default configuration
-  /// @param shunt_resistor_mohm Shunt resistor value in milliohms (e.g., 10 for 0.01Ω)
-  /// @return true if initialization successful
+  // Initialize INA228 with default configuration.
+  // shunt_resistor_mohm is in milliohms (e.g., 100 for 0.1Ω).
   bool begin(float shunt_resistor_mohm = 10.0f);
 
-  /// @brief Check if INA228 is present and responsive
-  /// @return true if device found
+  // Check if INA228 is present and responsive
   bool isConnected();
 
-  /// @brief Reset INA228 to default values
+  // Reset INA228 to default values
   void reset();
 
-  /// @brief Read battery voltage
-  /// @return Voltage in millivolts
+  // Read battery voltage in mV
   uint16_t readVoltage_mV();
 
-  /// @brief Read battery current
-  /// @return Current in milliamps (+ = charging, - = discharging)
+  // Read battery current in mA (+ = charging, - = discharging)
   int16_t readCurrent_mA();
 
-  /// @brief Read battery current with full precision
-  /// @return Current in milliamps with decimal precision (+ = charging, - = discharging)
-  /// @note Returns float for high-precision measurements (±1 LSB ≈ 1.91 µA)
+  // Read battery current in mA with full float precision (+ = charging, - = discharging).
+  // ±1 LSB ≈ 3.125 µA.
   float readCurrent_mA_precise();
 
-  /// @brief Read battery power
-  /// @return Power in milliwatts
+  // Read battery power in mW
   int32_t readPower_mW();
 
-  /// @brief Read accumulated energy (Coulomb Counter)
-  /// @return Energy in milliwatt-hours
+  // Read accumulated energy in mWh (Coulomb Counter)
   int32_t readEnergy_mWh();
 
-  /// @brief Read accumulated charge (Coulomb Counter)
-  /// @return Charge in milliamp-hours
+  // Read accumulated charge in mAh (Coulomb Counter)
   float readCharge_mAh();
 
-  /// @brief Read die temperature
-  /// @return Temperature in °C
+  // Read die temperature in °C
   float readDieTemperature_C();
 
-  /// @brief Get all battery data in one call
-  /// @param data Pointer to Ina228BatteryData struct
-  /// @return true if read successful
+  // Get all battery data in one call
   bool readAll(Ina228BatteryData* data);
 
-  /// @brief Reset Coulomb Counter (energy and charge accumulators)
+  // Reset Coulomb Counter (energy and charge accumulators)
   void resetCoulombCounter();
 
-  /// @brief Read back SHUNT_CAL register value (diagnostic)
+  // Read back SHUNT_CAL register value (diagnostic)
   uint16_t readShuntCalRegister();
 
-  /// @brief Read back ADC_CONFIG register value (diagnostic)
+  // Read back ADC_CONFIG register value (diagnostic)
   uint16_t readAdcConfigRegister();
 
-  /// @brief Read back CONFIG register value (diagnostic)
+  // Read back CONFIG register value (diagnostic)
   uint16_t readConfigRegister();
 
-  /// @brief Validate SHUNT_CAL and repair if corrupted
-  /// @return true if SHUNT_CAL is correct (or was repaired), false if repair failed
+  // Validate SHUNT_CAL and repair if corrupted.
+  // Returns true if SHUNT_CAL is correct (or was repaired), false if repair failed.
   bool validateAndRepairShuntCal();
 
-  /// @brief Set bus under-voltage alert threshold (for UVLO)
-  /// @param voltage_mv Threshold in millivolts (e.g., 3200 for Li-Ion)
-  /// @return true if successful
+  // Set bus under-voltage alert threshold in mV (for UVLO; e.g., 3200 for Li-Ion)
   bool setUnderVoltageAlert(uint16_t voltage_mv);
 
-  /// @brief Set bus over-voltage alert threshold
-  /// @param voltage_mv Threshold in millivolts
-  /// @return true if successful
+  // Set bus over-voltage alert threshold in mV
   bool setOverVoltageAlert(uint16_t voltage_mv);
 
-  /// @brief Enable alert output on ALERT pin
-  /// @param enable_uvlo Enable under-voltage alert
-  /// @param enable_ovlo Enable over-voltage alert
-  /// @param active_high True for active-high, false for active-low
+  // Enable alert output on ALERT pin.
+  // latch_alert: true to latch the alert until DIAG_ALRT is read.
   void enableAlert(bool enable_uvlo = true, bool active_high = false, bool latch_alert = false);
 
-  /// @brief Check if alert condition is active
-  /// @return true if alert flag is set
+  // Check if alert condition is active
   bool isAlertActive();
 
-  /// @brief Clear alert flags
+  // Clear alert flags
   void clearAlert();
 
-  /// @brief Get diagnostic and alert register value
-  /// @return 16-bit diagnostic register value
-  /// @warning In LATCH mode, reading DIAG_ALRT clears latched alert flags and de-asserts ALERT pin!
+  // Get diagnostic and alert register value.
+  // WARNING: In LATCH mode, reading DIAG_ALRT clears latched alert flags and de-asserts ALERT pin!
   uint16_t getDiagnosticFlags();
 
-  /// @brief Read back current BUVL threshold register value
-  /// @return Raw BUVL register value (multiply by 3.125 for mV)
+  // Read back raw BUVL threshold register value (multiply by 3.125 for mV)
   uint16_t readBuvlRegister();
 
-  /// @brief Put INA228 into shutdown mode (power-down)
-  /// @note Disables all measurements and Coulomb Counter to save power
-  /// @return true if shutdown confirmed via readback, false if write failed
+  // Put INA228 into shutdown mode — disables all measurements and Coulomb Counter to save power.
+  // Returns true if shutdown confirmed via readback, false if write failed.
   bool shutdown();
 
-  /// @brief Wake INA228 from shutdown mode
-  /// @note Re-enables continuous measurement mode
+  // Wake INA228 from shutdown mode (re-enables continuous measurement mode)
   void wakeup();
 
-  /// @brief Calibrate current measurement based on actual measured current
-  /// @param actual_current_ma Actual measured battery current in milliamps
-  /// @return Calculated calibration factor (multiplier for future readings)
-  /// @note This calculates the ratio between actual and measured current.
-  ///       The calibration factor should be stored persistently and applied via setCalibrationFactor().
+  // Calibrate current measurement against the actual measured battery current (in mA).
+  // Returns the calculated calibration factor (multiplier for future readings) — store it
+  // persistently and apply it via setCalibrationFactor().
   float calibrateCurrent(float actual_current_ma);
 
-  /// @brief Set persistent current calibration factor
-  /// @param factor Calibration factor (1.0 = no correction, >1.0 = increase readings, <1.0 = decrease)
-  /// @note This factor is written directly to the INA228 SHUNT_CAL register (hardware calibration).
-  ///       All measurements (current, power, energy, charge) are automatically corrected.
-  ///       Call this at startup with value loaded from persistent storage.
+  // Set persistent current calibration factor (1.0 = no correction, >1.0 = increase readings,
+  // <1.0 = decrease). Written directly to the INA228 SHUNT_CAL register (hardware calibration),
+  // so all measurements (current, power, energy, charge) are corrected automatically.
+  // Call this at startup with the value loaded from persistent storage.
   void setCalibrationFactor(float factor);
 
-  /// @brief Get current calibration factor
-  /// @return Current calibration factor (1.0 = no calibration)
+  // Get current calibration factor (1.0 = no calibration)
   float getCalibrationFactor() const;
 
 
 
-  /// @brief Read battery voltage directly via I2C without requiring driver initialization
-  /// @param wire Pointer to TwoWire instance
-  /// @param i2c_addr I2C address (default INA228_I2C_ADDR_DEFAULT)
-  /// @return Battery voltage in millivolts, or 0 if read fails
-  /// @note Static method for early boot use before INA228 is initialized.
-  ///       Triggers One-Shot ADC conversion for accurate voltage reading.
-  ///       Uses high-precision 24-bit ADC (±0.1% accuracy).
+  // Read battery voltage in mV directly via I2C, without requiring driver initialization —
+  // for early boot use before the INA228 is initialized. Returns 0 if the read fails.
+  // Triggers a One-Shot ADC conversion; uses the high-precision 24-bit ADC (±0.1% accuracy).
   static uint16_t readVBATDirect(TwoWire* wire = &Wire, uint8_t i2c_addr = INA228_I2C_ADDR_DEFAULT);
 
 private:
@@ -241,15 +210,12 @@ private:
   uint16_t _base_shunt_cal;  // Original SHUNT_CAL value (before calibration)
   float _calibration_factor;  // Current calibration factor (1.0 = no correction)
 
-  /// @brief Write 16-bit register
   bool writeRegister16(uint8_t reg, uint16_t value);
-
-  /// @brief Read 16-bit register
   uint16_t readRegister16(uint8_t reg);
 
-  /// @brief Read 24-bit register (sign-extended to 32-bit)
+  // Read 24-bit register (sign-extended to 32-bit)
   int32_t readRegister24(uint8_t reg);
 
-  /// @brief Read 40-bit register (for energy/charge)
+  // Read 40-bit register (for energy/charge)
   int64_t readRegister40(uint8_t reg);
 };

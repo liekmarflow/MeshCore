@@ -30,6 +30,7 @@
 #define RTC_I2C_ADDR                 0x52
 #define INA228_I2C_ADDR              0x40  // A0=GND, A1=GND
 #define BQ25798_I2C_ADDR             0x6B
+#define BME280_I2C_ADDR              0x76
 
 // RV-3028-C7 registers
 #define RV3028_REG_STATUS            0x0E

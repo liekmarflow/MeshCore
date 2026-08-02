@@ -9,10 +9,8 @@
 
 #include <MeshCore.h>
 
-/// @brief Default constructor
 BqDriver::BqDriver() {}
 
-/// @brief Destructor - cleans up I2C device
 BqDriver::~BqDriver() {
   if (ih_i2c_dev) {
     delete ih_i2c_dev;
@@ -20,10 +18,7 @@ BqDriver::~BqDriver() {
   }
 }
 
-/// @brief Initializes BQ25798 charger and creates dedicated I2C device for NTC access
-/// @param i2c_addr I2C address of BQ25798 (default: 0x6B)
-/// @param wire Pointer to TwoWire instance (default: &Wire)
-/// @return true if initialization successful
+// Initializes BQ25798 charger and creates dedicated I2C device for NTC access
 bool BqDriver::begin(uint8_t i2c_addr, TwoWire* wire) {
   if (!Adafruit_BQ25798::begin(i2c_addr, wire)) {
     // Cleanup any existing device before returning
@@ -46,8 +41,7 @@ bool BqDriver::begin(uint8_t i2c_addr, TwoWire* wire) {
   return true;
 }
 
-/// @brief Reads Power Good status from charger
-/// @return true if input power is good (sufficient for charging)
+// Reads Power Good status from charger — true if input power is sufficient for charging
 bool BqDriver::getChargerStatusPowerGood() {
   Adafruit_BusIO_Register chrg_stat_0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
   Adafruit_BusIO_RegisterBits chrg_stat_0_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_0_reg, 1, 3);
@@ -57,8 +51,7 @@ bool BqDriver::getChargerStatusPowerGood() {
   return (bool)reg_value;
 }
 
-/// @brief Reads current charging state from charger
-/// @return Charging status enum (NOT_CHARGING, PRE_CHARGING, CC, CV, etc.)
+// Reads current charging state from charger
 bq25798_charging_status BqDriver::getChargingStatus() {
   Adafruit_BusIO_Register chrg_stat_1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_1);
   Adafruit_BusIO_RegisterBits chrg_stat_1_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_1_reg, 3, 5);
@@ -68,44 +61,44 @@ bq25798_charging_status BqDriver::getChargingStatus() {
   return (bq25798_charging_status)reg_value;
 }
 
-/// @brief Reads solar and temperature telemetry via BQ25798 ADC one-shot
-///
-/// BQ25798 ADC Operating Conditions (Datasheet SLUSE22, Section 9.3.16):
-///   "The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
-///    At battery only condition, if the TS_ADC channel is enabled, the ADC only
-///    works when battery voltage is higher than 3.2V, otherwise, the ADC works
-///    when the battery voltage is higher than 2.9V."
-///
-/// This means:
-///   VBUS > 3.4V              â†’ ADC runs, all channels available
-///   VBAT >= 3.2V (no VBUS)   â†’ ADC runs, all channels including TS
-///   VBAT 2.9-3.2V (no VBUS)  â†’ ADC runs ONLY if TS channel is DISABLED
-///   VBAT < 2.9V (no VBUS)    â†’ ADC cannot run at all
-///
-/// Strategy:
-///   1. If VBAT < 3.2V: disable TS channel to lower threshold to 2.9V
-///      â†’ Solar data (VBUS/IBUS) still readable, temperature returns N/A
-///   2. If VBAT < 2.9V and no VBUS: ADC times out, all values zero/N/A
-///   3. Only channels actually used on MR2 are enabled (IBUS, VBUS, TS)
-///      â€” unused channels (IBAT, VBAT, VSYS, TDIE, D+, D-, VAC1, VAC2)
-///      are disabled to prevent ADC_EN from hanging on unconnected pins.
-///
-/// ADC_EN auto-clear behavior:
-///   In one-shot mode, ADC_EN resets to 0 only when ALL enabled channels
-///   have completed conversion. If any channel cannot complete (e.g. floating
-///   input), ADC_EN stays 1 indefinitely. This is why unused channels MUST
-///   be disabled via registers 0x2F/0x30.
-///
-/// @param vbat_mv Battery voltage in mV from INA228 (0 = unknown, assume sufficient)
-/// @return Pointer to internal Telemetry struct (valid until next call)
-const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
+// Reads solar and temperature telemetry via BQ25798 ADC one-shot
+//
+// BQ25798 ADC Operating Conditions (Datasheet SLUSE22, Section 9.3.16):
+//   "The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
+//    At battery only condition, if the TS_ADC channel is enabled, the ADC only
+//    works when battery voltage is higher than 3.2V, otherwise, the ADC works
+//    when the battery voltage is higher than 2.9V."
+//
+// This means:
+//   VBUS > 3.4V              → ADC runs, all channels available
+//   VBAT >= 3.2V (no VBUS)   → ADC runs, all channels including TS
+//   VBAT 2.9-3.2V (no VBUS)  → ADC runs ONLY if TS channel is DISABLED
+//   VBAT < 2.9V (no VBUS)    → ADC cannot run at all
+//
+// Strategy:
+//   1. If VBAT < 3.2V: disable TS channel to lower threshold to 2.9V
+//      → Solar data (VBUS/IBUS) still readable, temperature returns N/A
+//   2. If VBAT < 2.9V and no VBUS: ADC times out, all values zero/N/A
+//   3. Only channels actually used on MR2 are enabled (IBUS, VBUS, TS)
+//      — unused channels (IBAT, VBAT, VSYS, TDIE, D+, D-, VAC1, VAC2)
+//      are disabled to prevent ADC_EN from hanging on unconnected pins.
+//
+// ADC_EN auto-clear behavior:
+//   In one-shot mode, ADC_EN resets to 0 only when ALL enabled channels
+//   have completed conversion. If any channel cannot complete (e.g. floating
+//   input), ADC_EN stays 1 indefinitely. This is why unused channels MUST
+//   be disabled via registers 0x2F/0x30.
+//
+// vbat_mv: battery voltage in mV from INA228 (0 = unknown, assume sufficient).
+// Returns pointer to internal Telemetry struct (valid until next call).
+const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
   telemetryData = { 0 };
 
   // Determine if TS channel can be enabled based on VBAT
   // See datasheet quote above: TS enabled requires VBAT >= 3.2V (battery-only)
   bool ts_enabled = true;
   if (vbat_mv > 0 && vbat_mv < 3200) {
-    ts_enabled = false;  // Disable TS â†’ ADC threshold drops to 2.9V
+    ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
   }
 
   bool success = this->startADCOneShot(ts_enabled);
@@ -115,7 +108,7 @@ const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
   }
 
   // Poll ADC_EN bit until it auto-clears (conversion complete) or timeout.
-  // Channels: IBUS + VBUS (+ TS if enabled) â†’ ~48-72ms typical.
+  // Channels: IBUS + VBUS (+ TS if enabled) → ~48-72ms typical.
   const uint32_t ADC_TIMEOUT_MS = 250;
   uint32_t start = millis();
   bool conversion_done = false;
@@ -140,14 +133,14 @@ const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
     telemetryData.solar.power = ((int32_t)telemetryData.solar.voltage * telemetryData.solar.current) / 1000;
 
     if (ts_enabled) {
-      telemetryData.batterie.temperature = this->calculateBatteryTemp(getTS());
+      telemetryData.battery.temperature = this->calculateBatteryTemp(getTS());
     } else {
-      // TS disabled due to low VBAT â€” cannot read NTC
-      telemetryData.batterie.temperature = -888.0f;
+      // TS disabled due to low VBAT — cannot read NTC
+      telemetryData.battery.temperature = -888.0f;
     }
   } else {
-    // ADC didn't complete â€” VBAT < 2.9V and no VBUS, or I2C issue
-    telemetryData.batterie.temperature = -888.0f;
+    // ADC didn't complete — VBAT < 2.9V and no VBUS, or I2C issue
+    telemetryData.battery.temperature = -888.0f;
   }
 
   telemetryData.solar.mppt = getMPPTenable();
@@ -155,27 +148,25 @@ const Telemetry* const BqDriver::getTelemetryData(uint16_t vbat_mv) {
   return &telemetryData;
 }
 
-/**
- * Calculates battery temperature in Â°C using Steinhart-Hart equation.
- * Uses coefficients derived from Murata NCP15XH103F03RC datasheet R-T table.
- * Max error vs. datasheet: Â±0.36Â°C over -40..+125Â°C range.
- *
- * Per BQ25798 datasheet Figure 9-12: REGN â†’ RT1 â†’ TS â†’ (RT2||NTC) â†’ GND
- * @param ts_pct Voltage at TS pin in percentage of REGN (e.g., 70.5 for 70.5%)
- *               Special values: -1.0 = I2C error, -2.0 = ADC not ready/invalid
- * @return Temperature in Â°C, or error codes:
- *         -999.0 = I2C communication error
- *         -888.0 = ADC not ready (read 0 or 0xFFFF)
- *          -99.0 = NTC open/disconnected (k > 0.99)
- *           99.0 = NTC short circuit (k < 0.01)
- */
+// Calculates battery temperature in °C using Steinhart-Hart equation.
+// Uses coefficients derived from Murata NCP15XH103F03RC datasheet R-T table.
+// Max error vs. datasheet: ±0.36°C over -40..+125°C range.
+//
+// Per BQ25798 datasheet Figure 9-12: REGN → RT1 → TS → (RT2||NTC) → GND
+// ts_pct: voltage at TS pin in percentage of REGN (e.g., 70.5 for 70.5%).
+//         Special input values: -1.0 = I2C error, -2.0 = ADC not ready/invalid.
+// Returns temperature in °C, or error codes:
+//   -999.0 = I2C communication error
+//   -888.0 = ADC not ready (read 0 or 0xFFFF)
+//    -99.0 = NTC open/disconnected (k > 0.99)
+//     99.0 = NTC short circuit (k < 0.01)
 float BqDriver::calculateBatteryTemp(float ts_pct) {
   // Check for I2C read error
   if (ts_pct == -1.0f) return -999.0f; // I2C error
   if (ts_pct == -2.0f) return -888.0f; // ADC not ready or invalid value
   
   // Convert TS percentage to ratio (0.0 to 1.0)
-  // TS% = 100 Ã— R_bottom / (R_top + R_bottom)
+  // TS% = 100 × R_bottom / (R_top + R_bottom)
   // where R_bottom = RT2 || NTC
   float k = ts_pct / 100.0f;
 
@@ -185,7 +176,7 @@ float BqDriver::calculateBatteryTemp(float ts_pct) {
 
   // Calculate total resistance of bottom network (RT2 || NTC)
   // From: k = R_bottom / (RT1 + R_bottom)
-  // Rearranged: R_bottom = RT1 Ã— k / (1 - k)
+  // Rearranged: R_bottom = RT1 × k / (1 - k)
   float r_bottom_total = R_PULLUP * (k / (1.0f - k));
 
   // Extract NTC resistance from parallel combination with RT2
@@ -200,7 +191,7 @@ float BqDriver::calculateBatteryTemp(float ts_pct) {
 
   float r_ntc = 1.0f / (g_total - g_rt2);
 
-  // Apply Steinhart-Hart equation: 1/T = A + BÂ·ln(R) + CÂ·(ln(R))Â³
+  // Apply Steinhart-Hart equation: 1/T = A + B·ln(R) + C·(ln(R))³
   float ln_r = logf(r_ntc);
   float inv_T = SH_A + SH_B * ln_r + SH_C * ln_r * ln_r * ln_r;
 
@@ -209,8 +200,7 @@ float BqDriver::calculateBatteryTemp(float ts_pct) {
 }
 
 // Getter/Setter for NTC Control 0 (0x17)
-/// @brief Gets JEITA voltage setting for warm/cool regions
-/// @return JEITA VSET enum value
+// Gets JEITA voltage setting for warm/cool regions
 bq25798_jeita_vset_t BqDriver::getJeitaVSet() {
   Adafruit_BusIO_Register ntc0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_0);
   Adafruit_BusIO_RegisterBits jeita_vset_bits = Adafruit_BusIO_RegisterBits(&ntc0_reg, 3, 5);
@@ -220,9 +210,7 @@ bq25798_jeita_vset_t BqDriver::getJeitaVSet() {
   return (bq25798_jeita_vset_t)reg_value;
 }
 
-/// @brief Sets JEITA voltage setting for warm/cool temperature regions
-/// @param setting JEITA VSET enum (suspend, or VREG offset)
-/// @return true if successful
+// Sets JEITA voltage setting for warm/cool temperature regions
 bool BqDriver::setJeitaVSet(bq25798_jeita_vset_t setting) {
   if (setting > BQ25798_JEITA_VSET_UNCHANGED) {
     return false;
@@ -236,8 +224,7 @@ bool BqDriver::setJeitaVSet(bq25798_jeita_vset_t setting) {
   return true;
 }
 
-/// @brief Gets JEITA current setting for hot region
-/// @return JEITA ISETH enum value
+// Gets JEITA current setting for hot region
 bq25798_jeita_iseth_t BqDriver::getJeitaISetH() {
   Adafruit_BusIO_Register ntc0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_0);
   Adafruit_BusIO_RegisterBits jeita_iseth_bits = Adafruit_BusIO_RegisterBits(&ntc0_reg, 2, 3);
@@ -247,9 +234,7 @@ bq25798_jeita_iseth_t BqDriver::getJeitaISetH() {
   return (bq25798_jeita_iseth_t)reg_value;
 }
 
-/// @brief Sets JEITA current setting for hot temperature region
-/// @param setting JEITA ISETH enum (suspend or percentage)
-/// @return true if successful
+// Sets JEITA current setting for hot temperature region
 bool BqDriver::setJeitaISetH(bq25798_jeita_iseth_t setting) {
   if (setting > BQ25798_JEITA_ISETH_UNCHANGED) {
     return false;
@@ -263,8 +248,7 @@ bool BqDriver::setJeitaISetH(bq25798_jeita_iseth_t setting) {
   return true;
 }
 
-/// @brief Gets JEITA current setting for cold region
-/// @return JEITA ISETC enum value
+// Gets JEITA current setting for cold region
 bq25798_jeita_isetc_t BqDriver::getJeitaISetC() {
   Adafruit_BusIO_Register ntc0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_0);
   Adafruit_BusIO_RegisterBits jeita_isetc_bits = Adafruit_BusIO_RegisterBits(&ntc0_reg, 2, 1);
@@ -274,9 +258,7 @@ bq25798_jeita_isetc_t BqDriver::getJeitaISetC() {
   return (bq25798_jeita_isetc_t)reg_value;
 }
 
-/// @brief Sets JEITA current setting for cold temperature region
-/// @param setting JEITA ISETC enum (suspend or percentage)
-/// @return true if successful
+// Sets JEITA current setting for cold temperature region
 bool BqDriver::setJeitaISetC(bq25798_jeita_isetc_t setting) {
   if (setting > BQ25798_JEITA_ISETC_UNCHANGED) {
     return false;
@@ -290,8 +272,7 @@ bool BqDriver::setJeitaISetC(bq25798_jeita_isetc_t setting) {
   return true;
 }
 
-/// @brief Gets TS Cool threshold (lower boundary of COOL region)
-/// @return TS COOL enum value
+// Gets TS Cool threshold (lower boundary of COOL region)
 bq25798_ts_cool_t BqDriver::getTsCool() {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits ts_cool_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 2, 6);
@@ -301,9 +282,7 @@ bq25798_ts_cool_t BqDriver::getTsCool() {
   return (bq25798_ts_cool_t)reg_value;
 }
 
-/// @brief Sets TS Cool threshold (lower boundary of COOL region)
-/// @param threshold TS COOL enum (0Â°C to 20Â°C)
-/// @return true if successful
+// Sets TS Cool threshold (lower boundary of COOL region)
 bool BqDriver::setTsCool(bq25798_ts_cool_t threshold) {
   if (threshold > BQ25798_TS_COOL_20C) {
     return false;
@@ -317,8 +296,7 @@ bool BqDriver::setTsCool(bq25798_ts_cool_t threshold) {
   return true;
 }
 
-/// @brief Gets TS Warm threshold (upper boundary of WARM region)
-/// @return TS WARM enum value
+// Gets TS Warm threshold (upper boundary of WARM region)
 bq25798_ts_warm_t BqDriver::getTsWarm() {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits ts_warm_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 2, 4);
@@ -328,9 +306,7 @@ bq25798_ts_warm_t BqDriver::getTsWarm() {
   return (bq25798_ts_warm_t)reg_value;
 }
 
-/// @brief Sets TS Warm threshold (upper boundary of WARM region)
-/// @param threshold TS WARM enum (40Â°C to 55Â°C)
-/// @return true if successful
+// Sets TS Warm threshold (upper boundary of WARM region)
 bool BqDriver::setTsWarm(bq25798_ts_warm_t threshold) {
   if (threshold > BQ25798_TS_WARM_55C) {
     return false;
@@ -344,8 +320,7 @@ bool BqDriver::setTsWarm(bq25798_ts_warm_t threshold) {
   return true;
 }
 
-/// @brief Gets BHOT threshold (upper limit for charging)
-/// @return BHOT enum value
+// Gets BHOT threshold (upper limit for charging)
 bq25798_bhot_t BqDriver::getBHot() {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits bhot_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 2, 2);
@@ -355,9 +330,7 @@ bq25798_bhot_t BqDriver::getBHot() {
   return (bq25798_bhot_t)reg_value;
 }
 
-/// @brief Sets BHOT threshold (upper limit for charging)
-/// @param threshold BHOT enum (55Â°C to 65Â°C, or disable)
-/// @return true if successful
+// Sets BHOT threshold (upper limit for charging)
 bool BqDriver::setBHot(bq25798_bhot_t threshold) {
   if (threshold > BQ25798_BHOT_DISABLE) {
     return false;
@@ -371,8 +344,7 @@ bool BqDriver::setBHot(bq25798_bhot_t threshold) {
   return true;
 }
 
-/// @brief Gets BCOLD threshold (lower limit for charging)
-/// @return BCOLD enum value
+// Gets BCOLD threshold (lower limit for charging)
 bq25798_bcold_t BqDriver::getBCold() {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits bcold_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 1, 1);
@@ -382,9 +354,7 @@ bq25798_bcold_t BqDriver::getBCold() {
   return (bq25798_bcold_t)reg_value;
 }
 
-/// @brief Sets BCOLD threshold (lower limit for charging)
-/// @param threshold BCOLD enum (-10Â°C or -20Â°C)
-/// @return true if successful
+// Sets BCOLD threshold (lower limit for charging)
 bool BqDriver::setBCold(bq25798_bcold_t threshold) {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits bcold_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 1, 1);
@@ -394,8 +364,7 @@ bool BqDriver::setBCold(bq25798_bcold_t threshold) {
   return true;
 }
 
-/// @brief Gets TS ignore status (disables all temperature monitoring)
-/// @return true if temperature monitoring disabled
+// Gets TS ignore status (disables all temperature monitoring)
 bool BqDriver::getTsIgnore() {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits ts_ignore_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 1, 0);
@@ -403,9 +372,7 @@ bool BqDriver::getTsIgnore() {
   return (bool)ts_ignore_bits.read();
 }
 
-/// @brief Sets TS ignore status (disables all temperature monitoring)
-/// @param ignore true to ignore temperature monitoring
-/// @return true if successful
+// Sets TS ignore status (disables all temperature monitoring)
 bool BqDriver::setTsIgnore(bool ignore) {
   Adafruit_BusIO_Register ntc1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_NTC_CONTROL_1);
   Adafruit_BusIO_RegisterBits ts_ignore_bits = Adafruit_BusIO_RegisterBits(&ntc1_reg, 1, 0);
@@ -415,44 +382,44 @@ bool BqDriver::setTsIgnore(bool ignore) {
   return true;
 }
 
-/// @brief Starts ADC one-shot conversion for selected channels
-///
-/// MR2 ADC Channel Map:
-///   Reg 0x2F (ADC_FUNCTION_DISABLE_0): bit=1 means DISABLED
-///     Bit 7: IBUS  â†’ ENABLED  (solar current)
-///     Bit 6: IBAT  â†’ disabled (INA228 measures battery current)
-///     Bit 5: VBUS  â†’ ENABLED  (solar voltage)
-///     Bit 4: VBAT  â†’ disabled (INA228 measures battery voltage)
-///     Bit 3: VSYS  â†’ disabled (not used)
-///     Bit 2: TS    â†’ ENABLED or disabled depending on VBAT level
-///     Bit 1: TDIE  â†’ disabled (not used)
-///     Bit 0: reserved
-///
-///   Reg 0x30 (ADC_FUNCTION_DISABLE_1): all disabled on MR2
-///     Bit 7: D+   â†’ disabled (AutoDPinsDetection=false, pin not connected)
-///     Bit 6: D-   â†’ disabled (pin not connected)
-///     Bit 5: VAC2 â†’ disabled (not routed on PCB)
-///     Bit 4: VAC1 â†’ disabled (not routed on PCB)
-///
-/// Why only needed channels: ADC_EN only auto-clears when ALL enabled channels
-/// complete. Enabling unconnected channels (D+, D-, VAC) causes ADC_EN to hang
-/// indefinitely, requiring a timeout and forced disable.
-///
-/// @param ts_enabled true = enable TS channel (requires VBAT >= 3.2V per datasheet)
-/// @return true if I2C writes successful
+// Starts ADC one-shot conversion for selected channels
+//
+// MR2 ADC Channel Map:
+//   Reg 0x2F (ADC_FUNCTION_DISABLE_0): bit=1 means DISABLED
+//     Bit 7: IBUS  → ENABLED  (solar current)
+//     Bit 6: IBAT  → disabled (INA228 measures battery current)
+//     Bit 5: VBUS  → ENABLED  (solar voltage)
+//     Bit 4: VBAT  → disabled (INA228 measures battery voltage)
+//     Bit 3: VSYS  → disabled (not used)
+//     Bit 2: TS    → ENABLED or disabled depending on VBAT level
+//     Bit 1: TDIE  → disabled (not used)
+//     Bit 0: reserved
+//
+//   Reg 0x30 (ADC_FUNCTION_DISABLE_1): all disabled on MR2
+//     Bit 7: D+   → disabled (AutoDPinsDetection=false, pin not connected)
+//     Bit 6: D-   → disabled (pin not connected)
+//     Bit 5: VAC2 → disabled (not routed on PCB)
+//     Bit 4: VAC1 → disabled (not routed on PCB)
+//
+// Why only needed channels: ADC_EN only auto-clears when ALL enabled channels
+// complete. Enabling unconnected channels (D+, D-, VAC) causes ADC_EN to hang
+// indefinitely, requiring a timeout and forced disable.
+//
+// ts_enabled: true = enable TS channel (requires VBAT >= 3.2V per datasheet).
+// Returns true if the I2C writes succeeded.
 bool BqDriver::startADCOneShot(bool ts_enabled) {
   Adafruit_BusIO_Register disable_reg_0 = Adafruit_BusIO_Register(ih_i2c_dev, 0x2F);
   Adafruit_BusIO_Register disable_reg_1 = Adafruit_BusIO_Register(ih_i2c_dev, 0x30);
 
   // Reg 0x2F bit map: IBUS(7) IBAT(6) VBUS(5) VBAT(4) VSYS(3) TS(2) TDIE(1) reserved(0)
   // 1 = disabled, 0 = enabled
-  uint8_t disable0 = 0x5A;  // Enable IBUS(7), VBUS(5), TS(2) â€” disable rest
+  uint8_t disable0 = 0x5A;  // Enable IBUS(7), VBUS(5), TS(2) — disable rest
   if (!ts_enabled) {
-    disable0 |= 0x04;       // Also disable TS(2) â†’ 0x5E
+    disable0 |= 0x04;       // Also disable TS(2) → 0x5E
   }
   if (!disable_reg_0.write(disable0)) { return false; }
 
-  // Reg 0x30: Disable all â€” D+(7), D-(6), VAC2(5), VAC1(4) not connected on MR2
+  // Reg 0x30: Disable all — D+(7), D-(6), VAC2(5), VAC1(4) not connected on MR2
   if (!disable_reg_1.write(0xF0)) { return false; }
 
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
@@ -480,7 +447,7 @@ int16_t BqDriver::getIBUS() {
   Adafruit_BusIO_Register ibus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
   uint16_t raw;
   if (!ibus_reg.read(&raw)) { // MSB first
-      return 0;
+    return 0;
   }
   int16_t val = (int16_t)raw; // 2's complement for signed
   return val;                 // in mA
@@ -490,7 +457,7 @@ uint16_t BqDriver::getVBUS() {
   Adafruit_BusIO_Register vbus_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
   uint16_t val;
   if (!vbus_reg.read(&val)) {
-      return 0;
+    return 0;
   }
   return val; // in mV
 }
@@ -501,11 +468,11 @@ float BqDriver::getTS() {
   
   // Try up to 3 times with small delays if we get invalid values
   for (int retry = 0; retry < 3; retry++) {
-      if (!ts_reg.read(&val)) {
-          delay(20);
+    if (!ts_reg.read(&val)) {
+      delay(20);
       continue; // I2C read error, retry
     }
-      // Check for invalid/uninitialized ADC value (0 or 0xFFFF)
+    // Check for invalid/uninitialized ADC value (0 or 0xFFFF)
     if (val == 0 || val == 0xFFFF) {
       if (retry < 2) {
         delay(50); // Wait a bit longer for ADC to settle
@@ -532,17 +499,15 @@ bq25798_voc_pct_t BqDriver::getVOCpercent() {
 }
 
 
-/// @brief Gets EN_AUTO_IBATDIS state (auto battery discharge during VBAT_OVP)
-/// @return true if auto discharge is enabled (POR default = enabled)
+// Gets EN_AUTO_IBATDIS state (auto battery discharge during VBAT_OVP; POR default = enabled)
 bool BqDriver::getAutoIBATDIS() {
   Adafruit_BusIO_Register ctrl0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
   Adafruit_BusIO_RegisterBits auto_ibatdis_bit = Adafruit_BusIO_RegisterBits(&ctrl0_reg, 1, 7);
   return (bool)auto_ibatdis_bit.read();
 }
 
-/// @brief Sets EN_AUTO_IBATDIS (auto battery discharge during VBAT_OVP)
-/// @param enable true = BQ sinks 30mA from BAT during OVP, false = no active discharge
-/// @return true if successful
+// Sets EN_AUTO_IBATDIS (auto battery discharge during VBAT_OVP).
+// enable: true = BQ sinks 30mA from BAT during OVP, false = no active discharge.
 bool BqDriver::setAutoIBATDIS(bool enable) {
   Adafruit_BusIO_Register ctrl0_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
   Adafruit_BusIO_RegisterBits auto_ibatdis_bit = Adafruit_BusIO_RegisterBits(&ctrl0_reg, 1, 7);
@@ -563,7 +528,7 @@ uint8_t BqDriver::readReg(uint8_t reg) {
   
   uint8_t buffer[1] = {reg};
   if (!ih_i2c_dev->write_then_read(buffer, 1, buffer, 1)) {
-      return 0;
+    return 0;
   }
   return buffer[0];
 }

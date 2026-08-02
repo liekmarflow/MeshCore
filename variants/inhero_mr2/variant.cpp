@@ -19,13 +19,11 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-// Includes
 #include "variant.h"
 #include "wiring_constants.h"
 #include "wiring_digital.h"
 #include "nrf.h"
 
-// Pin mapping
 const uint32_t g_ADigitalPinMap[] =
 {
   // P0
@@ -39,7 +37,6 @@ const uint32_t g_ADigitalPinMap[] =
   40, 41, 42, 43, 44, 45, 46, 47
 };
 
-// Initialization
 void initVariant()
 {
   // LED1 & LED2
