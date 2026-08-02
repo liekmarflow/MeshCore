@@ -52,14 +52,14 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 9) Frost-Ladestromabsenkung einstellen
 - Command: set board.fmax <0%|20%|40%|100%>
-- Begrenzt den maximalen Ladestrom im T-Cool-Bereich (0°C bis -5°C) auf X% von board.imax.
+- Begrenzt den maximalen Ladestrom im T-Cool-Bereich (ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README) auf X% von board.imax.
 - 0% = Laden im T-Cool-Bereich gesperrt.
-- 20% = max. 20% von imax (z.B. 500mA → 100mA bei 0°C bis -5°C).
-- 40% = max. 40% von imax (z.B. 500mA → 200mA bei 0°C bis -5°C).
+- 20% = max. 20% von imax (z.B. 500mA → 100mA bei ca. -2 °C bis +3 °C).
+- 40% = max. 40% von imax (z.B. 500mA → 200mA bei ca. -2 °C bis +3 °C).
 - 100% = keine Reduktion, voller Ladestrom auch bei Kälte.
-- Unter -5°C (T-Cold): Laden immer komplett gesperrt durch JEITA.
+- Unter ca. -2 °C (T-Cold): Laden immer komplett gesperrt durch JEITA.
 - Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (fmax ohne Wirkung, lädt auch bei Frost).
+- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt, lädt auch bei Frost).
 - → [FAQ #6 — Was steuert fmax?](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst)
 
 ## 10) MPPT aktivieren
@@ -69,7 +69,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 ## 11) LEDs aktivieren/deaktivieren
 - Command: set board.leds <on|off> oder set board.leds <1|0>
-- Steuert Heartbeat-LED und BQ-Status-LED (Boot-LEDs bleiben aktiv).
+- Steuert Heartbeat-LED und BQ-Status-LED (Bootloader-LED-Muster bleiben unberührt).
 - → [FAQ #17 — Was bedeuten die LEDs?](FAQ.md#17-was-bedeuten-die-leds)
 
 ## 12) Akku voll laden (SOC-Sync)
@@ -87,44 +87,45 @@ Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofi
 
 Die `imax`-Werte unten leiten sich aus der Faustformel aus Abschnitt 8 ab:
 **`imax ≈ Panelleistung ÷ Panelspannung × 1.2`** (z.B. 2 W ÷ 5 V × 1.2 ≈ 480 mA → aufgerundet auf 500).
-`fmax` ist ein Prozentwert von `imax` und wirkt nur in der T-Cool-Zone (0 °C … -5 °C).
+`fmax` ist ein Prozentwert von `imax` und wirkt nur in der T-Cool-Zone (ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README).
 
 ### Li-Ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # Chemie: 1S Li-Ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-set board.fmax 20%       # T-Cool (0…-5 °C): begrenzt auf 20 % × 500 mA = 100 mA
+set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 500 mA = 100 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # Chemie: 1S LiFePO4 (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 300       # max. Ladestrom — ≈ 1 W Panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, aufgerundet als Reserve)
-set board.fmax 40%       # T-Cool (0…-5 °C): begrenzt auf 40 % × 300 mA = 120 mA
+set board.fmax 40%       # T-Cool (ca. -2…+3 °C): begrenzt auf 40 % × 300 mA = 120 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s      # Chemie: 2S LTO (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 700       # max. Ladestrom — ≈ 3 W Panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
-set board.fmax 0%        # ohne Wirkung bei LTO (JEITA deaktiviert — LTO lädt auch bei Frost)
+                         # fmax entfällt: wird bei LTO abgelehnt (JEITA deaktiviert — LTO lädt auch bei Frost)
 ```
 
 ### Na-Ion 1S (3.1V nominal)
 ```bash
 set board.bat naion1s    # Chemie: 1S Na-Ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-                         # fmax weggelassen: ohne Wirkung bei Na-Ion (JEITA deaktiviert)
+                         # fmax entfällt: wird bei Na-Ion abgelehnt (JEITA deaktiviert)
 ```
 
-Hinweis: `set board.fmax` hat bei LTO und Na-Ion keine Wirkung (JEITA deaktiviert).
+Hinweis: `set board.fmax` wird bei LTO und Na-Ion mit Fehler abgelehnt (JEITA deaktiviert); `get board.fmax` zeigt N/A.
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) für den Eingang: 25V.
+- Typische Panels haben 5V oder 6V (MPP darunter).
 - Das Board hat Buck/Boost und kann auch mit niedrigerer Panelspannung höhere Akkuspannungen laden.
 - 24V-Panels oder Serienverschaltung können die 25V-Voc-Grenze überschreiten und sind nicht geeignet.
 - Wattklasse: mindestens 1W, typisch 2W.
-- Bei 1W-Panels wird eine Akkukapazität von >9Ah empfohlen.
+- Bei 1W-Panels wird eine Akkukapazität von >7Ah empfohlen.
 - Gilt nur bei Südausrichtung, vertikaler Montage und unverschattetem Standort.
 - Bei schlechteren Solarbedingungen entweder auf 2W gehen oder die Akkukapazität für "Winterüberleben" erhöhen.
 
@@ -181,7 +182,7 @@ get board.conf
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
 - `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, naion1s, none).
-- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%).
+- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%; N/A bei LTO/Na-Ion).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).
 - `get board.leds` - LED-Status (Heartbeat + BQ-Stat).

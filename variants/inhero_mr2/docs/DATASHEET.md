@@ -22,7 +22,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Watchdog Timer (WDT)** | nRF52840 hardware watchdog. Automatically reboots the board if the firmware hangs – essential for unattended long-term operation. |
 | **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled System Sleep with RTC wake. Solar charging remains active during sleep (CE pin latched). |
 | **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
-| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~5–6 °C in cold range, ~2–3 °C in warm/hot range). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see [README.md — JEITA](README.md#jeita-temperature-zone-configuration) for details. **Note:** JEITA thresholds are evaluated by the BQ25798 directly in hardware. The `set board.tccal` calibration corrects only the CLI/telemetry temperature readout and does not affect JEITA behavior — see [FAQ #12](FAQ.md#12-when-should-i-run-set-boardtccal). |
+| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~2–3 °C; effective T-Cool range approx. −2 °C to +3 °C, see JEITA table in README). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see [README.md — JEITA](README.md#jeita-temperature-zone-configuration) for details. **Note:** JEITA thresholds are evaluated by the BQ25798 directly in hardware. The `set board.tccal` calibration corrects only the CLI/telemetry temperature readout and does not affect JEITA behavior — see [FAQ #12](FAQ.md#12-when-should-i-run-set-boardtccal). |
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has **no hardware reverse polarity protection** on the battery or solar input. Connecting a battery or solar panel with reversed polarity will cause **immediate, irreversible damage** to the board. Always double-check the polarity before connecting any power source.
 
@@ -31,7 +31,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | Feature | Description |
 |---------|-------------|
 | **MPPT (Maximum Power Point Tracking)** | The BQ25798 optimizes solar harvesting via MPPT (VOC_PCT = 81.25%, matched for crystalline silicon solar cells). Automatic recovery on power-good loss and stuck-PGOOD detection with HIZ toggle. |
-| **PFM Forward Mode** | Permanently enabled – improves efficiency at low solar currents. |
+| **PFM Forward Mode** | Enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low solar currents. |
 
 ### Specifications
 
@@ -176,18 +176,18 @@ See also [FAQ #16 — 3.3V off switch](FAQ.md#16-what-does-the-33v-off-switch-do
 | 0x40 | INA228 | Power Monitor / Coulomb Counter |
 | 0x52 | RV-3028-C7 | Real-Time Clock (RTC) |
 | 0x6B | BQ25798 | Battery Charger (MPPT, JEITA) |
-| 0x76/0x77 | BME280 | Environmental Sensor (T, H, P) |
+| 0x76 | BME280 | Environmental Sensor (T, H, P) |
 
 ---
 
 ## Pin Assignment (Key GPIOs)
 
-| GPIO | nRF52840 Pin | Function |
-|------|-------------|----------|
+| nRF52840 Pin | RAK Module Pin | Function |
+|--------------|----------------|----------|
 | P0.04 | WB_IO4 | BQ CE pin (via DMN2004TK-7 N-FET, inverted) |
-| P1.02 | — | INA228 ALERT (low-voltage interrupt) |
-| GPIO17 | WB_IO1 | RV-3028 RTC interrupt |
-| GPIO21 | — | BQ25798 INT |
+| P1.02 | WB_IO2 | INA228 ALERT (low-voltage interrupt) |
+| P0.17 | WB_IO1 | RV-3028 RTC interrupt |
+| P0.21 | WB_IO3 | BQ25798 INT (unused, polled; pulled up) |
 
 ---
 

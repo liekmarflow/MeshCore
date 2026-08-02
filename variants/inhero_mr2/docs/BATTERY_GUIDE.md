@@ -168,6 +168,8 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 | **Availability** | Excellent | Good | Limited | Limited |
 | **Relative cost (per Wh)** | Low | Low–Medium | High | Medium |
 
+> **Note on the extractable-capacity figures:** These are typical datasheet values at 0.2C–0.5C discharge loads. The MR2's sub-0.05C load is much gentler; the firmware's derating model (section 3) therefore shows higher extractable values in `get board.telem`.
+
 ---
 
 ## 3. Temperature Behavior
@@ -181,6 +183,8 @@ From best to worst cold-weather performance:
 3. **Li-Ion** — 55% extractable at −20 °C, charging blocked in frost
 4. **LiFePO4** — 46% extractable at −20 °C, charging blocked in frost
 
+*(Datasheet values at 0.2C–0.5C loads — see the note in section 2; under the MR2's much gentler load the firmware's derating model below shows higher values.)*
+
 > The ranking may surprise users familiar with LiFePO4's reputation as a "workhorse." While LiFePO4 excels in cycle life and safety, it is actually the **worst performer in cold** among the four supported chemistries. This matters significantly for alpine and winter deployments.
 
 ### Charging in Cold Conditions
@@ -192,7 +196,7 @@ From best to worst cold-weather performance:
 | **LTO** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
 | **Na-Ion** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
 
-For Li-Ion and LiFePO4, charging is also reduced in the **T-Cool range** (+3 °C to −2 °C with Inhero voltage divider), configurable via `set board.fmax`. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
+For Li-Ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). Note that selecting Li-Ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
 
 **Why is frost charging dangerous for Li-Ion and LiFePO4?** At low temperatures, lithium ions cannot intercalate properly into the graphite anode. Instead, they deposit as metallic lithium on the anode surface ("lithium plating"). This permanently reduces capacity and can create internal short circuits — a safety hazard.
 
@@ -205,7 +209,7 @@ LTO and Na-Ion use different anode materials (lithium titanate and hard carbon r
 > 1. **PV panels produce more power in cold weather** (silicon temperature coefficient ~−0.35%/°C). A 5 W panel at −10 °C delivers significantly more current than at +25 °C. Snow reflection can push output even beyond rated wattage.
 > 2. **Cell quality varies.** Results with premium cells (low internal resistance, consistent chemistry) may not transfer to budget cells.
 >
-> The Inhero MR2 takes a conservative approach: the NTC battery temperature sensor causes the BQ25798 to block charging until the cell warms above −2 °C (JEITA T-Cold), and then charges at a reduced rate until the battery leaves the T-Cool zone (configurable via `set board.fmax`). On sunny winter days, the board runs from solar via the power path while the battery stays protected. Once direct sunlight heats up the enclosure and the battery temperature rises above the threshold — which happens surprisingly fast with proper enclosure design — charging resumes automatically. This gives the best of both worlds: no plating risk, yet minimal lost charge time.
+> The Inhero MR2 takes a conservative approach: the NTC battery temperature sensor causes the BQ25798 to block charging until the cell warms above −2 °C (JEITA T-Cold) and, by default, keeps charging suspended through the T-Cool zone as well (`board.fmax` default 0%). Setting `set board.fmax` to 20%, 40% or 100% instead allows reduced-rate charging between −2 °C and +3 °C. On sunny winter days, the board runs from solar via the power path while the battery stays protected. Once direct sunlight heats up the enclosure and the battery temperature rises above the threshold — which happens surprisingly fast with proper enclosure design — charging resumes automatically. This gives the best of both worlds: no plating risk, yet minimal lost charge time.
 
 ### Temperature Derating
 
@@ -234,7 +238,7 @@ T_ref = 25 °C for all chemistries (no derating at room temperature and above).
 - The derated (extractable) value in `telem` decreases as the battery cools
 - TTL estimates reflect extractable capacity at the current temperature (Trapped Charge model)
 
-→ See [IMPLEMENTATION_SUMMARY.md — §5a Temperature Derating](IMPLEMENTATION_SUMMARY.md#5a-temperature-derating) for the full technical implementation.
+→ See [FAQ #13 — How does temperature derating work?](FAQ.md#13-how-does-temperature-derating-work) for further technical details.
 
 ---
 
@@ -433,6 +437,8 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 | **Maritime / coastal (salt, humidity)** | **LiFePO4** | Li-Ion | Sealed prismatic cells; inherent safety in harsh environments |
 | **Mobile / portable** | **Li-Ion** | LiFePO4 | Weight and volume matter most |
 | **Budget-constrained** | **Li-Ion** | LiFePO4 | Lowest cost per Wh |
+
+*(Extractable-capacity percentages are datasheet values at 0.2C–0.5C loads — see the note in section 2.)*
 
 > **Winter alpine checklist:**
 > 1. Choose LTO or Na-Ion for frost charging

@@ -101,7 +101,7 @@ Bei parallelgeschalteten Zellen addieren sich die Kapazitäten vor dem Abschlag:
 
 ### 5. Warum ist es wichtig, den maximalen Ladestrom `set board.imax` einzustellen?
 
-`imax` setzt den **maximalen Ladestrom** — den maximalen Strom, der in den Akku fließt. Die Firmware nutzt `imax` zusammen mit der Akkuspannung auch, um automatisch zu berechnen, wie viel Strom sie vom Solarpanel ziehen darf. Das verhindert, dass schwache Panels überlastet werden und der Laderegler abschaltet.
+`imax` setzt den **maximalen Ladestrom** — den maximalen Strom, der in den Akku fließt. Die Firmware nutzt `imax` zusammen mit der Ladeschlussspannung der eingestellten Chemie auch, um automatisch zu berechnen, wie viel Strom sie vom Solarpanel ziehen darf. Das verhindert, dass schwache Panels überlastet werden und der Laderegler abschaltet.
 
 Warum `imax` korrekt einstellen?
 
@@ -139,7 +139,7 @@ Beispiel: 2-W-Panel, Li-Ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.ima
 
 **Ja.** USB-C VBUS (5 V) ist über eine **Schottky-Diode** mit dem BQ25798-VBUS-Eingang verbunden — dem **gleichen Eingang** wie das Solarpanel (siehe [DATASHEET.md — USB-Ladepfad](DATASHEET.md#usb-ladepfad)). Der BQ25798 hat nur einen VBUS-Eingang und unterscheidet nicht zwischen den beiden Quellen.
 
-Bei erkanntem USB (nRF52840 VBUS-Sense) begrenzt die Firmware automatisch den Eingangsstrom auf **500 mA** (USB 2.0 Spec). Wird USB entfernt, wird das Eingangsstrom-Limit aus Akkuspannung und `board.imax` neu berechnet.
+Bei erkanntem USB (nRF52840 VBUS-Sense) begrenzt die Firmware automatisch den Eingangsstrom auf **500 mA** (USB 2.0 Spec). Wird USB entfernt, wird das Eingangsstrom-Limit aus der eingestellten Chemie und `board.imax` neu berechnet.
 
 Es ist jeweils die Quelle aktiv, die die höhere Spannung am VBUS-Eingang liefert: Wenn die USB-Spannung (abzüglich Schottky-Drop) höher ist als die Solarspannung, lädt USB. Andernfalls lädt Solar. Beide Quellen können nicht gleichzeitig laden.
 
@@ -174,7 +174,7 @@ Langsames Blinken der BQ-Status-LED signalisiert einen **Charger-Fehler**. Häuf
 
 3. **Anderer Charger-Fehler:** Der BQ25798 kann auch Fehler wie VBAT-Überspannung (VBAT_OVP), Eingangsüberspannung (VBUS_OVP) oder Watchdog-Timeout signalisieren. Diese treten im Normalbetrieb selten auf.
 
-→ Prüfe mit [`get board.telem`](CLI_CHEAT_SHEET.md#getters) die aktuelle Temperatur und mit [`get board.cinfo`](CLI_CHEAT_SHEET.md#getters) den Charger-Status und Fehler-Flags.
+→ Prüfe mit [`get board.telem`](CLI_CHEAT_SHEET.md#getter-status-abfragen) die aktuelle Temperatur und mit [`get board.cinfo`](CLI_CHEAT_SHEET.md#getter-status-abfragen) den Charger-Status; Fehler-Flags zeigt [`get board.bqdiag`](CLI_CHEAT_SHEET.md#getter-status-abfragen).
 
 ---
 
@@ -185,7 +185,7 @@ Das ist ein bewusstes Sicherheitsfeature. Der BQ25798-Charger wird über den **C
 **Ohne Firmware** (oder mit aktiviertem 3.3V-off-Schalter):
 - Externer Pull-Down am DMN2004TK-7-FET-Gate → FET OFF → CE HIGH → **Laden deaktiviert**
 
-Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn die Firmware hängt oder nicht installiert ist. Firmware per USB flashen, um das Laden zu aktivieren. Siehe [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#11-bq25798-ce-pin-safety-rev-11--fet-invertiert) für das Hardware-Design.
+Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn die Firmware hängt oder nicht installiert ist. Firmware per USB flashen und die Akkuchemie setzen (`set board.bat …`), um das Laden zu aktivieren. Siehe [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#10-bq25798-ce-pin-safety-rev-11--fet-invertiert) für das Hardware-Design.
 
 ---
 
@@ -197,7 +197,7 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 
 **SOC zeigt 0%** nach dem Aufwachen aus dem **Low-Voltage-Sleep**. Das ist beabsichtigt: Der Coulomb-Counter lief während des Sleeps nicht, daher ist der Ladestand unbekannt. Der SOC startet bei 0% und beginnt wieder zu zählen. Beim nächsten „Charge Done“ synchronisiert sich der SOC sauber auf 100%.
 
-**Hinweis:** Bei Kälte kann der SOC% auch durch Temperatur-Derating niedriger erscheinen als erwartet — das ist korrektes Verhalten, kein Sensorfehler. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
+**Hinweis:** Bei Kälte ist die entnehmbare Kapazität geringer als die gespeicherte Ladung. `get board.telem` zeigt das als `SOC:95.0% (79%)`. Die TTL berücksichtigt das automatisch. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
 
 ---
 
@@ -213,7 +213,7 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 - **Betrifft nur Telemetrie und CLI.** TCCal korrigiert die Akkutemperatur, die über `get board.telem` und Telemetrie angezeigt bzw. übertragen wird. Die JEITA-Schwellen des BQ25798 werden **nicht** beeinflusst — der Charger wertet den TS-Pin direkt in Hardware aus. Daher können die tatsächlichen JEITA-Schalttemperaturen geringfügig von den kalibrierten CLI-Messwerten abweichen.
 - **1-Punkt-Kalibrierung.** Der Offset wird bei einer Temperatur ermittelt. Abseits der Kalibriertemperatur driftet die Korrektur, da NTC-Nichtlinearität und Teilerfehler temperaturabhängig sind.
 
-**Befehl:** `set board.tccal` — kalibriert den NTC-Offset automatisch mit dem BME280 als Referenz. Mit `set board.tccal reset` den Offset auf 0.00 zurücksetzen. Aktuellen Offset prüfen: [`get board.tccal`](CLI_CHEAT_SHEET.md#getter-schnellreferenz).
+**Befehl:** `set board.tccal` — kalibriert den NTC-Offset automatisch mit dem BME280 als Referenz. Mit `set board.tccal reset` den Offset auf 0.00 zurücksetzen. Aktuellen Offset prüfen: [`get board.tccal`](CLI_CHEAT_SHEET.md#getter-kurzinfos).
 
 ---
 
@@ -227,23 +227,24 @@ Die **entnehmbare Kapazität** sinkt jedoch bei Kälte durch verlangsamte elektr
 
 Der Derating-Faktor ist sichtbar in `get board.socdebug` (Feld `d=`).
 
-→ **Vollständige Details:** [IMPLEMENTATION_SUMMARY.md — §5a Temperatur-Derating](IMPLEMENTATION_SUMMARY.md#5a-temperatur-derating)
+→ **Vollständige Details:** [IMPLEMENTATION_SUMMARY.md — Temperatur-Derating](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prognose)
 
 ---
 
 ### 14. Was ist TTL (Time-To-Live)?
 
-TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getters). Siehe [IMPLEMENTATION_SUMMARY.md — TTL-Prognose](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prognose) für den Algorithmus.
+TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getter-status-abfragen). Siehe [IMPLEMENTATION_SUMMARY.md — TTL-Prognose](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prognose) für den Algorithmus.
 
 **Funktionsweise:**
 - Ein 168-Stunden-Ringpuffer (7 Tage) erfasst stündlich Lade-/Entladedaten des INA228-Coulomb-Counters.
-- **Formel:** `TTL = (SOC% × Kapazität / 100) / |7-Tage-Durchschnitt täglicher Nettoverbrauch| × 24h`
-- **Anzeigeformat:** `T:12d0h` (12 Tage, 0 Stunden) oder `T:72h` (< 24 Stunden)
+- **Formel:** `TTL = entnehmbare Kapazität / |7-Tage-Durchschnitt täglicher Nettoverbrauch| × 24h` — dabei ist entnehmbar = verbleibende Ladung (aus SOC%) minus temperaturgesperrtem Anteil (siehe Kältebetrieb unten; bei moderaten Temperaturen identisch mit `SOC% × Kapazität / 100`)
+- **Anzeigeformat:** `T:12d0h` (12 Tage, 0 Stunden) oder `T:12h` (< 24 Stunden)
 
 **TTL zeigt N/A oder 0, wenn:**
 - Weniger als 24 Stunden Daten gesammelt wurden
 - Das Board auf Solarüberschuss läuft (kein Defizit)
-- Akkukapazität unbekannt (`set board.batcap` nicht gesetzt)
+
+**Hinweis:** Ohne `set board.batcap` wird ein grober Chemie-Standardwert (1500–2000 mAh) verwendet — für eine aussagekräftige TTL die reale Kapazität setzen.
 
 **Kältebetrieb:** TTL verwendet das Trapped-Charge-Modell — Kälte sperrt den Boden der Entladekurve, dadurch fällt die entnehmbare Kapazität bei niedrigem SOC besonders steil. Im Winter bei 20% SOC kann die entnehmbare Kapazität bereits nahe null sein. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
 
@@ -261,7 +262,7 @@ TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen E
 
 ### 16. Was macht der Schalter „3.3V off“ und wann verwende ich ihn?
 
-Der Schiebeschalter **„3.3V off“** unten links auf der Platine steuert den EN-Pin des TPS62840 Buck-Converters (siehe [DATASHEET.md — 3.3V Power Switch](DATASHEET.md#33v-power-switch-33v-off)).
+Der Schiebeschalter **„3.3V off“** unten links auf der Platine steuert den EN-Pin des TPS62840 Buck-Converters (siehe [DATASHEET.md — Anschlüsse, Taster & LEDs](DATASHEET.md#anschlüsse-taster--leds--vorderseite)).
 
 > **⚠ Achtung — Invertierte Logik:**
 > - Schalterstellung **„ON“** = EN-Pin low = Board **ausgeschaltet**
@@ -286,7 +287,7 @@ Das Board hat drei LEDs:
 | **LED2** | Rechts, unten | Rot | Hardware-Fehleranzeige. Blinkt dauerhaft, wenn eine kritische Komponente (BQ25798, INA228 oder RTC) bei der Initialisierung nicht gefunden wurde. |
 | **Charge-LED** | Unten rechts, neben Solar-Anschluss | Rot | BQ25798-Ladestatus-Ausgang (hardware-gesteuert). Dauerleuchten = Laden aktiv. Aus = kein Laden oder Laden abgeschlossen. Langsames Blinken = Charger-Fehler (siehe FAQ #9). |
 
-Alle drei LEDs können mit [`set board.leds off`](CLI_CHEAT_SHEET.md#setters) deaktiviert werden.
+Alle drei LEDs können mit [`set board.leds off`](CLI_CHEAT_SHEET.md#setter-konfiguration-ändern) deaktiviert werden.
 
 **Hinweis:** Die Angaben zu LED1/LED2 gelten nur nach dem Boot der Firmware. Der Bootloader verwendet eigene LED-Muster (z. B. langsames blaues Pulsen bei OTA-/UF2-Updates).
 
@@ -359,9 +360,10 @@ Die Castellated Pads können direkt auf eine Trägerplatine gelötet werden. Sie
 - Frostschutz (`set board.fmax`)
 - MPPT, LED-Einstellungen
 - NTC-Kalibrierungsoffset
-- Energiestatistiken (stündliche/tägliche Ringpuffer für TTL-Berechnung)
 
-Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Korruption (selten) verloren. Siehe [IMPLEMENTATION_SUMMARY.md — Statistics Persistence](IMPLEMENTATION_SUMMARY.md#12-statistics-persistence) für technische Details.
+**Hinweis:** Energiestatistiken (168h-Ringpuffer für TTL) liegen nur im RAM und beginnen nach jedem Reboot oder Update neu.
+
+Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Korruption (selten) verloren. Siehe [IMPLEMENTATION_SUMMARY.md — Statistik-Persistenz](IMPLEMENTATION_SUMMARY.md#11-statistik-persistenz) für technische Details.
 
 ### 23. Warum braucht das Repeater-Board eine korrekte Uhrzeit?
 
@@ -385,7 +387,7 @@ Das Inhero MR2 hat eine Hardware-RTC, die bei einem normalen Reboot die Zeit beh
 
 **Warum?** Die Firmware nutzt steigende Timestamps als Schutz gegen Replay-Attacken. Sowohl Advertisements als auch Admin-Befehle werden verworfen, wenn ihr Timestamp kleiner oder gleich dem zuletzt gespeicherten ist. Da andere Nodes im Mesh den letzten (hohen) Timestamp gespeichert haben, würde ein Uhrrücksprung dazu führen, dass neue Advertisements meshweit abgelehnt werden.
 
-**Lösung: `clkreboot`** — setzt die Uhr auf einen niedrigen Wert zurück, startet das Board neu und räumt die Client-Tabelle auf. Danach `clock sync` ausführen, um die korrekte Zeit zu setzen.
+**Lösung: `clkreboot`** — setzt die Uhr auf einen niedrigen Wert zurück und startet das Board neu; dabei werden die Replay-Zeitstempel je Client zurückgesetzt (gespeicherte Client-Einträge bleiben erhalten). Danach `clock sync` ausführen, um die korrekte Zeit zu setzen.
 
 > **Hinweis:** Nach `clkreboot` werden Advertisements vorübergehend von Nodes verworfen, die noch den alten Timestamp gespeichert haben. Die Sichtbarkeit normalisiert sich, sobald die Einträge dort ablaufen.
 

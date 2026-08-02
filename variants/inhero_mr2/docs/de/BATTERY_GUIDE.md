@@ -14,7 +14,7 @@
 - [3. Temperaturverhalten](#3-temperaturverhalten)
   - [Kälteperformance-Ranking](#kälteperformance-ranking)
   - [Laden bei Kälte](#laden-bei-kälte)
-  - [Temperatur-Derating (TTL & Anzeige)](#temperatur-derating-ttl--anzeige)
+  - [Temperatur-Derating](#temperatur-derating)
 - [4. Zellauswahl & Bauformen](#4-zellauswahl--bauformen)
   - [Li-Ion-Zellen](#li-ion-zellen)
   - [LiFePO4-Zellen](#lifepo4-zellen)
@@ -168,6 +168,8 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 | **Verfügbarkeit** | Sehr gut | Gut | Eingeschränkt | Eingeschränkt |
 | **Relativer Preis (pro Wh)** | Niedrig | Niedrig–Mittel | Hoch | Mittel |
 
+> **Hinweis zu den Entnehmbar-Werten:** Das sind typische Datenblattwerte bei 0,2C–0,5C-Entladelast. Die Last des MR2 liegt weit unter 0,05C und ist damit deutlich sanfter; das Derating-Modell der Firmware (Abschnitt 3) zeigt daher in `get board.telem` höhere entnehmbare Werte.
+
 ---
 
 ## 3. Temperaturverhalten
@@ -181,6 +183,8 @@ Von bester zu schlechtester Kälteperformance:
 3. **Li-Ion** — 55% entnehmbar bei −20 °C, Laden bei Frost gesperrt
 4. **LiFePO4** — 46% entnehmbar bei −20 °C, Laden bei Frost gesperrt
 
+*(Datenblattwerte bei 0,2C–0,5C-Last — siehe Hinweis in Abschnitt 2; unter der deutlich sanfteren Last des MR2 zeigt das Derating-Modell der Firmware weiter unten höhere Werte.)*
+
 > Das Ranking überrascht möglicherweise Nutzer, die LiFePO4 als bewährtes „Arbeitstier" kennen. Während LiFePO4 bei Zyklenlebensdauer und Sicherheit glänzt, ist es tatsächlich die **schlechteste Chemie bei Kälte** unter den vier unterstützten. Das ist besonders relevant für alpine Einsätze und Winterbetrieb.
 
 ### Laden bei Kälte
@@ -192,24 +196,26 @@ Von bester zu schlechtester Kälteperformance:
 | **LTO** | Ja — lädt bei jeder Temperatur | JEITA deaktiviert (`ts_ignore = true`) |
 | **Na-Ion** | Ja — lädt bei jeder Temperatur | JEITA deaktiviert (`ts_ignore = true`) |
 
-Für Li-Ion und LiFePO4 wird die Ladung auch im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) reduziert, konfigurierbar über `set board.fmax`. Siehe [FAQ #6](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst).
+Für Li-Ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) standardmäßig gesperrt und kann über `set board.fmax` (20%, 40% oder 100%) auf eine reduzierte Rate gesetzt werden. Beachte: Die Auswahl von Li-Ion oder LiFePO4 über `set board.bat` setzt `board.fmax` auf 0% zurück. Siehe [FAQ #6](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst).
 
 **Warum ist Frostladen bei Li-Ion und LiFePO4 gefährlich?** Bei niedrigen Temperaturen können Lithium-Ionen nicht ordnungsgemäß in die Graphit-Anode interkalieren. Stattdessen lagern sie sich als metallisches Lithium auf der Anodenoberfläche ab („Lithium-Plating"). Das reduziert die Kapazität permanent und kann interne Kurzschlüsse erzeugen — ein Sicherheitsrisiko.
 
 LTO und Na-Ion verwenden andere Anodenmaterialien (Lithium-Titanat bzw. Hard Carbon), die nicht vom Lithium-Plating betroffen sind, weshalb Frostladen sicher ist.
 
-> **Felderfahrung vs. Theorie:** Viele Repeater-Betreiber laden Li-Ion-Zellen bei Frost erfolgreich mit geringen Solarströmen (<0,1C) und berichten über mehrere Winter hinweg von keiner messbaren Degradation. Die [YYCMesh-Community](https://yycmesh.com/blog/cold-weather-charging) dokumentierte zwei Jahre alpine Einsätze in den kanadischen Rockies (bis −40 °C) mit Standard-18650-Zellen — die Innenwidersstände lagen weiterhin im Werksspezifikationsbereich. Ihre Schlüsselfaktoren: sehr geringe Laderaten (<0,05C), passive Sonnenerwärmung der Gehäuse und Ladung während der wärmsten Tageszeit.
+> **Felderfahrung vs. Theorie:** Viele Repeater-Betreiber laden Li-Ion-Zellen bei Frost erfolgreich mit geringen Solarströmen (<0,1C) und berichten über mehrere Winter hinweg von keiner messbaren Degradation. Die [YYCMesh-Community](https://yycmesh.com/blog/cold-weather-charging) dokumentierte zwei Jahre alpine Einsätze in den kanadischen Rockies (bis −40 °C) mit Standard-18650-Zellen — die Innenwiderstände lagen weiterhin im Werksspezifikationsbereich. Ihre Schlüsselfaktoren: sehr geringe Laderaten (<0,05C), passive Sonnenerwärmung der Gehäuse und Ladung während der wärmsten Tageszeit.
 >
 > Das sind wertvolle Praxisdaten und der Ansatz funktioniert offensichtlich für viele Setups. Allerdings gelten diese Ergebnisse speziell für Konfigurationen mit **großen Akkukapazitäten und relativ geringer PV-Leistung** (Laderaten deutlich unter 0,05C). Sie sollten nicht als generelle Entwarnung beim Thema Lithium-Plating verstanden werden. *Es kommt darauf an* — auf Laderate, Zellqualität, Panelgröße und Temperatur. Die Degradation durch Lithium-Plating ist **kumulativ und subtil** — sie zeigt sich nicht als plötzlicher Ausfall, sondern als schleichender Kapazitätsverlust über Jahre. Zwei zusätzliche Risiken werden häufig unterschätzt:
 >
 > 1. **PV-Panels liefern bei Kälte mehr Leistung** (Silizium-Temperaturkoeffizient ~−0,35%/°C). Ein 5-W-Panel bei −10 °C liefert deutlich mehr Strom als bei +25 °C. Schneereflexion kann die Leistung sogar über die Nennwerte hinaus steigern.
 > 2. **Zellqualität variiert.** Ergebnisse mit Premium-Zellen (niedriger Innenwiderstand, konsistente Chemie) lassen sich nicht unbedingt auf Budget-Zellen übertragen.
 >
-> Das Inhero MR2 verfolgt einen konservativen Ansatz: Der NTC-Batterietemperatursensor veranlasst den BQ25798, die Ladung zu blockieren, bis die Zelle sich über −2 °C erwärmt hat (JEITA T-Cold), und lädt danach bis zum Verlassen der T-Cool-Zone mit einer reduzierten Laderate (konfigurierbar über `set board.fmax`). An sonnigen Wintertagen läuft das Board über den Power-Path auf Solar, während der Akku geschützt bleibt. Sobald die direkte Sonneneinstrahlung das Gehäuse und die Akkutemperatur über den Schwellwert erwärmt — was bei durchdachtem Gehäusedesign erstaunlich schnell geht — wird die Ladung automatisch wieder freigegeben. Das bietet das Beste aus beiden Welten: kein Plating-Risiko bei gleichzeitig minimalem Verlust an Ladezeit.
+> Das Inhero MR2 verfolgt einen konservativen Ansatz: Der NTC-Batterietemperatursensor veranlasst den BQ25798, die Ladung zu blockieren, bis die Zelle sich über −2 °C erwärmt hat (JEITA T-Cold), und hält die Ladung standardmäßig auch in der T-Cool-Zone gesperrt (`board.fmax`-Standard 0%). Mit `set board.fmax` 20%, 40% oder 100% lädt das Board zwischen −2 °C und +3 °C stattdessen mit reduzierter Rate. An sonnigen Wintertagen läuft das Board über den Power-Path auf Solar, während der Akku geschützt bleibt. Sobald die direkte Sonneneinstrahlung das Gehäuse und die Akkutemperatur über den Schwellwert erwärmt — was bei durchdachtem Gehäusedesign erstaunlich schnell geht — wird die Ladung automatisch wieder freigegeben. Das bietet das Beste aus beiden Welten: kein Plating-Risiko bei gleichzeitig minimalem Verlust an Ladezeit.
 
-### Temperatur-Derating (TTL & Anzeige)
+### Temperatur-Derating
 
-Die Firmware verwendet ein **Trapped-Charge-Modell**: Kälte sperrt den Boden der Entladekurve — die Zelle erreicht ihre Abschaltspannung, während Ladung noch gespeichert ist. SOC% selbst ist rein Coulomb-basiert und temperaturunabhängig.
+Die Firmware verwendet ein **Trapped-Charge-Modell**, um die **entnehmbare** Kapazität bei der aktuellen Akkutemperatur abzuschätzen: Kälte sperrt den Boden der Entladekurve — die Zelle erreicht ihre Abschaltspannung, während Ladung noch gespeichert ist. SOC% selbst ist rein Coulomb-basiert (gespeicherte Ladung) und temperaturunabhängig. Das Derating wird angewendet auf:
+- **TTL-Berechnung** — Trapped Charge: entnehmbar = max(0, gespeichert − Kapazität × (1−f(T)))
+- **CLI-Anzeige** — `get board.telem` zeigt den derateten Wert in Klammern: `SOC:95.0% (78%)`
 
 Das Modell verwendet eine chemiespezifische lineare Funktion für den Derating-Faktor:
 
@@ -232,7 +238,7 @@ T_ref = 25 °C für alle Chemien (kein Derating bei Raumtemperatur und darüber)
 - TTL sinkt bei Kälte, besonders bei niedrigem SOC (Trapped-Charge-Modell sperrt den Boden)
 - `get board.telem` zeigt beide Werte: `SOC:95.0% (78%)` = gespeichert (entnehmbar)
 
-→ Siehe [IMPLEMENTATION_SUMMARY.md — §5a Temperatur-Derating](IMPLEMENTATION_SUMMARY.md#5a-temperatur-derating) für die vollständige technische Implementierung.
+→ Siehe [FAQ #13 — Wie funktioniert das Temperatur-Derating?](FAQ.md#13-wie-funktioniert-das-temperatur-derating) für weitere technische Details.
 
 ---
 
@@ -431,6 +437,8 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 | **Maritim / Küste (Salz, Feuchtigkeit)** | **LiFePO4** | Li-Ion | Versiegelte prismatische Zellen; inhärente Sicherheit |
 | **Mobil / portabel** | **Li-Ion** | LiFePO4 | Gewicht und Volumen zählen am meisten |
 | **Budget-beschränkt** | **Li-Ion** | LiFePO4 | Geringste Kosten pro Wh |
+
+*(Die Prozentangaben zur entnehmbaren Kapazität sind Datenblattwerte bei 0,2C–0,5C-Last — siehe Hinweis in Abschnitt 2.)*
 
 > **Checkliste für alpine Wintereinsätze:**
 > 1. LTO oder Na-Ion für Frostladen wählen

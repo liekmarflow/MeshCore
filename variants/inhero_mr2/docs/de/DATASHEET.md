@@ -21,8 +21,8 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 |---------|-------------|
 | **Watchdog Timer (WDT)** | Hardware-Watchdog des nRF52840. Startet das Board automatisch neu, wenn die Firmware hängt – wichtig für den unbeaufsichtigten Dauerbetrieb. |
 | **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System Sleep mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
-| **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem 3.3V_off-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
-| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~5–6 °C im Kaltbereich, ~2–3 °C im Warmbereich). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe [README.md — JEITA](README.md#jeita-temperaturzonen-konfiguration) für Details. **Hinweis:** Die JEITA-Schwellen werden vom BQ25798 direkt in Hardware ausgewertet. Die `set board.tccal`-Kalibrierung korrigiert nur die CLI-/Telemetrie-Temperaturanzeige und beeinflusst das JEITA-Verhalten nicht — siehe [FAQ #12](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen). |
+| **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem „3.3V off“-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
+| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~2–3 °C; effektiver T-Cool-Bereich ca. −2 °C bis +3 °C, siehe JEITA-Tabelle im README). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe [README.md — JEITA](README.md#jeita-temperaturzonen-konfiguration) für Details. **Hinweis:** Die JEITA-Schwellen werden vom BQ25798 direkt in Hardware ausgewertet. Die `set board.tccal`-Kalibrierung korrigiert nur die CLI-/Telemetrie-Temperaturanzeige und beeinflusst das JEITA-Verhalten nicht — siehe [FAQ #12](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen). |
 
 > **⚠ WARNUNG — Kein Verpolschutz:** Das Board verfügt über **keinen Hardware-Verpolschutz** an Akku- oder Solareingang. Ein verpolter Anschluss führt zu **sofortiger, irreversibler Beschädigung** des Boards. Vor dem Anschließen immer die Polarität prüfen.
 
@@ -31,7 +31,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | Feature | Beschreibung |
 |---------|-------------|
 | **MPPT (Maximum Power Point Tracking)** | Der BQ25798 optimiert die Solarernte per MPPT (VOC_PCT = 81,25 %, passend für kristalline Silizium-Solarzellen). Automatische Recovery bei Power-Good-Verlust und Stuck-PGOOD-Erkennung mit HIZ-Toggle. |
-| **PFM Forward Mode** | Permanent aktiviert – verbessert die Effizienz bei niedrigen Solarströmen. |
+| **PFM Forward Mode** | Ab Werk im BQ25798 aktiv (PFM_FWD_DIS=0, REG0x12); die Firmware ändert ihn nicht. Verbessert die Effizienz bei niedrigen Solarströmen. |
 
 ### Technische Daten
 
@@ -50,7 +50,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Leistungsmonitor** | INA228 (Coulomb Counter, ALERT) |
 | **RTC** | RV-3028-C7 (Zeitbasis/Aufweck-Timer). Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) |
 | **Buck Converter** | TPS62840 (3.3V-Rail, max. 750 mA) |
-| **System-Off-Strom** | via 3.3V off Switch ~15 µA |
+| **System-Off-Strom** | via „3.3V off“-Schalter ~15 µA |
 | **System-Sleep-Strom** | < 500 µA (Firmware-Sleep mit GPIO-Latch, CE aktiv, RTC-Wake) |
 | **Idle-Strom (aktiv)** | 6,0 mA @ 4,2 V / 7,7 mA @ 3,3 V (USB aus, kein Radio-TX) |
 | **USB-Peripherie** | ~0,8–1,0 mA zusätzlich (auto-aktiviert bei VBUS-Erkennung, auto-deaktiviert bei Entfernung) |
@@ -91,7 +91,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **BME280** | Umweltsensor | Temperatur, Luftfeuchtigkeit, Luftdruck |
 | **BQ25798** | Akku-Laderegler | MPPT, JEITA-Temperaturschutz, 15-Bit-ADC |
 | **INA228** | Leistungsmonitor | Coulomb Counter mit ALERT-Interrupt |
-| **TPS62840** | Buck Converter | DC/DC, 750 mA, EN geschaltet über 3.3V_off Switch |
+| **TPS62840** | Buck Converter | DC/DC, 750 mA, EN geschaltet über „3.3V off“-Schalter |
 
 ### Steckerbelegung – Batterie-Stecker (JST PH2.0-3P, von links nach rechts)
 
@@ -128,7 +128,7 @@ Keine manuellen CLI-Befehle nötig. USB ist immer verfügbar, wenn ein Kabel ang
 
 > **⚠ Warnung:** Da VBUS-USB und VBUS-BQ (Solareingang) über die Schottky-Diode verbunden sind, führt ein **Kurzschluss am Solarstecker** auch zum Kurzschluss von VBUS-USB. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 
-Siehe auch [FAQ #16 — 3.3V-off-Schalter](FAQ.md#16-was-macht-der-schalter-33v-off-und-wann-verwende-ich-ihn) für praktische Anwendungsfälle.
+Siehe auch [FAQ #16 — „3.3V off“-Schalter](FAQ.md#16-was-macht-der-schalter-33v-off-und-wann-verwende-ich-ihn) für praktische Anwendungsfälle.
 
 ---
 
@@ -176,18 +176,18 @@ Siehe auch [FAQ #16 — 3.3V-off-Schalter](FAQ.md#16-was-macht-der-schalter-33v-
 | 0x40 | INA228 | Leistungsmonitor / Coulomb Counter |
 | 0x52 | RV-3028-C7 | Echtzeituhr (RTC) |
 | 0x6B | BQ25798 | Akku-Laderegler (MPPT, JEITA) |
-| 0x76/0x77 | BME280 | Umweltsensor (T, H, P) |
+| 0x76 | BME280 | Umweltsensor (T, H, P) |
 
 ---
 
 ## Pin-Zuordnung (wichtige GPIOs)
 
-| GPIO | nRF52840 Pin | Funktion |
-|------|-------------|----------|
+| nRF52840-Pin | RAK-Modul-Pin | Funktion |
+|--------------|---------------|----------|
 | P0.04 | WB_IO4 | BQ CE-Pin (via DMN2004TK-7 N-FET, invertiert) |
-| P1.02 | — | INA228 ALERT (Tiefentlade-Interrupt) |
-| GPIO17 | WB_IO1 | RV-3028 RTC-Interrupt |
-| GPIO21 | — | BQ25798 INT |
+| P1.02 | WB_IO2 | INA228 ALERT (Tiefentlade-Interrupt) |
+| P0.17 | WB_IO1 | RV-3028 RTC-Interrupt |
+| P0.21 | WB_IO3 | BQ25798 INT (ungenutzt, Polling; Pull-up) |
 
 ---
 

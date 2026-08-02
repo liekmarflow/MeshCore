@@ -101,7 +101,7 @@ For parallel cells, add capacities before the deduction: Two 5,000 mAh cells in 
 
 ### 5. Why is it important to set the maximum charge current with `set board.imax`?
 
-`imax` sets the **maximum charge current** — the maximum current flowing into the battery. The firmware also uses `imax` together with the battery voltage to automatically calculate how much current it may draw from the solar panel. This prevents weak panels from being overloaded and the charger from shutting down.
+`imax` sets the **maximum charge current** — the maximum current flowing into the battery. The firmware also uses `imax` together with the configured chemistry's charge voltage to automatically calculate how much current it may draw from the solar panel. This prevents weak panels from being overloaded and the charger from shutting down.
 
 Why set `imax` correctly?
 
@@ -139,7 +139,7 @@ Example: 2 W panel, Li-Ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax
 
 **Yes.** USB-C VBUS (5 V) is connected to the BQ25798 VBUS input via a **Schottky diode** — the **same single input** as the solar panel (see [DATASHEET.md — USB Charging Path](DATASHEET.md#usb-charging-path)). The BQ25798 has only one VBUS input and does not distinguish between the two sources.
 
-When USB is detected (nRF52840 VBUS sense), the firmware automatically limits the input current to **500 mA** (USB 2.0 spec). When USB is removed, the input current limit is recalculated from battery voltage and `board.imax`.
+When USB is detected (nRF52840 VBUS sense), the firmware automatically limits the input current to **500 mA** (USB 2.0 spec). When USB is removed, the input current limit is recalculated from the configured chemistry and `board.imax`.
 
 Whichever source provides the higher voltage at the VBUS input is active: If USB voltage (minus Schottky drop) exceeds the solar voltage, USB charges. Otherwise, solar charges. Both sources cannot charge simultaneously.
 
@@ -174,7 +174,7 @@ Slow blinking of the BQ status LED indicates a **charger fault**. Most common ca
 
 3. **Other charger fault:** The BQ25798 can also signal faults such as VBAT overvoltage (VBAT_OVP), input overvoltage (VBUS_OVP), or watchdog timeout. These are less common in normal operation.
 
-→ Check with [`get board.telem`](CLI_CHEAT_SHEET.md#getters) for the current temperature and [`get board.cinfo`](CLI_CHEAT_SHEET.md#getters) for the charger status and fault flags.
+→ Check with [`get board.telem`](CLI_CHEAT_SHEET.md#getters-query-status) for the current temperature and [`get board.cinfo`](CLI_CHEAT_SHEET.md#getters-query-status) for the charger status; fault flags are shown by [`get board.bqdiag`](CLI_CHEAT_SHEET.md#getters-query-status).
 
 ---
 
@@ -185,7 +185,7 @@ This is a deliberate safety feature. The BQ25798 charger is controlled via the *
 **Without firmware** (or with the 3.3V off switch engaged):
 - External pull-down on the DMN2004TK-7 FET gate → FET OFF → CE HIGH → **charging disabled**
 
-This ensures the battery cannot be overcharged if the firmware locks up or is not installed. Flash the firmware via USB to enable charging. See [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#11-bq25798-ce-pin-safety-rev-11--fet-inverted) for the hardware design.
+This ensures the battery cannot be overcharged if the firmware locks up or is not installed. Flash the firmware via USB and configure the battery chemistry (`set board.bat …`) to enable charging. See [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#10-bq25798-ce-pin-safety-rev-11--fet-inverted) for the hardware design.
 
 ---
 
@@ -197,7 +197,7 @@ This ensures the battery cannot be overcharged if the firmware locks up or is no
 
 **SOC shows 0%** after the board wakes from **low-voltage sleep**. This is intentional: the coulomb counter was not running during sleep, so the charge state is unknown. SOC restarts at 0% and begins accumulating again. When the battery next reaches "Charge Done", the SOC synchronizes cleanly to 100%.
 
-**Note:** In cold conditions, the extractable capacity is lower than stored charge. `get board.telem` shows this as `SOC:95% (79%)`. The TTL accounts for this automatically. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
+**Note:** In cold conditions, the extractable capacity is lower than stored charge. `get board.telem` shows this as `SOC:95.0% (79%)`. The TTL accounts for this automatically. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
 
 ---
 
@@ -227,23 +227,24 @@ However, the **extractable capacity** decreases at cold temperatures due to slow
 
 The derating factor is visible in `get board.socdebug` (field `d=`).
 
-→ **Full details:** [IMPLEMENTATION_SUMMARY.md — §5a Temperature Derating](IMPLEMENTATION_SUMMARY.md#5a-temperature-derating)
+→ **Full details:** [IMPLEMENTATION_SUMMARY.md — Temperature Derating](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prediction)
 
 ---
 
 ### 14. What is TTL (Time-To-Live)?
 
-TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters). See [IMPLEMENTATION_SUMMARY.md — TTL Prediction](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prediction) for the algorithm.
+TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters-query-status). See [IMPLEMENTATION_SUMMARY.md — TTL Prediction](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prediction) for the algorithm.
 
 **How it works:**
 - A 168-hour ring buffer (7 days) records hourly charge/discharge data from the INA228 coulomb counter.
-- **Formula:** `TTL = (SOC% × capacity / 100) / |7-day avg. daily net consumption| × 24h`
-- **Display format:** `T:12d0h` (12 days, 0 hours) or `T:72h` (< 24 hours)
+- **Formula:** `TTL = extractable capacity / |7-day avg. daily net consumption| × 24h` — where extractable = SOC%-based remaining charge minus the temperature-locked share (see Cold weather below; identical to `SOC% × capacity / 100` at moderate temperatures)
+- **Display format:** `T:12d0h` (12 days, 0 hours) or `T:12h` (< 24 hours)
 
 **TTL shows N/A or 0 when:**
 - Less than 24 hours of data have been collected
 - The board is running on solar surplus (no deficit)
-- Battery capacity is unknown (`set board.batcap` not set)
+
+**Note:** If `set board.batcap` is not set, a rough chemistry default (1500–2000 mAh) is used — set the real capacity for a meaningful TTL.
 
 **Cold weather:** TTL uses the Trapped Charge model — cold temperatures lock the bottom of the discharge curve, so extractable capacity drops faster than SOC% at low charge levels. This is especially critical in winter: at 20% SOC, the extractable capacity may already be near zero. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
 
@@ -261,7 +262,7 @@ TTL is an estimated **remaining runtime** based on the current energy balance. I
 
 ### 16. What does the "3.3V off" switch do, and when would I use it?
 
-The slide switch labeled **"3.3V off"** on the bottom-left of the PCB controls the EN pin of the TPS62840 buck converter (see [DATASHEET.md — 3.3V Power Switch](DATASHEET.md#33v-power-switch-33v-off)).
+The slide switch labeled **"3.3V off"** on the bottom-left of the PCB controls the EN pin of the TPS62840 buck converter (see [DATASHEET.md — Connectors, Buttons & LEDs](DATASHEET.md#connectors-buttons--leds--front-side)).
 
 > **⚠ Caution — Inverted logic:**
 > - Switch position **"ON"** = EN pin low = board **powered off**
@@ -286,7 +287,7 @@ The board has three LEDs:
 | **LED2** | Right side, bottom | Red | Hardware error indicator. Blinks permanently if a critical component (BQ25798, INA228, or RTC) was not found during initialization. |
 | **Charge LED** | Bottom right, next to solar connector | Red | BQ25798 charge status output (hardware-controlled). Solid on = charging active. Off = not charging or charging done. Slow blinking = charger fault (see FAQ #9). |
 
-All three LEDs can be disabled with [`set board.leds off`](CLI_CHEAT_SHEET.md#setters).
+All three LEDs can be disabled with [`set board.leds off`](CLI_CHEAT_SHEET.md#setters-change-configuration).
 
 **Note:** The descriptions for LED1/LED2 apply only after the firmware has booted. The bootloader uses its own LED patterns (e.g., slow blue pulsing during OTA/UF2 updates).
 
@@ -359,9 +360,10 @@ The castellated pads can be soldered directly to a carrier board. See [DATASHEET
 - Frost protection (`set board.fmax`)
 - MPPT, LED settings
 - NTC calibration offset
-- Energy statistics (hourly/daily ring buffers for TTL calculation)
 
-Settings are only lost on a full flash erase or filesystem corruption (rare). See [IMPLEMENTATION_SUMMARY.md — Statistics Persistence](IMPLEMENTATION_SUMMARY.md#12-statistics-persistence) for technical details.
+**Note:** Energy statistics (168h ring buffers for TTL) are held in RAM only and restart after any reboot or update.
+
+Settings are only lost on a full flash erase or filesystem corruption (rare). See [IMPLEMENTATION_SUMMARY.md — Statistics Persistence](IMPLEMENTATION_SUMMARY.md#11-statistics-persistence) for technical details.
 
 ### 23. Why does the repeater board need a correct time?
 
@@ -385,7 +387,7 @@ The Inhero MR2 has a hardware RTC that retains its time during a normal reboot. 
 
 **Why?** The firmware uses increasing timestamps to protect against replay attacks. Both advertisements and admin commands are rejected if their timestamp is equal to or lower than the last stored value. Since other nodes in the mesh store the last (high) timestamp, a clock rollback would cause new advertisements to be rejected mesh-wide.
 
-**Solution: `clkreboot`** — resets the clock to a low value, reboots the board and clears the client table. Run `clock sync` afterwards to set the correct time.
+**Solution: `clkreboot`** — resets the clock to a low value and reboots the board; the reboot resets the per-client replay timestamps (stored client entries are kept). Run `clock sync` afterwards to set the correct time.
 
 > **Note:** After `clkreboot`, advertisements will temporarily be rejected by nodes that still have the old timestamp stored. Visibility normalises once those entries expire.
 
@@ -399,4 +401,5 @@ See also [FAQ #23](#23-why-does-the-repeater-board-need-a-correct-time).
 - [DATASHEET.md](DATASHEET.md) — Hardware datasheet, pinouts and specifications
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
+- [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide

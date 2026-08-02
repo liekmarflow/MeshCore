@@ -2,21 +2,18 @@
 
 > 🇩🇪 [Deutsche Version](de/TELEMETRY.md)
 
-The Inhero MR-2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across three channels. The companion app displays these as **Channel 1–3**.
+The Inhero MR-2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across four channels. The companion app displays these as **Channel 1–4**.
 
 ---
 
-## Channel 1 — Device Status & Environment
+## Channel 1 — Device Status
 
-Base data from the node plus BME280 environment sensor (always present on the MR-2).
+Base data from the node.
 
 | Field | Unit | Source | Description |
 |-------|------|--------|-------------|
 | Battery Level | % / V | INA228 | See note below on SOC workaround |
-| Temperature | °C / °F | BME280 | Ambient temperature |
-| Relative Humidity | % | BME280 | Relative humidity |
-| Barometric Pressure | hPa | BME280 | Barometric pressure |
-| Altitude | m / ft | BME280 | Altitude derived from barometric pressure (reference: sea level) |
+| Temperature | °C / °F | nRF52840 | MCU die temperature |
 
 ### Battery Level & SOC Workaround
 
@@ -31,24 +28,36 @@ The MR-2 works around this limitation:
 
 > **OCV** = Open Circuit Voltage — the battery's resting voltage without load. The OCV curve (voltage vs. SOC%) is characteristic for each battery chemistry and is used here as a lookup table to reverse-map SOC% back to a voltage the app can interpret.
 
-The SOC becomes valid when **both** conditions are met:
+The SOC becomes valid as soon as a **reference point** exists — either manually via `set board.soc <percent>` or automatically on a "Charging Done" event (which sets SOC to 100%).
 
-1. **Battery capacity is set** — via `set board.batcap <mAh>`
-2. **SOC reference point exists** — either manually via `set board.soc <percent>` or automatically on a "Charging Done" event (which sets SOC to 100%)
+Without `set board.batcap <mAh>` a chemistry-typical default capacity (1500–2000 mAh) is assumed. Setting the real capacity is therefore required for the displayed percentage and the TTL to be accurate — not for the SOC to become valid.
 
 The reverse mapping uses a piecewise-linear Li-Ion OCV table (3000 mV at 0% → 4200 mV at 100%). This ensures the app displays the correct coulomb-counted SOC regardless of the actual battery chemistry.
+
+---
+
+## Channel 2 — Environment (BME280)
+
+Data from the BME280 environment sensor (always present on the MR-2).
+
+| Field | Unit | Source | Description |
+|-------|------|--------|-------------|
+| Temperature | °C / °F | BME280 | Ambient temperature |
+| Relative Humidity | % | BME280 | Relative humidity |
+| Barometric Pressure | hPa | BME280 | Barometric pressure |
+| Altitude | m / ft | BME280 | Altitude derived from barometric pressure (reference: sea level) |
 
 > **Note:** The altitude calculation is based on standard sea level pressure (1013.25 hPa) and may deviate depending on weather conditions.
 
 ---
 
-## Channel 2 — Battery (INA228 / BQ25798)
+## Channel 3 — Battery (INA228 / BQ25798)
 
 High-precision battery data from the INA228 coulomb counter and BQ25798 charge controller.
 
 | Field | LPP Type | Unit | Source | Description |
 |-------|----------|------|--------|-------------|
-| Voltage | Voltage | V | INA228 | Battery voltage (24-bit ADC, ±0.1% accuracy) |
+| Voltage | Voltage | V | INA228 | Battery voltage (20-bit ADC, ±0.1% accuracy) |
 | SOC | Percentage | % | INA228 | State of charge via coulomb counting — *optional, only when calibrated* |
 | Current | Current | A | INA228 | Battery current. Negative = discharging, positive = charging |
 | Temperature | Temperature | °C / °F | BQ25798 NTC | Battery temperature from NTC thermistor |
@@ -56,7 +65,7 @@ High-precision battery data from the INA228 coulomb counter and BQ25798 charge c
 
 ### SOC & TTL
 
-SOC and TTL only appear when the coulomb counter has a valid reference point. This requires a configured battery capacity (`set board.batcap`) and either a manual SOC set (`set board.soc`) or a "Charging Done" event. Until the SOC is valid, these fields are omitted.
+SOC and TTL only appear when the coulomb counter has a valid reference point — either a manual SOC set (`set board.soc`) or a "Charging Done" event. The percentage is based on the configured battery capacity (`set board.batcap`; a chemistry-typical default of 1500–2000 mAh is assumed otherwise). Until the SOC is valid, these fields are omitted.
 
 ### TTL Encoding
 
@@ -65,7 +74,7 @@ The TTL (Time-To-Live) is transmitted as a **CayenneLPP Distance value** in days
 | Condition | Transmitted Value | Meaning |
 |-----------|-------------------|---------|
 | Finite TTL | `ttlHours / 24.0` | Estimated remaining days on battery |
-| Surplus (charging > consumption) | `990.0` (max encodable) | Effectively infinite — device is gaining charge |
+| Surplus (charging > consumption) | `990.0` (sentinel value) | Effectively infinite — device is gaining charge |
 | Unknown (SOC not yet valid) | *not sent* | TTL cannot be calculated yet |
 
 ### Temperature Sentinel Values
@@ -81,7 +90,7 @@ Invalid temperature readings are indicated by sentinel values and not transmitte
 
 ---
 
-## Channel 3 — Solar (BQ25798)
+## Channel 4 — Solar (BQ25798)
 
 Solar input data from the BQ25798 charge controller.
 
@@ -101,23 +110,25 @@ Solar input data from the BQ25798 charge controller.
 
 Channels are assigned dynamically:
 
-1. **Channel 1** (`TELEM_CHANNEL_SELF`) is statically defined and contains MeshCore base data plus BME280.
-2. **Channel 2** is determined by `queryBoardTelemetry()` as the next free channel (`findNextFreeChannel`).
-3. **Channel 3** = Channel 2 + 1.
+1. **Channel 1** (`TELEM_CHANNEL_SELF`) is statically defined and contains the MeshCore base data (battery voltage and MCU die temperature).
+2. `querySensors()` assigns each active sensor its own channel starting right after Channel 1 — the BME280 therefore lands on **Channel 2**.
+3. The **battery channel** is determined by `queryBoardTelemetry()` as the next free channel (`findNextFreeLppChannel`).
+4. The **solar channel** = battery channel + 1.
 
-Since Channel 1 is the only channel occupied before `queryBoardTelemetry()`, the result is always Channel 2 (battery) and Channel 3 (solar) in practice.
+`querySensors()` assigns the BME280 to Channel 2 before `queryBoardTelemetry()` runs, so battery data lands on Channel 3 and solar on Channel 4 in practice.
 
 ```
 Order in CayenneLPP packet:
-┌─────────────────────────────────────────────┐
-│ Channel 1: Voltage (INA228 / SOC fake)    │  ← MyMesh.cpp (getBattMilliVolts)
-│ Channel 1: Temp, Humidity, Pressure, Alt.  │  ← BME280 (querySensors)
-│ Channel 2: VBAT, [SOC], IBAT, TBAT, [TTL] │  ← queryBoardTelemetry()
-│ Channel 3: VSOL, ISOL, MPPT%              │  ← queryBoardTelemetry()
-└─────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│ Channel 1: Voltage (INA228 / SOC fake)        │  ← MyMesh.cpp (getBattMilliVolts)
+│ Channel 2: Temp, Humidity, Pressure, Alt.     │  ← BME280 (querySensors)
+│ Channel 3: VBAT, [SOC], IBAT, TBAT, [TTL]     │  ← queryBoardTelemetry()
+│ Channel 4: VSOL, ISOL, MPPT%                  │  ← queryBoardTelemetry()
+│ Channel 1: MCU die temperature                │  ← MyMesh.cpp (getMCUTemperature)
+└───────────────────────────────────────────────┘
 ```
 
-> **Permissions:** Channels 2 and 3 are only sent if the requesting client has the `TELEM_PERM_ENVIRONMENT` permission. Guests (Guest role) receive only Channel 1 with base voltage.
+> **Permissions:** Channels 2–4 are only sent if the requesting client has the `TELEM_PERM_ENVIRONMENT` permission. Guests (Guest role) receive only Channel 1 with base voltage and MCU temperature.
 
 ## See Also
 

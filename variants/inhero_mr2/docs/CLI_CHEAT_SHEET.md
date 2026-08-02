@@ -26,7 +26,7 @@ set board.batcap 10000
 # Maximum charge current (50–1500 mA)
 set board.imax 500
 
-# Frost charge current reduction (T-Cool 0°C to -5°C)
+# Frost charge current reduction (T-Cool approx. -2 °C to +3 °C, see JEITA table in README)
 set board.fmax 0%              # Charging blocked
 set board.fmax 20%             # max. 20% of imax
 set board.fmax 40%             # max. 40% of imax
@@ -77,12 +77,17 @@ get board.stats                # Energy balance (24h/3d/7d), C/D, MPPT%, TTL
                                #   TTL = Time To Live (hours until battery empty)
                                #   Basis: 7-day average of daily net deficit
                                #   from hourly INA228 coulomb counter samples (168h ring buffer)
-                               #   Formula: (SOC% × capacity) / |7d-avg-deficit| × 24
+                               #   Formula: extractable / |7d-avg-deficit| × 24, where
+#   extractable = SOC% × capacity − trapped charge
+#   (cold-temperature derating; 0 at normal temperatures)
                                #   TTL only shown in BAT mode (net deficit)
                                #   Prerequisite: min. 24h data + capacity known
 
 # Charger & Diagnostics
 get board.cinfo                # Charger status + last PG-stuck HIZ toggle
+get board.bqdiag               # Diagnostic/debug: compact BQ25798 register dump
+                               #   PG/charge state, TS region (COLD/COOL/WARM/HOT),
+                               #   active status/fault flags (e.g. VINDPM, VBAT_OVP)
 get board.selftest             # Probe all I2C devices (INA228/BQ25798/RV-3028/BME280)
                                #   Output: "INA:OK BQ:OK RTC:OK BME:OK"
                                #   RTC includes user-RAM write/readback verify
@@ -91,6 +96,10 @@ get board.selftest             # Probe all I2C devices (INA228/BQ25798/RV-3028/B
                                #     OK      — device responds and (RTC) persists writes
                                #     NACK    — device does not ACK on I2C bus
                                #     WR_FAIL — (RTC only) ACKs but write/readback mismatched
+get board.socdebug             # Diagnostic/debug: SOC tracking internals
+                               #   SHUNT_CAL, precise current, CHARGE register (mAh),
+                               #   current-hour charge/discharge accumulators,
+                               #   update count, RTC time, temperature derating factor
 
 # Calibration
 get board.tccal                # NTC temperature offset in °C (0.00 = default)
@@ -112,7 +121,9 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC — see [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, TTL (7d-avg-based) |
 | `get board.cinfo` | Charger status + PG-stuck HIZ toggle (e.g. "PG / CC HIZ:3m ago") |
+| `get board.bqdiag` | Diagnostic/debug: BQ25798 register dump — PG/charge state, TS region, active fault flags |
 | `get board.selftest` | I2C device probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC also write-verified) |
+| `get board.socdebug` | Diagnostic/debug: SOC internals — SHUNT_CAL, current, CHARGE, hour accumulators, derating factor |
 | `get board.tccal` | NTC temperature offset in °C (`0.00` = default) |
 
 ---

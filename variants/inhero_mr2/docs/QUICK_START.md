@@ -14,7 +14,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - Never operate without an antenna — risk of damage to the RF frontend.
 
 ## 3) Connect Battery
-- A charge level >90% is recommended so the SOC calculation starts reliably.
+- A charge level >90% is recommended so the battery can be fully charged via USB and the SOC calculation starts reliably.
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has no hardware reverse polarity protection. Connecting the battery with reversed polarity will cause immediate, irreversible damage. Always verify correct polarity before plugging in.
 
@@ -52,14 +52,14 @@ This guide walks you through commissioning and the most important CLI commands.
 
 ## 9) Set Frost Charge Current Reduction
 - Command: set board.fmax <0%|20%|40%|100%>
-- Limits the maximum charge current in the T-Cool range (0°C to -5°C) to X% of board.imax.
+- Limits the maximum charge current in the T-Cool range (approx. -2 °C to +3 °C, see JEITA table in README) to X% of board.imax.
 - 0% = Charging blocked in T-Cool range.
-- 20% = max. 20% of imax (e.g. 500mA → 100mA at 0°C to -5°C).
-- 40% = max. 40% of imax (e.g. 500mA → 200mA at 0°C to -5°C).
+- 20% = max. 20% of imax (e.g. 500mA → 100mA at approx. -2 °C to +3 °C).
+- 40% = max. 40% of imax (e.g. 500mA → 200mA at approx. -2 °C to +3 °C).
 - 100% = no reduction, full charge current even in cold conditions.
-- Below -5°C (T-Cold): Charging always completely blocked by JEITA.
+- Below approx. -2 °C (T-Cold): Charging always completely blocked by JEITA.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
-- Note: For LTO and Na-Ion, JEITA is disabled (fmax has no effect, charges even in frost).
+- Note: For LTO and Na-Ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
 - → [FAQ #6 — What does fmax control?](FAQ.md#6-what-does-set-boardfmax-control)
 
 ## 10) Enable MPPT
@@ -69,7 +69,7 @@ This guide walks you through commissioning and the most important CLI commands.
 
 ## 11) Enable/Disable LEDs
 - Command: set board.leds <on|off> or set board.leds <1|0>
-- Controls heartbeat LED and BQ status LED (boot LEDs remain active).
+- Controls heartbeat LED and BQ status LED (bootloader LED patterns are unaffected).
 - → [FAQ #17 — What do the LEDs mean?](FAQ.md#17-what-do-the-leds-mean)
 
 ## 12) Fully Charge Battery (SOC Sync)
@@ -87,37 +87,37 @@ These values are safe starting points and should be adjusted to match battery, p
 
 The `imax` values below are derived from the rule of thumb from section 8:
 **`imax ≈ panel power ÷ panel voltage × 1.2`** (e.g. 2 W ÷ 5 V × 1.2 ≈ 480 mA → round to 500).
-`fmax` is given as a percentage of `imax` and only applies in the T-Cool zone (0 °C … -5 °C).
+`fmax` is given as a percentage of `imax` and only applies in the T-Cool zone (approx. -2 °C to +3 °C, see JEITA table in README).
 
 ### Li-Ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # chemistry: 1S Li-Ion (sets charge profile + low-V thresholds)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-set board.fmax 20%       # T-Cool (0…-5 °C): cap at 20 % × 500 mA = 100 mA
+set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA = 100 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # chemistry: 1S LiFePO4 (sets charge profile + low-V thresholds)
 set board.imax 300       # max charge current — ≈ 1 W panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, rounded up for headroom)
-set board.fmax 40%       # T-Cool (0…-5 °C): cap at 40 % × 300 mA = 120 mA
+set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 300 mA = 120 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s      # chemistry: 2S LTO (sets charge profile + low-V thresholds)
 set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
-set board.fmax 0%        # no effect on LTO (JEITA disabled — LTO charges even at frost)
+                         # fmax is omitted: rejected for LTO (JEITA disabled — LTO charges even at frost)
 ```
 
 ### Na-Ion 1S (3.1V nominal)
 ```bash
 set board.bat naion1s    # chemistry: 1S Na-Ion (sets charge profile + low-V thresholds)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-                         # fmax is omitted: no effect on Na-Ion (JEITA disabled)
+                         # fmax is omitted: rejected for Na-Ion (JEITA disabled)
 ```
 
-Note: `set board.fmax` has no effect on LTO and Na-Ion (JEITA disabled).
+Note: `set board.fmax` is rejected with an error for LTO and Na-Ion (JEITA disabled); `get board.fmax` shows N/A.
 
 ## Solar Panel Notes
 - Maximum open-circuit voltage (Voc) for the input: 25V.
@@ -182,7 +182,7 @@ get board.conf
 
 ## Getter Quick Reference (all relevant board getters)
 - `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, naion1s, none).
-- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%).
+- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A for LTO/Na-Ion).
 - `get board.imax` - Maximum charge current in mA.
 - `get board.mppt` - MPPT status (0/1).
 - `get board.leds` - LED status (Heartbeat + BQ Stat).

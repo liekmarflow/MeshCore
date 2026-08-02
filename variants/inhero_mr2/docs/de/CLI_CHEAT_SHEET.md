@@ -26,7 +26,7 @@ set board.batcap 10000
 # Maximaler Ladestrom (50–1500 mA)
 set board.imax 500
 
-# Frost-Ladestromabsenkung (T-Cool 0°C bis -5°C)
+# Frost-Ladestromabsenkung (T-Cool ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README)
 set board.fmax 0%              # Laden gesperrt
 set board.fmax 20%             # max. 20% von imax
 set board.fmax 40%             # max. 40% von imax
@@ -77,12 +77,17 @@ get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
                                #   TTL = Time To Live (Stunden bis Akku leer)
                                #   Basis: 7-Tage-Durchschnitt des tägl. Netto-Defizits
                                #   aus stündlichen INA228-Coulomb-Counter-Samples (168h-Ringpuffer)
-                               #   Formel: (SOC% × Kapazität) / |7d-Avg-Deficit| × 24
+                               #   Formel: entnehmbare Ladung / |7d-Avg-Defizit| × 24, wobei
+#   entnehmbar = SOC% × Kapazität − eingeschlossene Ladung
+#   (Kälte-Derating; bei Normaltemperatur 0)
                                #   TTL erscheint nur im BAT-Modus (Netto-Defizit)
                                #   Voraussetzung: mind. 24h Daten + Kapazität bekannt
 
 # Ladegerät & Diagnose
 get board.cinfo                # Charger-Status + letzter PG-Stuck HIZ-Toggle
+get board.bqdiag               # Diagnose/Debug: kompakter BQ25798-Register-Dump
+                               #   PG-/Ladezustand, TS-Region (COLD/COOL/WARM/HOT),
+                               #   aktive Status-/Fehler-Flags (z.B. VINDPM, VBAT_OVP)
 get board.selftest             # Alle I2C-Komponenten prüfen (INA228/BQ25798/RV-3028/BME280)
                                #   Ausgabe: "INA:OK BQ:OK RTC:OK BME:OK"
                                #   RTC inkl. User-RAM Write/Readback-Verifikation
@@ -91,6 +96,10 @@ get board.selftest             # Alle I2C-Komponenten prüfen (INA228/BQ25798/RV
                                #     OK      — antwortet (RTC: Write persistiert)
                                #     NACK    — keine I2C-Antwort
                                #     WR_FAIL — (nur RTC) ACKt, aber Write/Read stimmen nicht überein
+get board.socdebug             # Diagnose/Debug: SOC-Tracking-Interna
+                               #   SHUNT_CAL, präziser Strom, CHARGE-Register (mAh),
+                               #   Stundenzähler Laden/Entladen, Update-Zähler,
+                               #   RTC-Zeit, Temperatur-Derating-Faktor
 
 # Kalibrierung
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
@@ -112,7 +121,9 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC — siehe [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
 | `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
+| `get board.bqdiag` | Diagnose/Debug: BQ25798-Register-Dump — PG-/Ladezustand, TS-Region, aktive Fehler-Flags |
 | `get board.selftest` | I2C-Komponenten-Probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC inkl. Write-Verify) |
+| `get board.socdebug` | Diagnose/Debug: SOC-Interna — SHUNT_CAL, Strom, CHARGE, Stundenzähler, Derating-Faktor |
 | `get board.tccal` | NTC-Temperatur-Offset in °C (`0.00` = default) |
 
 ---

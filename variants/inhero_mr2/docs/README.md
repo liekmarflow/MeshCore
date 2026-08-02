@@ -43,7 +43,7 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 | SOC via INA228 + manual battery capacity | Active | `set board.batcap` available |
 | SOC→Li-Ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
 | MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
-| PFM Forward Mode | Permanently active | Always enabled (improves efficiency at low solar currents) |
+| PFM Forward Mode | Active (chip default) | Enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low solar currents |
 
 ## Power Management Features
 
@@ -55,7 +55,6 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
    - CE pin → HIGH (FET ON → CE LOW → charging active)
    - P0.04 excluded from `disconnectLeakyPullups()` → GPIO latch preserved in sleep
    - RTC wake configured (`LOW_VOLTAGE_SLEEP_MINUTES` = 60 min)
-   - SOC set to 0%
    - `sd_power_system_off()` → **System Sleep with GPIO latch** (< 500µA)
 4. **RTC Wake** (hourly) → system boots, early-boot checks VBAT:
    - Below `lowv_wake_mv` → immediately back to System Sleep (CE remains latched LOW)
@@ -107,19 +106,20 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
 ### SOC→Li-Ion mV Mapping (Workaround)
 - **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The Companion App uses a Li-Ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
 - **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%. See [TELEMETRY.md](TELEMETRY.md) for details on how this affects the app display.
-- **TODO**: Remove once MeshCore supports native SOC% transmission.
+- This workaround will be removed once MeshCore supports native SOC% transmission.
 - → [FAQ #11 — SOC shows 0% or N/A?](FAQ.md#11-why-does-the-soc-show-0-or-na)
 
 ### Time-To-Live (TTL) Prediction
 - **Time base:** 7-day moving average (`avg_7day_daily_net_mah`) of daily net energy consumption
 - **Data source:** 168-hour ring buffer (7 days) with hourly INA228 coulomb counter samples (charged/discharged/solar mAh)
-- **Formula:** `TTL_hours = (SOC% × capacity_mah / 100) / |avg_7day_daily_net_mah| × 24`
+- **Formula:** `TTL_hours = max(0, SOC% × capacity_mah / 100 − capacity_mah × (1 − f(T))) / |avg_7day_daily_net_mah| × 24`
+- **f(T):** Cold-temperature derating factor (trapped-charge model) — at low temperatures part of the stored charge is unusable and is subtracted first; f(T) = 1 at warm temperatures
 - **Prerequisites:** `living_on_battery == true` (24h deficit), min. 24h data, capacity known
 - **TTL = 0:** Solar surplus, no 24h data available, or capacity unknown
 - **CLI:** TTL is shown in `get board.stats` (BAT mode only, e.g. `T:12d0h`)
 - **Telemetry:** Transmitted as days via CayenneLPP Distance field (max. 990 days for "infinite"). See [TELEMETRY.md](TELEMETRY.md) for channel details.
 
-### Solar Power Management 🆕
+### Solar Power Management
 
 - **Solar current display:** The BQ25798 IBUS ADC is inaccurate at low currents (~±30mA error). Therefore solar current is displayed in steps:
   - `0mA` — ADC reports exactly 0 (no solar current)
@@ -127,8 +127,8 @@ The Inhero MR-2 is an application-specific hardware platform designed for autono
   - `~72mA` — 50–100mA with rounding symbol `~` (limited accuracy)
   - `385mA` — >100mA without rounding symbol (sufficiently accurate)
   - Always integer without decimal places (no pseudo-precision)
-- **PFM Forward Mode:** Permanently enabled. Improves efficiency at low currents.
-- **MPPT VOC_PCT 81.25%:** The BQ25798 MPPT is configured to VOC_PCT=81.25% (instead of chip default 87.5% or former 75%). This value matches the typical Vmp/Voc ratio of crystalline silicon solar cells (~80-83%).
+- **PFM Forward Mode:** PFM forward mode is enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low currents.
+- **MPPT VOC_PCT 81.25%:** The BQ25798 MPPT is configured to VOC_PCT=81.25% (instead of the chip default 87.5%). This value matches the typical Vmp/Voc ratio of crystalline silicon solar cells (~80-83%).
 - **MPPT Recovery:** Re-enables MPPT on PowerGood=1 (readback check: only on actual change)
 - **BQ INT pin not used:** No interrupt — pure polling every 60s in `runMpptCycle()`
 - **Error monitoring:** Diagnostic commands show FAULT_STATUS registers (0x20, 0x21) for detailed analysis incl. VBAT_OVP, VBUS_OVP and temperature conditions
@@ -178,12 +178,13 @@ get board.bat       # Query current battery type
 
 get board.fmax      # Query frost charge behavior
                     # Output: 0% | 20% | 40% | 100%
-                    # Value = max charge current in T-Cool range (0°C to -5°C),
+                    # Value = max charge current in T-Cool range
+                    # (approx. -2 °C to +3 °C, see JEITA table in README),
                     # relative to board.imax
-                    # 40% at imax=500mA → max. 200mA charge current at 0°C to -5°C
+                    # 40% at imax=500mA → max. 200mA charge current in T-Cool range
                     # 0% = charging blocked in T-Cool range
                     # 100% = no reduction (full current even in cold)
-                    # Below -5°C (T-Cold): charging always completely blocked (JEITA)
+                    # Below approx. -2 °C (T-Cold): charging always completely blocked (JEITA)
                     # Note: Only charging is restricted. With sufficient
                     # solar, the board continues to run on solar power —
                     # the battery is neither charged nor discharged.
@@ -195,17 +196,22 @@ get board.imax      # Query maximum charge current
 get board.mppt      # Query MPPT status
                     # Output: MPPT=1 (enabled) | MPPT=0 (disabled)
 
-get board.telem     # Query real-time telemetry with SOC 🆕
+get board.telem     # Query real-time telemetry with SOC
                     # Output: B:<V>V/<I>mA/<T>C SOC:<percent>% S:<V>V/<solar current>
                     # Examples:
                     #   B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA      (>100mA: accurate)
                     #   B:3.85V/-8.2mA/18C SOC:72.0% S:4.90V/~72mA      (50-100mA: ~estimate)
                     #   B:3.30V/-45.0mA/5C SOC:40.1% S:0.00V/<50mA      (<50mA: ADC inaccurate)
+                    # Output variants:
+                    # - SOC:N/A — no valid coulomb-counting SOC available
+                    # - SOC:68.5% (52%) — second value = cold-derated SOC,
+                    #   shown when the temperature derating factor is < 1
+                    # - <T>C becomes N/A when the NTC temperature is unavailable
                     # Components:
                     # - B: Battery (Voltage/Current/Temperature/SOC)
                     # - S: Solar (Voltage/Current — accuracy depends on BQ25798 IBUS ADC)
 
-get board.stats     # Query energy statistics (balance + MPPT) 🆕
+get board.stats     # Query energy statistics (balance + MPPT)
                     # Output: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
                     # Example: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
                     # Example: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
@@ -253,13 +259,14 @@ set board.bat <type>           # Set battery type
 
 set board.fmax <behavior>      # Set frost charge behavior
                                # Options: 0% | 20% | 40% | 100%
-                               # Limits charge current in T-Cool range (0°C to -5°C)
+                               # Limits charge current in T-Cool range
+                               # (approx. -2 °C to +3 °C, see JEITA table in README)
                                # to X% of board.imax
                                # 0% = charging blocked in T-Cool range
-                               # 20% = max. 20% of imax at 0°C to -5°C
-                               # 40% = max. 40% of imax at 0°C to -5°C
+                               # 20% = max. 20% of imax in T-Cool range
+                               # 40% = max. 40% of imax in T-Cool range
                                # 100% = no reduction
-                               # Below -5°C (T-Cold): charging always blocked (JEITA)
+                               # Below approx. -2 °C (T-Cold): charging always blocked (JEITA)
                                # Note: Only charging is restricted. With sufficient
                                # solar, the board continues to run on solar power —
                                # the battery is neither charged nor discharged.
@@ -284,7 +291,9 @@ set board.tccal                # Calibrate NTC temperature
 
 set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED
                                # on/1 = enable, off/0 = disable
-                               # Boot LEDs (3 blue blinks) always active
+                               # Boot LEDs follow this setting; only the
+                               # low-voltage recovery flash (3 blue blinks)
+                               # is always active
 
 set board.soc <percent>        # Manually set SOC
                                # Range: 0-100
