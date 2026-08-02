@@ -185,7 +185,7 @@ This is a deliberate safety feature. The BQ25798 charger is controlled via the *
 **Without firmware** (or with the 3.3V off switch engaged):
 - External pull-down on the DMN2004TK-7 FET gate → FET OFF → CE HIGH → **charging disabled**
 
-This ensures the battery cannot be overcharged if the firmware locks up or is not installed. Flash the firmware via USB and configure the battery chemistry (`set board.bat …`) to enable charging. See [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#10-bq25798-ce-pin-safety-rev-11--fet-inverted) for the hardware design.
+This ensures the battery cannot be overcharged if the firmware locks up or is not installed. Flash the firmware via USB and configure the battery chemistry (`set board.bat …`) to enable charging. See [POWER_MANAGEMENT.md — CE Pin Safety](POWER_MANAGEMENT.md#10-bq25798-ce-pin-safety-rev-11--fet-inverted) for the hardware design.
 
 ---
 
@@ -193,7 +193,7 @@ This ensures the battery cannot be overcharged if the firmware locks up or is no
 
 ### 11. Why does the SOC show 0% or N/A?
 
-**SOC shows N/A** until the battery has been **fully charged at the board for the first time**. The coulomb counter needs a known reference point (100% = "Charge Done" event) to calculate SOC accurately. Charge the battery completely once via USB after commissioning. See [IMPLEMENTATION_SUMMARY.md — Coulomb Counter & SOC](IMPLEMENTATION_SUMMARY.md#2-coulomb-counter--soc-state-of-charge) for the tracking mechanism.
+**SOC shows N/A** until the battery has been **fully charged at the board for the first time**. The coulomb counter needs a known reference point (100% = "Charge Done" event) to calculate SOC accurately. Charge the battery completely once via USB after commissioning. See [POWER_MANAGEMENT.md — Coulomb Counter & SOC](POWER_MANAGEMENT.md#2-coulomb-counter--soc-state-of-charge) for the tracking mechanism.
 
 **SOC shows 0%** after the board wakes from **low-voltage sleep**. This is intentional: the coulomb counter was not running during sleep, so the charge state is unknown. SOC restarts at 0% and begins accumulating again. When the battery next reaches "Charge Done", the SOC synchronizes cleanly to 100%.
 
@@ -227,13 +227,13 @@ However, the **extractable capacity** decreases at cold temperatures due to slow
 
 The derating factor is visible in `get board.socdebug` (field `d=`).
 
-→ **Full details:** [IMPLEMENTATION_SUMMARY.md — Temperature Derating](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prediction)
+→ **Full details:** [POWER_MANAGEMENT.md — Temperature Derating](POWER_MANAGEMENT.md#5-time-to-live-ttl-prediction)
 
 ---
 
 ### 14. What is TTL (Time-To-Live)?
 
-TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters-query-status). See [IMPLEMENTATION_SUMMARY.md — TTL Prediction](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prediction) for the algorithm.
+TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters-query-status). See [POWER_MANAGEMENT.md — TTL Prediction](POWER_MANAGEMENT.md#5-time-to-live-ttl-prediction) for the algorithm.
 
 **How it works:**
 - A 168-hour ring buffer (7 days) records hourly charge/discharge data from the INA228 coulomb counter.
@@ -363,7 +363,7 @@ The castellated pads can be soldered directly to a carrier board. See [DATASHEET
 
 **Note:** Energy statistics (168h ring buffers for TTL) are held in RAM only and restart after any reboot or update.
 
-Settings are only lost on a full flash erase or filesystem corruption (rare). See [IMPLEMENTATION_SUMMARY.md — Statistics Persistence](IMPLEMENTATION_SUMMARY.md#11-statistics-persistence) for technical details.
+Settings are only lost on a full flash erase or filesystem corruption (rare). See [POWER_MANAGEMENT.md — Statistics Persistence](POWER_MANAGEMENT.md#11-statistics-persistence) for technical details.
 
 ### 23. Why does the repeater board need a correct time?
 
@@ -401,5 +401,5 @@ See also [FAQ #23](#23-why-does-the-repeater-board-need-a-correct-time).
 - [DATASHEET.md](DATASHEET.md) — Hardware datasheet, pinouts and specifications
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Complete technical documentation
 - [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide

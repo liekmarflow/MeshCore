@@ -138,4 +138,4 @@ Order in CayenneLPP packet:
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
 - [FAQ.md](FAQ.md) — Frequently asked questions
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Complete technical documentation

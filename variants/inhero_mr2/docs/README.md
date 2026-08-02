@@ -381,4 +381,4 @@ The Inhero MR-2 is a module intended for professional developers and qualified u
 - [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Battery chemistry comparison and deployment guide
 - [FAQ.md](FAQ.md) — Frequently asked questions
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Complete technical documentation

@@ -89,7 +89,7 @@ Iron-phosphate cathode chemistry. Popular in solar and off-grid applications for
 - Charge voltage: **3.5 V**
 - **JEITA active** — NTC required; charging blocked below −2 °C (T-Cold)
 - Frost charge reduction configurable via `set board.fmax`
-- JEITA WARM zone neutralized in firmware to prevent VBAT_OVP (see [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md#jeita-warm-zone--vbat_ovp-prevention))
+- JEITA WARM zone neutralized in firmware to prevent VBAT_OVP (see [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md#jeita-warm-zone--vbat_ovp-prevention))
 
 ### LTO (Lithium Titanate, 2S)
 
@@ -518,4 +518,4 @@ This means the battery experiences perhaps **10–30 equivalent full cycles per 
 - [QUICK_START.md](QUICK_START.md) — Quick start for commissioning and CLI setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — All board-specific CLI commands at a glance
 - [FAQ.md](FAQ.md) — Frequently asked questions
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Complete technical documentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Complete technical documentation

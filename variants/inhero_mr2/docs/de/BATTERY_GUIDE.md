@@ -89,7 +89,7 @@ Eisenphosphat-Kathoden-Chemie. Beliebt in Solar- und Off-Grid-Anwendungen wegen 
 - Ladeschlussspannung: **3,5 V**
 - **JEITA aktiv** — NTC erforderlich; Ladung gesperrt unter −2 °C (T-Cold)
 - Frost-Ladestromreduzierung konfigurierbar über `set board.fmax`
-- JEITA-WARM-Zone in Firmware neutralisiert zur Vermeidung von VBAT_OVP (siehe [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md#jeita-warm-zone--vbat_ovp-vermeidung))
+- JEITA-WARM-Zone in Firmware neutralisiert zur Vermeidung von VBAT_OVP (siehe [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md#jeita-warm-zone--vbat_ovp-vermeidung))
 
 ### LTO (Lithium-Titanat, 2S)
 
@@ -518,4 +518,4 @@ Das bedeutet, der Akku erfährt vielleicht **10–30 äquivalente Vollzyklen pro
 - [QUICK_START.md](QUICK_START.md) — Schnellstart für Inbetriebnahme und CLI-Setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle Board-spezifischen CLI-Kommandos
 - [FAQ.md](FAQ.md) — Häufig gestellte Fragen
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Vollständige technische Dokumentation

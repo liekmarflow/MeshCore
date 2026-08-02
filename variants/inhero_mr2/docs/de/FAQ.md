@@ -185,7 +185,7 @@ Das ist ein bewusstes Sicherheitsfeature. Der BQ25798-Charger wird über den **C
 **Ohne Firmware** (oder mit aktiviertem 3.3V-off-Schalter):
 - Externer Pull-Down am DMN2004TK-7-FET-Gate → FET OFF → CE HIGH → **Laden deaktiviert**
 
-Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn die Firmware hängt oder nicht installiert ist. Firmware per USB flashen und die Akkuchemie setzen (`set board.bat …`), um das Laden zu aktivieren. Siehe [IMPLEMENTATION_SUMMARY.md — CE Pin Safety](IMPLEMENTATION_SUMMARY.md#10-bq25798-ce-pin-safety-rev-11--fet-invertiert) für das Hardware-Design.
+Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn die Firmware hängt oder nicht installiert ist. Firmware per USB flashen und die Akkuchemie setzen (`set board.bat …`), um das Laden zu aktivieren. Siehe [POWER_MANAGEMENT.md — CE Pin Safety](POWER_MANAGEMENT.md#10-bq25798-ce-pin-safety-rev-11--fet-invertiert) für das Hardware-Design.
 
 ---
 
@@ -193,7 +193,7 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 
 ### 11. Warum zeigt der SOC 0% oder N/A an?
 
-**SOC zeigt N/A**, bis der Akku **zum ersten Mal am Board vollständig geladen** wurde. Der Coulomb-Counter braucht einen bekannten Referenzpunkt (100% = „Charge Done“-Ereignis), um den SOC zuverlässig zu berechnen. Den Akku nach der Inbetriebnahme einmal komplett über USB laden. Siehe [IMPLEMENTATION_SUMMARY.md — Coulomb Counter & SOC](IMPLEMENTATION_SUMMARY.md#2-coulomb-counter--soc-ladezustand) für den Tracking-Mechanismus.
+**SOC zeigt N/A**, bis der Akku **zum ersten Mal am Board vollständig geladen** wurde. Der Coulomb-Counter braucht einen bekannten Referenzpunkt (100% = „Charge Done“-Ereignis), um den SOC zuverlässig zu berechnen. Den Akku nach der Inbetriebnahme einmal komplett über USB laden. Siehe [POWER_MANAGEMENT.md — Coulomb Counter & SOC](POWER_MANAGEMENT.md#2-coulomb-counter--soc-ladezustand) für den Tracking-Mechanismus.
 
 **SOC zeigt 0%** nach dem Aufwachen aus dem **Low-Voltage-Sleep**. Das ist beabsichtigt: Der Coulomb-Counter lief während des Sleeps nicht, daher ist der Ladestand unbekannt. Der SOC startet bei 0% und beginnt wieder zu zählen. Beim nächsten „Charge Done“ synchronisiert sich der SOC sauber auf 100%.
 
@@ -227,13 +227,13 @@ Die **entnehmbare Kapazität** sinkt jedoch bei Kälte durch verlangsamte elektr
 
 Der Derating-Faktor ist sichtbar in `get board.socdebug` (Feld `d=`).
 
-→ **Vollständige Details:** [IMPLEMENTATION_SUMMARY.md — Temperatur-Derating](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prognose)
+→ **Vollständige Details:** [POWER_MANAGEMENT.md — Temperatur-Derating](POWER_MANAGEMENT.md#5-time-to-live-ttl-prognose)
 
 ---
 
 ### 14. Was ist TTL (Time-To-Live)?
 
-TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getter-status-abfragen). Siehe [IMPLEMENTATION_SUMMARY.md — TTL-Prognose](IMPLEMENTATION_SUMMARY.md#5-time-to-live-ttl-prognose) für den Algorithmus.
+TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getter-status-abfragen). Siehe [POWER_MANAGEMENT.md — TTL-Prognose](POWER_MANAGEMENT.md#5-time-to-live-ttl-prognose) für den Algorithmus.
 
 **Funktionsweise:**
 - Ein 168-Stunden-Ringpuffer (7 Tage) erfasst stündlich Lade-/Entladedaten des INA228-Coulomb-Counters.
@@ -363,7 +363,7 @@ Die Castellated Pads können direkt auf eine Trägerplatine gelötet werden. Sie
 
 **Hinweis:** Energiestatistiken (168h-Ringpuffer für TTL) liegen nur im RAM und beginnen nach jedem Reboot oder Update neu.
 
-Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Korruption (selten) verloren. Siehe [IMPLEMENTATION_SUMMARY.md — Statistik-Persistenz](IMPLEMENTATION_SUMMARY.md#11-statistik-persistenz) für technische Details.
+Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Korruption (selten) verloren. Siehe [POWER_MANAGEMENT.md — Statistik-Persistenz](POWER_MANAGEMENT.md#11-statistik-persistenz) für technische Details.
 
 ### 23. Warum braucht das Repeater-Board eine korrekte Uhrzeit?
 
@@ -401,5 +401,5 @@ Siehe auch [FAQ #23](#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit)
 - [DATASHEET.md](DATASHEET.md) — Hardware-Datenblatt, Pinouts und Spezifikationen
 - [QUICK_START.md](QUICK_START.md) — Inbetriebnahme und CLI-Setup
 - [CLI_CHEAT_SHEET.md](CLI_CHEAT_SHEET.md) — Alle Board-spezifischen CLI-Kommandos
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — Vollständige technische Dokumentation
+- [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md) — Vollständige technische Dokumentation
 - [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Akkuchemie-Vergleich und Einsatzempfehlungen

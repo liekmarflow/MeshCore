@@ -1,6 +1,6 @@
 # Inhero MR-2 Power Management - Implementation Documentation (Rev 1.1)
 
-> 🇩🇪 [Deutsche Version](de/IMPLEMENTATION_SUMMARY.md)
+> 🇩🇪 [Deutsche Version](de/POWER_MANAGEMENT.md)
 
 ## Table of Contents
 

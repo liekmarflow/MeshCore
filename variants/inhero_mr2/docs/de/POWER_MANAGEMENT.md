@@ -1,6 +1,6 @@
 # Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.1)
 
-> 🇬🇧 [English version](../IMPLEMENTATION_SUMMARY.md)
+> 🇬🇧 [English version](../POWER_MANAGEMENT.md)
 
 ## Inhaltsverzeichnis
 
