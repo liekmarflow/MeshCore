@@ -1,7 +1,5 @@
 #pragma once
 
-class CayenneLPP;
-
 #include <stdint.h>
 #include <stddef.h>
 #include <math.h>
@@ -38,6 +36,8 @@ class CayenneLPP;
 #else
 #define BRIDGE_DEBUG_PRINTLN(...) {}
 #endif
+
+class CayenneLPP;
 
 namespace mesh {
 
