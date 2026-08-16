@@ -1,4 +1,4 @@
-# Inhero MR-2
+# Inhero MR2
 
 <img src="../img/front.jpg" alt="Inhero MR2" width="400">
 
@@ -17,7 +17,7 @@
 
 ## Übersicht
 
-Das Inhero MR-2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Mit einem aktiven Idle-Verbrauch von nur 6,0 mA bei 4,2 V bzw. 7,7 mA bei 3,3 V (USB aus, kein Radio-TX) ist das Board für einen voll ausgestatteten Repeater außergewöhnlich sparsam — das ermöglicht lange Laufzeiten selbst mit kompakten Akkus und kleinen Solarpanels. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget"-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
+Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Mit einem aktiven Idle-Verbrauch von nur 6,0 mA bei 4,2 V bzw. 7,7 mA bei 3,3 V (USB aus, kein Radio-TX) ist das Board für einen voll ausgestatteten Repeater außergewöhnlich sparsam — das ermöglicht lange Laufzeiten selbst mit kompakten Akkus und kleinen Solarpanels. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget"-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
@@ -347,7 +347,7 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 
 ## Regulatorische Hinweise & CE-Konformität (RED 2014/53/EU)
 
-Das Inhero MR-2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+Das Inhero MR2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
 
 **Vorgaben für den gesetzeskonformen Betrieb der Funk-Firmware:**
 Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss sichergestellt werden, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) zwingend eingehalten werden:
@@ -371,7 +371,7 @@ Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgebl
 Der Anwender ist verpflichtet, die konfigurierte Sendeleistung (TX Power) im Chip und den Antennengewinn aufeinander abzustimmen. Wird eine Antenne verwendet, deren Gewinn in Kombination mit der eingestellten Sendeleistung die oben genannten gesetzlichen EIRP/ERP-Limits überschreitet, muss die Sendeleistung softwareseitig zwingend reduziert werden.
 
 **Haftungsausschluss:**
-Das Inhero MR-2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Werden durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration die gesetzlichen Parameter außerhalb der EU-Normen betrieben, erlischt die CE-Konformität des Geräts. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
+Das Inhero MR2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Werden durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration die gesetzlichen Parameter außerhalb der EU-Normen betrieben, erlischt die CE-Konformität des Geräts. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
 
 ## Siehe auch
 

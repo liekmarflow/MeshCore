@@ -2,7 +2,7 @@
 
 > 🇩🇪 [Deutsche Version](de/TELEMETRY.md)
 
-The Inhero MR-2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across four channels. The companion app displays these as **Channel 1–4**.
+The Inhero MR2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across four channels. The companion app displays these as **Channel 1–4**.
 
 ---
 
@@ -19,7 +19,7 @@ Base data from the node.
 
 MeshCore currently transmits only battery **voltage** on Channel 1 — there is no native SOC% field. The companion app converts this voltage back to a percentage using a hardcoded **Li-Ion discharge curve**. This works well for Li-Ion cells but produces wrong readings for LiFePO₄, LTO, or Na-Ion chemistries (which have a much flatter voltage curve).
 
-The MR-2 works around this limitation:
+The MR2 works around this limitation:
 
 | SOC State | What `getBattMilliVolts()` returns | App displays |
 |-----------|------------------------------------|--------------|
@@ -38,7 +38,7 @@ The reverse mapping uses a piecewise-linear Li-Ion OCV table (3000 mV at 0% → 
 
 ## Channel 2 — Environment (BME280)
 
-Data from the BME280 environment sensor (always present on the MR-2).
+Data from the BME280 environment sensor (always present on the MR2).
 
 | Field | Unit | Source | Description |
 |-------|------|--------|-------------|

@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * BQ25798 Charger Driver for Inhero MR-2
+ * BQ25798 Charger Driver for Inhero MR2
  * Extends Adafruit_BQ25798 library (BSD License).
  */
 

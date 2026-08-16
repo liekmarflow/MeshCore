@@ -52,7 +52,7 @@
   "frameworks": [
     "arduino"
   ],
-  "name": "Inhero MR-2",
+  "name": "Inhero MR2",
   "upload": {
     "maximum_ram_size": 235520,
     "maximum_size": 815104,

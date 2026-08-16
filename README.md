@@ -1,16 +1,16 @@
-# MeshCore — Inhero MR-2 Fork
+# MeshCore — Inhero MR2 Fork
 
 This repository is a downstream fork of [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore)
-maintained for the **Inhero MR-2** LoRa repeater hardware. It carries
+maintained for the **Inhero MR2** LoRa repeater hardware. It carries
 hardware-specific firmware code, a tested release branch, and complete
-operator documentation for the MR-2 board.
+operator documentation for the MR2 board.
 
 The upstream MeshCore project README is preserved as
 [`README.upstream.md`](README.upstream.md).
 
 ---
 
-## Inhero MR-2 Variant
+## Inhero MR2 Variant
 
 - **Hardware:** RAK4630 (nRF52840 + SX1262), BQ25798 buck/boost charger,
   INA228 coulomb counter, RV-3028 RTC, BME280, TPS62840 3.3 V rail,
@@ -33,7 +33,7 @@ All variant documentation lives under [`variants/inhero_mr2/docs/`](variants/inh
 | CLI cheat sheet | [CLI_CHEAT_SHEET.md](variants/inhero_mr2/docs/CLI_CHEAT_SHEET.md) | [de/CLI_CHEAT_SHEET.md](variants/inhero_mr2/docs/de/CLI_CHEAT_SHEET.md) |
 | Telemetry | [TELEMETRY.md](variants/inhero_mr2/docs/TELEMETRY.md) | [de/TELEMETRY.md](variants/inhero_mr2/docs/de/TELEMETRY.md) |
 | FAQ | [FAQ.md](variants/inhero_mr2/docs/FAQ.md) | [de/FAQ.md](variants/inhero_mr2/docs/de/FAQ.md) |
-| Implementation summary | [IMPLEMENTATION_SUMMARY.md](variants/inhero_mr2/docs/IMPLEMENTATION_SUMMARY.md) | [de/IMPLEMENTATION_SUMMARY.md](variants/inhero_mr2/docs/de/IMPLEMENTATION_SUMMARY.md) |
+| Power management | [POWER_MANAGEMENT.md](variants/inhero_mr2/docs/POWER_MANAGEMENT.md) | [de/POWER_MANAGEMENT.md](variants/inhero_mr2/docs/de/POWER_MANAGEMENT.md) |
 
 ### Building the firmware
 
@@ -58,10 +58,10 @@ appears after a double tap on the reset button. See
 ## Relation to upstream
 
 - This fork tracks selected upstream changes manually; it is **not** a
-  rolling mirror. The MR-2 variant lives in `variants/inhero_mr2/` and
+  rolling mirror. The MR2 variant lives in `variants/inhero_mr2/` and
   does not affect any other board.
 - Earlier work was proposed upstream as a pull request that was later
-  withdrawn. The MR-2 variant is now maintained here as a standalone
+  withdrawn. The MR2 variant is now maintained here as a standalone
   product fork with its own releases.
 - For the upstream MeshCore project, ecosystem documentation, and other
   supported boards, see [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).

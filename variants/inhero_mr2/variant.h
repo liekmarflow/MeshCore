@@ -39,7 +39,7 @@ extern "C" {
 #endif // __cplusplus
 
 /*
- * Inhero MR-2 GPIO definitions
+ * Inhero MR2 GPIO definitions
  */
 static const uint8_t WB_IO1 = 17;      // SLOT_A SLOT_B
 static const uint8_t WB_IO2 = 34;      // SLOT_A SLOT_B
@@ -85,7 +85,7 @@ static const uint8_t WB_SPI_MOSI = 30; // IO_SLOT
 /*
  * Buttons
  */
-// No user buttons on Inhero MR-2
+// No user buttons on Inhero MR2
 
 /*
  * Analog pins

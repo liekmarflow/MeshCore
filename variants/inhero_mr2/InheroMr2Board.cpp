@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * Inhero MR-2 Board Implementation
+ * Inhero MR2 Board Implementation
  */
 
 #include "InheroMr2Board.h"

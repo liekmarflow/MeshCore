@@ -1,4 +1,4 @@
-# Inhero MR-2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.1)
+# Inhero MR2 Energieverwaltung - Implementierungs-Dokumentation (Rev 1.1)
 
 > 🇬🇧 [English version](../POWER_MANAGEMENT.md)
 
@@ -22,7 +22,7 @@
 - [12. CLI-Befehle](#12-cli-befehle)
 - [Siehe auch](#siehe-auch)
 
-> Diese Dokumentation beschreibt die Energieverwaltungs-Implementierung für das Inhero MR-2 Board.
+> Diese Dokumentation beschreibt die Energieverwaltungs-Implementierung für das Inhero MR2 Board.
 > Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN via 3.3V_off-Schalter, CE-Pin via DMN2004TK-7 FET (invertiert).
 
 ---
@@ -307,7 +307,7 @@ Dadurch funktioniert der ADC im Bereich 2.9–3.2V weiterhin für Solar-Messunge
 
 #### ADC-Kanal-Konfiguration (nur benötigte Kanäle)
 
-Auf dem MR-2 sind D+, D−, VAC1, VAC2 nicht verbunden. Die Firmware aktiviert nur die tatsächlich genutzten Kanäle:
+Auf dem MR2 sind D+, D−, VAC1, VAC2 nicht verbunden. Die Firmware aktiviert nur die tatsächlich genutzten Kanäle:
 
 | Register | Wert (TS ein) | Wert (TS aus) | Aktive Kanäle |
 |----------|---------------|---------------|---------------|
