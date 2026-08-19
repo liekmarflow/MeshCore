@@ -86,7 +86,8 @@ typedef enum {
   BQ25798_CHARGER_STATE_CC_CHARGING = 0x03,
   BQ25798_CHARGER_STATE_CV_CHARGING = 0x04,
   BQ25798_CHARGER_STATE_TOP_OF_TIMER_ACTIVE_CHARGING = 0x06,
-  BQ25798_CHARGER_STATE_DONE_CHARGING = 0x07
+  BQ25798_CHARGER_STATE_DONE_CHARGING = 0x07,
+  BQ25798_CHARGER_STATE_UNKNOWN = 0xFF  // I2C read failed — status unavailable
 
 } bq25798_charging_status;
 
@@ -173,6 +174,18 @@ public:
   bool getTsIgnore();
   bool setTsIgnore(bool ignore);
 
+  // NTC handling: ts_ignore chemistries (LTO, Na-Ion, UNKNOWN) carry no battery
+  // NTC — the TS divider then reads RT2-only, which decodes to ≈-46°C and slips
+  // past the open-pin check (that expects a bare pin, not the fitted divider).
+  // setNtcFitted(false) keeps the TS ADC channel off and reports the battery
+  // temperature as unavailable instead.
+  void setNtcFitted(bool fitted) { ntc_fitted = fitted; }
+
+  // Die temperature from the TDIE ADC (0.5°C/LSB, two's complement). The value
+  // stems from the last completed ADC one-shot (getTelemetryData), so it may be
+  // up to one telemetry period old. Returns -999.0 on I2C error.
+  float getDieTemperature_C();
+
   // Read solar + temperature telemetry via BQ25798 ADC.
   // vbat_mv: battery voltage from INA228 in mV, used to decide if the TS channel
   // can be enabled (requires VBAT >= 3.2V without VBUS, per datasheet 9.3.16).
@@ -225,4 +238,5 @@ private:
 
   float calculateBatteryTemp(float ts_pct);
   Telemetry telemetryData = { 0 };
+  bool ntc_fitted = true;  // false for ts_ignore chemistries (no battery NTC)
 };

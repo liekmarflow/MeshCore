@@ -411,6 +411,13 @@ void BoardConfigContainer::getChargerInfo(char* buffer, uint32_t bufferSize) {
       snprintf(buffer, bufferSize, "%s / %s HIZ:%dh ago", powerGood, statusString, agoSec / 3600);
     }
   }
+
+  // BQ die temperature (from the last ADC one-shot; up to one telemetry period old)
+  float tdie = bq.getDieTemperature_C();
+  if (tdie > -100.0f && tdie < 200.0f) {
+    size_t len = strlen(buffer);
+    snprintf(buffer + len, bufferSize - len, " TDIE:%dC", (int)lroundf(tdie));
+  }
 }
 
 // RV-3028 self-test: address ACK plus user-RAM write/readback (see getSelfTest()).
@@ -937,6 +944,12 @@ bool BoardConfigContainer::configureBaseBQ() {
 
   bq.setRechargeThreshOffsetV(.2);
   bq.setPrechargeTimerEnable(false);
+
+  // Thermal regulation at 60°C instead of the 120°C POR default. In the
+  // buck-boost transition region (LTO 2S at ~5V input) the converter otherwise
+  // rides the 120°C ceiling at high charge currents. Harmless for 1S
+  // chemistries — clean buck operation never gets near 60°C.
+  bq.setThermRegulationThresh(BQ25798_TREG_60C);
   bq.setFastChargeTimerEnable(false);
   bq.setTsIgnore(false);
   bq.setWDT(BQ25798_WDT_DISABLE);
@@ -1001,7 +1014,10 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
 
   // Apply TS_IGNORE before potential early return — configureBaseBQ() resets it to false,
   // so chemistries with ts_ignore=true (BAT_UNKNOWN, LTO, NAION) need it set here.
+  // Those chemistries carry no battery NTC: keep the TS ADC channel off too,
+  // otherwise the RT2-only divider decodes to a bogus ≈-46°C reading.
   bq.setTsIgnore(props->ts_ignore);
+  bq.setNtcFitted(!props->ts_ignore);
   if (props->ts_ignore) {
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
     bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
@@ -1018,6 +1034,15 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   bq.setCellCount(cellCount);
 
   bq.setChargeLimitV(props->charge_voltage);
+
+  // Writing the CELL bits resets ICHG, VSYSMIN and VREG to the per-cell-count
+  // POR defaults (datasheet 9.3.1.2 — 2S: 1A / 7V / 8.4V). VREG is re-applied
+  // above; restore the other two, otherwise a 2S chemistry runs with
+  // VSYSMIN=7V and the BATFET burns (VSYS - VBAT) × ICHG linearly during
+  // charging (LTO at 4.9V/0.93A: ~2W → BQ rides its thermal limit), and the
+  // configured imax silently falls back to the 1A default on every boot.
+  bq.setMinSystemV(2.75);
+  bq.setChargeLimitA(getMaxChargeCurrent_mA() / 1000.0f);
 
   return true;
 }
@@ -1745,21 +1770,30 @@ void BoardConfigContainer::updateBatterySOC() {
   }
   socStats.last_charge_reading_mah = charge_mah;  // Always update for diagnostics
 
-  // Check if BQ reports charging done → auto-sync
+  // "Charging Done" → sync to 100%. Edge-triggered: DONE must be stable for two
+  // consecutive reads (a single misread never syncs; UNKNOWN = failed I2C read
+  // neither counts as DONE nor resets the streak), and the sync fires once per
+  // DONE episode. Syncing on the edge (not the persisting DONE state) keeps
+  // discharge during supplement mode on the ledger instead of erasing it
+  // every minute.
   if (bqDriverInstance) {
+    static uint8_t done_streak = 0;
     bq25798_charging_status status = bqDriverInstance->getChargingStatus();
     if (status == BQ25798_CHARGER_STATE_DONE_CHARGING) {
-      if (!socStats.soc_valid) {
-        MESH_DEBUG_PRINTLN("SOC: First \"Charging Done\" detected - syncing to 100%%");
-        syncSOCToFull();
-        // Re-read CHARGE after counter reset to prevent false discharge spike
-        last_charge_mah = ina228DriverInstance->readCharge_mAh();
-      } else if (socStats.current_soc_percent < 99.0f) {
-        MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" detected - re-syncing to 100%%");
-        syncSOCToFull();
-        // Re-read CHARGE after counter reset to prevent false discharge spike
-        last_charge_mah = ina228DriverInstance->readCharge_mAh();
-      }
+      if (done_streak < 3) done_streak++;
+    } else if (status != BQ25798_CHARGER_STATE_UNKNOWN) {
+      done_streak = 0;
+    }
+
+    if (done_streak == 2) {
+      done_streak = 3;  // fire once per DONE episode
+      MESH_DEBUG_PRINTLN("SOC: \"Charging Done\" edge - syncing to 100%%");
+      syncSOCToFull();
+      // Re-read CHARGE after the counter reset — and refresh the LOCAL reading
+      // too: the ledger clamp below would otherwise capture the stale pre-reset
+      // value into the baseline, wrecking the SOC one tick later.
+      last_charge_mah = ina228DriverInstance->readCharge_mAh();
+      charge_mah = last_charge_mah;
     }
   }
 
@@ -1774,6 +1808,17 @@ void BoardConfigContainer::updateBatterySOC() {
 
   // Remaining capacity = Initial capacity + net charge (positive=charged adds, negative=discharged subtracts)
   float remaining_mah = socStats.capacity_mah + net_charge_mah;
+
+  // Ledger clamp: the battery cannot hold more than its capacity. Counted charge
+  // beyond "full" (charge losses, measurement drift, a sync at not-actually-full)
+  // would otherwise pile up as an invisible surplus that later discharge must burn
+  // off before the displayed SOC moves below 100%. Pull the baseline forward so
+  // the ledger itself — not just the displayed percentage — is capped at capacity.
+  if (remaining_mah > socStats.capacity_mah) {
+    socStats.ina228_baseline_mah = charge_mah;
+    net_charge_mah = 0.0f;
+    remaining_mah = socStats.capacity_mah;
+  }
 
   // Temperature derating: calculate factor for TTL and display purposes.
   // The derating factor is NOT applied to SOC% — SOC% is purely Coulomb-based

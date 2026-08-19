@@ -54,11 +54,16 @@ bool BqDriver::getChargerStatusPowerGood() {
 // Reads current charging state from charger
 bq25798_charging_status BqDriver::getChargingStatus() {
   Adafruit_BusIO_Register chrg_stat_1_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_1);
-  Adafruit_BusIO_RegisterBits chrg_stat_1_bits = Adafruit_BusIO_RegisterBits(&chrg_stat_1_reg, 3, 5);
 
-  uint8_t reg_value = chrg_stat_1_bits.read();
+  // Read with explicit error check. RegisterBits::read() would return bits of -1
+  // on a failed I2C read — CHG_STAT[7:5] of 0xFF decodes as 0x07 = DONE_CHARGING,
+  // which the SOC logic treats as "battery full".
+  uint8_t reg_value = 0;
+  if (!chrg_stat_1_reg.read(&reg_value, 1)) {
+    return BQ25798_CHARGER_STATE_UNKNOWN;
+  }
 
-  return (bq25798_charging_status)reg_value;
+  return (bq25798_charging_status)((reg_value >> 5) & 0x07);
 }
 
 // Reads solar and temperature telemetry via BQ25798 ADC one-shot
@@ -94,9 +99,11 @@ bq25798_charging_status BqDriver::getChargingStatus() {
 const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
   telemetryData = { 0 };
 
-  // Determine if TS channel can be enabled based on VBAT
-  // See datasheet quote above: TS enabled requires VBAT >= 3.2V (battery-only)
-  bool ts_enabled = true;
+  // Determine if TS channel can be enabled: chemistry must carry an NTC at all
+  // (ts_ignore chemistries don't — RT2-only reads decode to a bogus ≈-46°C),
+  // and VBAT must allow it (datasheet quote above: TS requires VBAT >= 3.2V
+  // battery-only).
+  bool ts_enabled = ntc_fitted;
   if (vbat_mv > 0 && vbat_mv < 3200) {
     ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
   }
@@ -413,9 +420,9 @@ bool BqDriver::startADCOneShot(bool ts_enabled) {
 
   // Reg 0x2F bit map: IBUS(7) IBAT(6) VBUS(5) VBAT(4) VSYS(3) TS(2) TDIE(1) reserved(0)
   // 1 = disabled, 0 = enabled
-  uint8_t disable0 = 0x5A;  // Enable IBUS(7), VBUS(5), TS(2) — disable rest
+  uint8_t disable0 = 0x58;  // Enable IBUS(7), VBUS(5), TS(2), TDIE(1) — disable rest
   if (!ts_enabled) {
-    disable0 |= 0x04;       // Also disable TS(2) → 0x5E
+    disable0 |= 0x04;       // Also disable TS(2) → 0x5C
   }
   if (!disable_reg_0.write(disable0)) { return false; }
 
@@ -460,6 +467,15 @@ uint16_t BqDriver::getVBUS() {
     return 0;
   }
   return val; // in mV
+}
+
+float BqDriver::getDieTemperature_C() {
+  Adafruit_BusIO_Register tdie_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_TDIE_ADC, 2, MSBFIRST);
+  uint16_t raw;
+  if (!tdie_reg.read(&raw)) {
+    return -999.0f;
+  }
+  return (int16_t)raw * 0.5f; // 2's complement, 0.5°C/LSB
 }
 
 float BqDriver::getTS() {
