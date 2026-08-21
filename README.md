@@ -60,9 +60,15 @@ appears after a double tap on the reset button. See
 - This fork tracks selected upstream changes manually; it is **not** a
   rolling mirror. The MR2 variant lives in `variants/inhero_mr2/` and
   does not affect any other board.
-- Earlier work was proposed upstream as a pull request that was later
-  withdrawn. The MR2 variant is now maintained here as a standalone
-  product fork with its own releases.
+- The board was first proposed upstream in April 2026
+  ([#2316](https://github.com/meshcore-dev/MeshCore/pull/2316)) and withdrawn
+  at the time: the hardware was not yet available and CE certification was
+  still in progress. Both are settled now — the board is in production and
+  CE-certified (RED 2014/53/EU) — and it has been proposed again, split into
+  [#3131](https://github.com/meshcore-dev/MeshCore/pull/3131) (board hooks)
+  and [#3132](https://github.com/meshcore-dev/MeshCore/pull/3132) (the
+  variant itself). Until those land, firmware for this board is released
+  from this fork.
 - For the upstream MeshCore project, ecosystem documentation, and other
   supported boards, see [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).
 
