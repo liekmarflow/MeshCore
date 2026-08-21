@@ -758,14 +758,14 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 - Max. Ladestrom (`maxChrg`)
 - LED-Einstellung (`leds_en`)
 
-Der INA228-Kalibrierfaktor wird **nicht** persistiert — er liegt nur im RAM und startet nach jedem Boot wieder bei 1.0.
-
 **Nicht-persistente Daten** (gehen bei Reboot verloren):
 - 168h Energie-Ringpuffer (stündliche Charge/Discharge/Solar mAh)
 - MPPT-Statistiken (168h MPPT-Aktivitätsbuffer)
 - SOC-Prozentwert (wird nach Recovery auf 0% gesetzt, bei "Charging Done" auf 100% synchronisiert)
 - TTL-Berechnung (benötigt mind. 24h Daten nach jedem Neustart)
 - Tägliche Energiebilanz (7-Tage-Fenster baut sich nach Neustart neu auf)
+
+Die INA228-Kalibrierung (SHUNT_CAL aus CURRENT_LSB und dem 100mΩ-Shunt) wird bei jedem Boot in `Ina228Driver::begin()` aus festen Konstanten berechnet und braucht deshalb keine Persistenz. Einen Laufzeit-Korrekturfaktor gibt es nicht mehr — bei Rev 1.1 ist er durch das PCB-Layout und die Shunt-Toleranz entbehrlich.
 
 ---
 

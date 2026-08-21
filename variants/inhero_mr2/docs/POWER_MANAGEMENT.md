@@ -757,14 +757,14 @@ The 168h ring buffer statistics (coulomb counter, MPPT data, SOC state) are stor
 - Max charge current (`maxChrg`)
 - LED setting (`leds_en`)
 
-The INA228 calibration factor is **not** persisted — it lives in RAM only and resets to 1.0 on every boot.
-
 **Non-persistent data** (lost on reboot):
 - 168h energy ring buffer (hourly charge/discharge/solar mAh)
 - MPPT statistics (168h MPPT activity buffer)
 - SOC percentage (set to 0% after recovery, synchronized to 100% on "Charging Done")
 - TTL calculation (requires min. 24h data after each restart)
 - Daily energy balance (7-day window rebuilds after restart)
+
+The INA228 calibration (SHUNT_CAL derived from CURRENT_LSB and the 100mΩ shunt) is computed from fixed constants in `Ina228Driver::begin()` on every boot, so it needs no persistence. There is no runtime correction factor any more — on Rev 1.1 the PCB layout and shunt tolerance make one unnecessary.
 
 ---
 
