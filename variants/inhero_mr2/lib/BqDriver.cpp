@@ -142,7 +142,8 @@ const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
     if (ts_enabled) {
       telemetryData.battery.temperature = this->calculateBatteryTemp(getTS());
     } else {
-      // TS disabled due to low VBAT — cannot read NTC
+      // TS channel off — either the chemistry carries no NTC (ts_ignore)
+      // or VBAT is too low to run the channel. No reading either way.
       telemetryData.battery.temperature = -888.0f;
     }
   } else {
