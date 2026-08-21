@@ -102,8 +102,8 @@ public:
   Ina228Driver(uint8_t i2c_addr = INA228_I2C_ADDR_DEFAULT);
 
   // Initialize INA228 with default configuration.
-  // shunt_resistor_mohm is in milliohms (e.g., 100 for 0.1Ω).
-  bool begin(float shunt_resistor_mohm = 10.0f);
+  // shunt_resistor_mohm is in milliohms; the MR2 board fits a 100mΩ shunt.
+  bool begin(float shunt_resistor_mohm);
 
   // Check if INA228 is present and responsive
   bool isConnected();

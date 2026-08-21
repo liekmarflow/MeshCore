@@ -10,7 +10,7 @@
 #include <MeshCore.h>  // for MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
-  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0) {}
+  : _i2c_addr(i2c_addr), _shunt_mohm(0.0f), _current_lsb(0.0f), _base_shunt_cal(0) {}
 
 bool Ina228Driver::begin(float shunt_resistor_mohm) {
   _shunt_mohm = shunt_resistor_mohm;
