@@ -182,22 +182,6 @@ public:
   // Wake INA228 from shutdown mode (re-enables continuous measurement mode)
   void wakeup();
 
-  // Calibrate current measurement against the actual measured battery current (in mA).
-  // Returns the calculated calibration factor (multiplier for future readings) — store it
-  // persistently and apply it via setCalibrationFactor().
-  float calibrateCurrent(float actual_current_ma);
-
-  // Set persistent current calibration factor (1.0 = no correction, >1.0 = increase readings,
-  // <1.0 = decrease). Written directly to the INA228 SHUNT_CAL register (hardware calibration),
-  // so all measurements (current, power, energy, charge) are corrected automatically.
-  // Call this at startup with the value loaded from persistent storage.
-  void setCalibrationFactor(float factor);
-
-  // Get current calibration factor (1.0 = no calibration)
-  float getCalibrationFactor() const;
-
-
-
   // Read battery voltage in mV directly via I2C, without requiring driver initialization —
   // for early boot use before the INA228 is initialized. Returns 0 if the read fails.
   // Triggers a One-Shot ADC conversion; uses the high-precision 24-bit ADC (±0.1% accuracy).
@@ -207,8 +191,7 @@ private:
   uint8_t _i2c_addr;
   float _shunt_mohm;
   float _current_lsb;  // Current LSB in A (constant per datasheet)
-  uint16_t _base_shunt_cal;  // Original SHUNT_CAL value (before calibration)
-  float _calibration_factor;  // Current calibration factor (1.0 = no correction)
+  uint16_t _base_shunt_cal;  // SHUNT_CAL value, computed from fixed constants in begin()
 
   bool writeRegister16(uint8_t reg, uint16_t value);
   uint16_t readRegister16(uint8_t reg);

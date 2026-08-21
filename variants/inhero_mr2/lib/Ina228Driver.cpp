@@ -10,7 +10,7 @@
 #include <MeshCore.h>  // for MESH_DEBUG_PRINTLN
 
 Ina228Driver::Ina228Driver(uint8_t i2c_addr) 
-  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0), _calibration_factor(1.0f) {}
+  : _i2c_addr(i2c_addr), _shunt_mohm(10.0f), _current_lsb(0.0f), _base_shunt_cal(0) {}
 
 bool Ina228Driver::begin(float shunt_resistor_mohm) {
   _shunt_mohm = shunt_resistor_mohm;
@@ -70,9 +70,7 @@ bool Ina228Driver::begin(float shunt_resistor_mohm) {
   
   // ADCRANGE = 0 (±163.84mV): No multiplier needed (×4 only required for ADCRANGE=1)
   
-  // Apply calibration factor to SHUNT_CAL (if set)
-  uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * _calibration_factor);
-  writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
+  writeRegister16(INA228_REG_SHUNT_CAL, _base_shunt_cal);
   delay(5);
 
   // Configure INA228: ADCRANGE = 0 (±163.84mV, default) for 100mΩ shunt
@@ -322,7 +320,7 @@ uint16_t Ina228Driver::readConfigRegister() {
 }
 
 bool Ina228Driver::validateAndRepairShuntCal() {
-  uint16_t expected = (uint16_t)(_base_shunt_cal * _calibration_factor);
+  uint16_t expected = _base_shunt_cal;
   if (expected == 0) return false;  // Not initialized
   
   uint16_t actual = readShuntCalRegister();
@@ -488,55 +486,6 @@ int64_t Ina228Driver::readRegister40(uint8_t reg) {
   }
 
   return value;
-}
-
-// ===== Calibration Methods =====
-
-float Ina228Driver::calibrateCurrent(float actual_current_ma) {
-  // Step 1: Reset calibration to 1.0 for accurate measurement
-  setCalibrationFactor(1.0f);
-  
-  // Wait for ADC to settle
-  delay(10);
-  
-  // Step 2: Read current measured value (uncalibrated)
-  int16_t measured_current_ma = readCurrent_mA();
-  
-  // Avoid division by zero
-  if (measured_current_ma == 0) {
-    return 1.0f;  // No correction possible
-  }
-  
-  // Step 3: Calculate correction factor (INVERSE ratio)
-  // If INA shows -9.4mA but actual is -10.4mA, we need SHUNT_CAL to be SMALLER
-  // so INA writes a LARGER value. Factor = measured/actual = 9.4/10.4 = 0.904
-  float new_factor = (float)measured_current_ma / actual_current_ma;
-  
-  // Step 4: Apply new calibration factor to INA228 hardware
-  setCalibrationFactor(new_factor);
-  
-  return new_factor;
-}
-
-void Ina228Driver::setCalibrationFactor(float factor) {
-  // Clamp to reasonable range (0.5x to 2.0x)
-  if (factor < 0.5f) factor = 0.5f;
-  if (factor > 2.0f) factor = 2.0f;
-  
-  _calibration_factor = factor;
-  
-  // Apply calibration factor to SHUNT_CAL register
-  // Lower SHUNT_CAL → INA writes larger values → higher current reading
-  // Higher SHUNT_CAL → INA writes smaller values → lower current reading
-  // CURRENT_LSB stays constant (per datasheet design)
-  if (_base_shunt_cal > 0) {
-    uint16_t calibrated_shunt_cal = (uint16_t)(_base_shunt_cal * factor);
-    writeRegister16(INA228_REG_SHUNT_CAL, calibrated_shunt_cal);
-  }
-}
-
-float Ina228Driver::getCalibrationFactor() const {
-  return _calibration_factor;
 }
 
 
