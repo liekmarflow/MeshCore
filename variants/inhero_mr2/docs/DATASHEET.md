@@ -9,7 +9,7 @@
 
 ## Board Overview
 
-The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nRF52840 + SX1262) with integrated smart solar charging, power monitoring, and low-voltage protection. Supported battery configurations are 1S Li-Ion, 1S LiFePO4, 2S LTO, and 1S Na-Ion. The board was specifically designed for autonomous long-term deployment at remote or hard-to-reach locations. In Central Europe, uninterrupted continuous repeater operation is possible with unshaded solar panels ≥ 1 W and battery capacities ≥ 9 Ah.
+The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nRF52840 + SX1262) with integrated smart solar charging, power monitoring, and low-voltage protection. Supported battery configurations are 1S Li-ion, 1S LiFePO4, 2S LTO, and 1S Na-ion. The board was specifically designed for autonomous long-term deployment at remote or hard-to-reach locations. In Central Europe, uninterrupted continuous repeater operation is possible with unshaded solar panels ≥ 1 W and battery capacities ≥ 9 Ah.
 
 The charge and discharge cutoff voltages (see table [Supported Battery Chemistries](#supported-battery-chemistries)) are chosen to avoid excessive stress on the batteries during summer while ensuring that sleep mode can be reliably initiated when energy is low.
 
@@ -22,7 +22,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Watchdog Timer (WDT)** | nRF52840 hardware watchdog. Automatically reboots the board if the firmware hangs – essential for unattended long-term operation. |
 | **Low-Voltage Protection** | INA228 ALERT interrupt on chemistry-specific threshold → controlled System Sleep with RTC wake. Solar charging remains active during sleep (CE pin latched). |
 | **Charger requires active firmware** | The BQ25798 only charges when the firmware is actively running. Without flashed firmware or with the 3.3V off switch engaged, charging remains disabled. The nRF52840 must be able to monitor the charger at all times as host. |
-| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-Ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~2–3 °C; effective T-Cool range approx. −2 °C to +3 °C, see JEITA table in README). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see [README.md — JEITA](README.md#jeita-temperature-zone-configuration) for details. **Note:** JEITA thresholds are evaluated by the BQ25798 directly in hardware. The `set board.tccal` calibration corrects only the CLI/telemetry temperature readout and does not affect JEITA behavior — see [FAQ #12](FAQ.md#12-when-should-i-run-set-boardtccal). |
+| **JEITA Temperature Protection** | Temperature-dependent charge current reduction via the NTC sensor (TS pin). Frost charge protection configurable via `set board.fmax`. JEITA is disabled for LTO and Na-ion. The Inhero voltage divider (RT1=5.6 kΩ, RT2=27 kΩ) shifts TS thresholds lower than TI reference (~2–3 °C; effective T-Cool range approx. −2 °C to +3 °C, see JEITA table in README). WARM zone configured to start at ~52 °C (register: 55 °C), effectively neutralized (VREG + ICHG unchanged in WARM), auto battery discharge disabled — see [README.md — JEITA](README.md#jeita-temperature-zone-configuration) for details. **Note:** JEITA thresholds are evaluated by the BQ25798 directly in hardware. The `set board.tccal` calibration corrects only the CLI/telemetry temperature readout and does not affect JEITA behavior — see [FAQ #12](FAQ.md#12-when-should-i-run-set-boardtccal). |
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has **no hardware reverse polarity protection** on the battery or solar input. Connecting a battery or solar panel with reversed polarity will cause **immediate, irreversible damage** to the board. Always double-check the polarity before connecting any power source.
 
@@ -41,7 +41,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Radio** | Semtech SX1262 (via RAK4630) |
 | **Frequency** | LoRa Sub-GHz (region-dependent) |
 | **Connectivity** | LoRa, BLE 5.0, USB-C |
-| **Supply Voltage** | 1S Li-Ion / 1S LiFePO4 / 2S LTO / 1S Na-Ion (via firmware config) |
+| **Supply Voltage** | 1S Li-ion / 1S LiFePO4 / 2S LTO / 1S Na-ion (via firmware config) |
 | **Solar Input** | 3.6 V – 24 V (MPPT) |
 | **Max. Solar Voc** | 25 V |
 | **USB Charging** | 5 V via USB-C (Schottky diode to VBUS-BQ, same charger path as solar) |
@@ -195,10 +195,10 @@ See also [FAQ #16 — 3.3V off switch](FAQ.md#16-what-does-the-33v-off-switch-do
 
 | Type | Nominal Voltage | Charge Voltage | Low-V Sleep | Low-V Wake | Hysteresis |
 |------|----------------|----------------|-------------|------------|------------|
-| **Li-Ion 1S** | 3.7 V | 4.1 V | 3100 mV | 3300 mV | 200 mV |
+| **Li-ion 1S** | 3.7 V | 4.1 V | 3100 mV | 3300 mV | 200 mV |
 | **LiFePO4 1S** | 3.2 V | 3.5 V | 2700 mV | 2900 mV | 200 mV |
 | **LTO 2S** | 4.6 V (2× 2.3 V) | 5.4 V | 3900 mV | 4100 mV | 200 mV |
-| **Na-Ion 1S** | 3.1 V | 3.9 V | 2500 mV | 2700 mV | 200 mV |
+| **Na-ion 1S** | 3.1 V | 3.9 V | 2500 mV | 2700 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 > **Choosing the right chemistry:** See [BATTERY_GUIDE.md](BATTERY_GUIDE.md) for a detailed comparison of pros, cons, and deployment recommendations. A brief summary is also in [FAQ #1](FAQ.md#1-which-battery-chemistry-should-i-choose).

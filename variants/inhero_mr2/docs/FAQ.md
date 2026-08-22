@@ -26,7 +26,7 @@
 11. [Why does the SOC show 0% or N/A?](#11-why-does-the-soc-show-0-or-na)
 12. [When should I run `set board.tccal`?](#12-when-should-i-run-set-boardtccal)
 13. [How does temperature derating work?](#13-how-does-temperature-derating-work)
-14. [What is TTL (Time-To-Live)?](#14-what-is-ttl-time-to-live)
+14. [What is Batt-TTL?](#14-what-is-batt-ttl)
 
 **🔩 Hardware**
 
@@ -50,9 +50,9 @@
 
 ### 1. Which battery chemistry should I choose?
 
-The Inhero MR2 supports **Li-Ion**, **LiFePO4**, **LTO (2S)**, and **Na-Ion**. The right choice depends on your deployment conditions — especially temperature range, available space, and expected service life.
+The Inhero MR2 supports **Li-ion**, **LiFePO4**, **LTO (2S)**, and **Na-ion**. The right choice depends on your deployment conditions — especially temperature range, available space, and expected service life.
 
-In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold or maximum cycle life, **Li-Ion** when space is tight, **Na-Ion** for sustainable cold-weather deployments.
+In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold or maximum cycle life, **Li-ion** when space is tight, **Na-ion** for sustainable cold-weather deployments.
 
 → **Full guide:** [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Detailed comparison, pros & cons, deployment recommendations, capacity planning, solar sizing, safety tips, and long-term aging.
 
@@ -66,7 +66,7 @@ In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold
 
 If your battery pack has a built-in NTC, it must be wired between **TS (Pin 3)** and **GND (Pin 2)** (see [DATASHEET.md — Battery Connector](DATASHEET.md#pinout--battery-connector-jst-ph20-3p-left-to-right)). A compatible 10k NTC (Beta ~3380) is sufficient for basic frost protection — however, temperature accuracy will be slightly reduced.
 
-**Important:** Without an NTC (solder bridge open and no external NTC connected), the BQ25798 interprets the TS pin as a frost condition for Li-Ion and LiFePO4 — charging is blocked and the BQ status LED blinks. This does not occur with LTO and Na-Ion, as JEITA is disabled for those chemistries.
+**Important:** Without an NTC (solder bridge open and no external NTC connected), the BQ25798 interprets the TS pin as a frost condition for Li-ion and LiFePO4 — charging is blocked and the BQ status LED blinks. This does not occur with LTO and Na-ion, as JEITA is disabled for those chemistries.
 
 ---
 
@@ -76,7 +76,7 @@ The Inhero MR2 has a high-efficiency **buck converter** that converts the batter
 
 Since Power = Voltage × Current:
 - At 4.6 V (LTO full): ~6.3 mA
-- At 3.7 V (Li-Ion nominal): ~7.8 mA
+- At 3.7 V (Li-ion nominal): ~7.8 mA
 - At 3.2 V (LiFePO4 nominal): ~9.1 mA
 
 All three cases consume exactly **29 mW**. This is normal, not a fault.
@@ -91,7 +91,7 @@ All three cases consume exactly **29 mW**. This is normal, not a fault.
 
 ### 4. What mAh value should I enter for `set board.batcap`?
 
-Enter the **nominal capacity minus a deduction**. Since the charge cutoff voltage is reduced for battery longevity, the full nominal capacity is not available. A slightly pessimistic value is safer: when the SOC shows 10 %, there really is ≥ 10 % left in the battery. This prevents being surprised by an unexpected low-voltage sleep. The TTL prediction (Time-To-Live) also becomes more conservative and reliable.
+Enter the **nominal capacity minus a deduction**. Since the charge cutoff voltage is reduced for battery longevity, the full nominal capacity is not available. A slightly pessimistic value is safer: when the SOC shows 10 %, there really is ≥ 10 % left in the battery. This prevents being surprised by an unexpected low-voltage sleep. The Batt-TTL prediction also becomes more conservative and reliable.
 
 **Rule of thumb: 90 % of nominal capacity.** Example: 10,000 mAh nominal → `set board.batcap 9000`.
 
@@ -112,7 +112,7 @@ Why set `imax` correctly?
 3. **Panel compatibility:** If `imax` is set too high, the board briefly tries to draw more current from the panel than it can deliver — the charger detects the voltage drop and stops charging.
 
 **Calculation:** Panel power ÷ battery voltage = imax.
-Example: 2 W panel, Li-Ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax 540`.
+Example: 2 W panel, Li-ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax 540`.
 
 ---
 
@@ -127,11 +127,11 @@ Example: 2 W panel, Li-Ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax
 | `40%` | Max. 40 % of imax (e.g., 500 mA → 200 mA) |
 | `100%` | No reduction, full charge current |
 
-**Below approx. –2 °C (T-Cold),** charging is always completely blocked by JEITA for **Li-Ion and LiFePO4** — regardless of `fmax`.
+**Below approx. –2 °C (T-Cold),** charging is always completely blocked by JEITA for **Li-ion and LiFePO4** — regardless of `fmax`.
 
 **Important:** Only charging is restricted. With sufficient solar power, the board continues to run on solar — the battery is neither charged nor discharged.
 
-**LTO / Na-Ion:** `fmax` has no effect, as JEITA is disabled for these chemistries.
+**LTO / Na-ion:** `fmax` has no effect, as JEITA is disabled for these chemistries.
 
 ---
 
@@ -170,7 +170,7 @@ Slow blinking of the BQ status LED indicates a **charger fault**. Most common ca
 
 1. **No NTC connected (most frequent):** Neither an external NTC on the TS pin nor the solder bridge for the onboard NTC is closed. The BQ25798 interprets the open TS pin as a frost condition and blocks charging. → **Solution:** Close the solder bridge or connect a compatible NTC (10 kΩ @ 25 °C, Beta ~3380) between TS (Pin 3) and GND (Pin 2).
 
-2. **Actually too cold / too warm:** Below –2 °C (T-Cold threshold with Inhero voltage divider), charging is completely blocked by JEITA for Li-Ion and LiFePO4. Above ~58 °C (T-Hot threshold), charging is also suspended. → This does not occur with LTO and Na-Ion (JEITA disabled).
+2. **Actually too cold / too warm:** Below –2 °C (T-Cold threshold with Inhero voltage divider), charging is completely blocked by JEITA for Li-ion and LiFePO4. Above ~58 °C (T-Hot threshold), charging is also suspended. → This does not occur with LTO and Na-ion (JEITA disabled).
 
 3. **Other charger fault:** The BQ25798 can also signal faults such as VBAT overvoltage (VBAT_OVP), input overvoltage (VBUS_OVP), or watchdog timeout. These are less common in normal operation.
 
@@ -197,7 +197,7 @@ This ensures the battery cannot be overcharged if the firmware locks up or is no
 
 **SOC shows 0%** after the board wakes from **low-voltage sleep**. This is intentional: the coulomb counter was not running during sleep, so the charge state is unknown. SOC restarts at 0% and begins accumulating again. When the battery next reaches "Charge Done", the SOC synchronizes cleanly to 100%.
 
-**Note:** In cold conditions, the extractable capacity is lower than stored charge. `get board.telem` shows this as `SOC:95.0% (79%)`. The TTL accounts for this automatically. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
+**Note:** In cold conditions, the extractable capacity is lower than stored charge. `get board.telem` shows this as `SOC:95.0% (79%)`. The Batt-TTL accounts for this automatically. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
 
 ---
 
@@ -222,31 +222,33 @@ This ensures the battery cannot be overcharged if the firmware locks up or is no
 SOC% is **purely Coulomb-based** — it reflects the actual stored charge and does not change with temperature. Only real charge flow (measured by the INA228 coulomb counter) changes SOC%.
 
 However, the **extractable capacity** decreases at cold temperatures due to slower electrochemical kinetics and increased internal resistance during TX peaks (~100 mA). The firmware calculates a per-chemistry derating factor `f(T)` that is used for:
-- **TTL calculation** — Trapped Charge model: extractable = max(0, remaining − capacity × (1−f(T)))
+- **Batt-TTL calculation** — Trapped Charge model: extractable = max(0, remaining − capacity × (1−f(T)))
 - **CLI display** — `get board.telem` shows the derated value in parentheses: `SOC:95.0% (78%)` = stored (extractable)
 
 The derating factor is visible in `get board.socdebug` (field `d=`).
 
-→ **Full details:** [POWER_MANAGEMENT.md — Temperature Derating](POWER_MANAGEMENT.md#5-time-to-live-ttl-prediction)
+→ **Full details:** [POWER_MANAGEMENT.md — Temperature Derating](POWER_MANAGEMENT.md#5-batt-ttl-prediction)
 
 ---
 
-### 14. What is TTL (Time-To-Live)?
+### 14. What is Batt-TTL?
 
-TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters-query-status). See [POWER_MANAGEMENT.md — TTL Prediction](POWER_MANAGEMENT.md#5-time-to-live-ttl-prediction) for the algorithm.
+> **Batt-TTL** is short for *battery time-to-live* — the estimated remaining runtime on battery. It is not the packet hop limit that "TTL" denotes in mesh networking.
+
+Batt-TTL is an estimated **remaining runtime** based on the current energy balance. It is shown in [`get board.stats`](CLI_CHEAT_SHEET.md#getters-query-status). See [POWER_MANAGEMENT.md — Batt-TTL Prediction](POWER_MANAGEMENT.md#5-batt-ttl-prediction) for the algorithm.
 
 **How it works:**
 - A 168-hour ring buffer (7 days) records hourly charge/discharge data from the INA228 coulomb counter.
-- **Formula:** `TTL = extractable capacity / |7-day avg. daily net consumption| × 24h` — where extractable = SOC%-based remaining charge minus the temperature-locked share (see Cold weather below; identical to `SOC% × capacity / 100` at moderate temperatures)
-- **Display format:** `T:12d0h` (12 days, 0 hours) or `T:12h` (< 24 hours)
+- **Formula:** `Batt-TTL = extractable capacity / |7-day avg. daily net consumption| × 24h` — where extractable = SOC%-based remaining charge minus the temperature-locked share (see Cold weather below; identical to `SOC% × capacity / 100` at moderate temperatures)
+- **Display format:** `BT:12d0h` (12 days, 0 hours) or `BT:12h` (< 24 hours)
 
-**TTL shows N/A or 0 when:**
+**Batt-TTL shows N/A or 0 when:**
 - Less than 24 hours of data have been collected
 - The board is running on solar surplus (no deficit)
 
-**Note:** If `set board.batcap` is not set, a rough chemistry default (1500–2000 mAh) is used — set the real capacity for a meaningful TTL.
+**Note:** If `set board.batcap` is not set, a rough chemistry default (1500–2000 mAh) is used — set the real capacity for a meaningful Batt-TTL.
 
-**Cold weather:** TTL uses the Trapped Charge model — cold temperatures lock the bottom of the discharge curve, so extractable capacity drops faster than SOC% at low charge levels. This is especially critical in winter: at 20% SOC, the extractable capacity may already be near zero. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
+**Cold weather:** Batt-TTL uses the Trapped Charge model — cold temperatures lock the bottom of the discharge curve, so extractable capacity drops faster than SOC% at low charge levels. This is especially critical in winter: at 20% SOC, the extractable capacity may already be near zero. See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work).
 
 ---
 
@@ -361,7 +363,7 @@ The castellated pads can be soldered directly to a carrier board. See [DATASHEET
 - MPPT, LED settings
 - NTC calibration offset
 
-**Note:** Energy statistics (168h ring buffers for TTL) are held in RAM only and restart after any reboot or update.
+**Note:** Energy statistics (168h ring buffers for Batt-TTL) are held in RAM only and restart after any reboot or update.
 
 Settings are only lost on a full flash erase or filesystem corruption (rare). See [POWER_MANAGEMENT.md — Statistics Persistence](POWER_MANAGEMENT.md#11-statistics-persistence) for technical details.
 
@@ -369,7 +371,7 @@ Settings are only lost on a full flash erase or filesystem corruption (rare). Se
 
 The firmware uses the RTC (Real-Time Clock) for several protection mechanisms. An incorrect clock does not cause a total outage — packets are still forwarded — but noticeable problems arise:
 
-- **Advertisements are rejected:** Every advertisement is cryptographically signed (Ed25519 over public key + timestamp + app data). Receivers compare the contained timestamp against the last stored value and discard timestamps that are equal or smaller as potential replay attacks. The existing entry on other nodes is preserved but no longer updated — name, position and "last seen" become increasingly stale.
+- **Adverts are rejected:** Every advert is cryptographically signed (Ed25519 over public key + timestamp + app data). Receivers compare the contained timestamp against the last stored value and discard timestamps that are equal or smaller as potential replay attacks. The existing contact entry on other nodes is preserved but no longer updated — name, position and "last seen" become increasingly stale.
 - **Debug logs with incorrect timestamps:** `getLogDateTime()` shows wrong absolute times. Relative calculations like "last heard X seconds ago" remain correct as they use the same (wrong) clock source internally.
 
 Login, admin commands and the rate limiter are **not affected** — login/commands compare client-provided timestamps against each other only, and the rate limiter uses only relative time differences which remain correct as long as the clock ticks monotonically. A `clock sync` can therefore be run at any time after logging in.
@@ -385,11 +387,11 @@ The Inhero MR2 has a hardware RTC that retains its time during a normal reboot. 
 
 `clock sync` and `time <epoch>` only allow setting the clock **forward** — setting it backwards is rejected with `ERR: clock cannot go backwards`.
 
-**Why?** The firmware uses increasing timestamps to protect against replay attacks. Both advertisements and admin commands are rejected if their timestamp is equal to or lower than the last stored value. Since other nodes in the mesh store the last (high) timestamp, a clock rollback would cause new advertisements to be rejected mesh-wide.
+**Why?** The firmware uses increasing timestamps to protect against replay attacks. Both adverts and admin commands are rejected if their timestamp is equal to or lower than the last stored value. Since other nodes in the mesh store the last (high) timestamp, a clock rollback would cause new adverts to be rejected mesh-wide.
 
 **Solution: `clkreboot`** — resets the clock to a low value and reboots the board; the reboot resets the per-client replay timestamps (stored client entries are kept). Run `clock sync` afterwards to set the correct time.
 
-> **Note:** After `clkreboot`, advertisements will temporarily be rejected by nodes that still have the old timestamp stored. Visibility normalises once those entries expire.
+> **Note:** After `clkreboot`, adverts will temporarily be rejected by nodes that still have the old timestamp stored. Visibility normalises once those entries expire.
 
 See also [FAQ #23](#23-why-does-the-repeater-board-need-a-correct-time).
 

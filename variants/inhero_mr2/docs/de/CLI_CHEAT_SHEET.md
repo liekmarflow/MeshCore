@@ -13,10 +13,10 @@ Siehe [FAQ.md](FAQ.md) für Erläuterungen der wichtigsten Parameter (`imax`, `f
 
 ```bash
 # Akkuchemie
-set board.bat liion1s          # Li-Ion 1S (3.7V nominal)
+set board.bat liion1s          # Li-ion 1S (3.7V nominal)
 set board.bat lifepo1s         # LiFePO4 1S (3.2V nominal)
 set board.bat lto2s            # LTO 2S (2x 2.3V nominal)
-set board.bat naion1s          # Na-Ion 1S (3.1V nominal)
+set board.bat naion1s          # Na-ion 1S (3.1V nominal)
 set board.bat none             # Kein Akku / unbekannt (Laden deaktiviert)
 
 # Akkukapazität (100–100000 mAh)
@@ -31,7 +31,7 @@ set board.fmax 0%              # Laden gesperrt
 set board.fmax 20%             # max. 20% von imax
 set board.fmax 40%             # max. 40% von imax
 set board.fmax 100%            # keine Reduktion
-# Hinweis: Bei LTO / Na-Ion ohne Wirkung (JEITA deaktiviert)
+# Hinweis: Bei LTO / Na-ion ohne Wirkung (JEITA deaktiviert)
 
 # MPPT ein/aus
 set board.mppt 1               # MPPT aktivieren
@@ -61,8 +61,8 @@ set board.tccal reset          # Offset auf 0.00 zurücksetzen
 
 ```bash
 # Konfiguration & Hardware
-get board.bat                  # Aktueller Batterietyp
-get board.batcap               # Batteriekapazität in mAh (set/default)
+get board.bat                  # Aktueller Akkutyp
+get board.batcap               # Akkukapazität in mAh (set/default)
 get board.imax                 # Maximaler Ladestrom in mA
 get board.fmax                 # Frost-Ladeverhalten (0%/20%/40%/100% oder N/A)
 get board.mppt                 # MPPT-Status (0/1)
@@ -73,14 +73,15 @@ get board.conf                 # Kurzübersicht aller Konfigs (B, F, M, I, Vco, 
 get board.telem                # Battery+Solar: V, I, T, SOC
 
 # Energie & Statistik
-get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL
-                               #   TTL = Time To Live (Stunden bis Akku leer)
+get board.stats                # Energie-Bilanz (24h/3d/7d), C/D, MPPT%, Batt-TTL
+                               #   Batt-TTL = Battery Time-To-Live (Stunden bis Akku leer),
+                               #   kein Hop-Limit
                                #   Basis: 7-Tage-Durchschnitt des tägl. Netto-Defizits
                                #   aus stündlichen INA228-Coulomb-Counter-Samples (168h-Ringpuffer)
                                #   Formel: entnehmbare Ladung / |7d-Avg-Defizit| × 24, wobei
 #   entnehmbar = SOC% × Kapazität − eingeschlossene Ladung
 #   (Kälte-Derating; bei Normaltemperatur 0)
-                               #   TTL erscheint nur im BAT-Modus (Netto-Defizit)
+                               #   Batt-TTL erscheint nur im BAT-Modus (Netto-Defizit)
                                #   Voraussetzung: mind. 24h Daten + Kapazität bekannt
 
 # Ladegerät & Diagnose
@@ -111,15 +112,15 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 
 | Befehl | Beschreibung |
 |---|---|
-| `get board.bat` | Batterietyp (`liion1s`, `lifepo1s`, `lto2s`, `naion1s`, `none`) |
-| `get board.batcap` | Batteriekapazität in mAh (set/default) |
+| `get board.bat` | Akkutyp (`liion1s`, `lifepo1s`, `lto2s`, `naion1s`, `none`) |
+| `get board.batcap` | Akkukapazität in mAh (set/default) |
 | `get board.imax` | Maximaler Ladestrom in mA |
-| `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO/Na-Ion: `N/A`) |
+| `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`, bei LTO/Na-ion: `N/A`) |
 | `get board.mppt` | MPPT-Status (`0`/`1`) |
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzübersicht: B(at) F(max) M(ppt) I(max) Vco V0 |
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC — siehe [TELEMETRY.md](TELEMETRY.md) |
-| `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, TTL (7d-Avg-basiert) |
+| `get board.stats` | Energie-Bilanz (24h/3d/7d), C/D, MPPT%, Batt-TTL (7d-Avg-basiert) |
 | `get board.cinfo` | Charger-Status + PG-Stuck HIZ-Toggle (z.B. "PG / CC HIZ:3m ago") |
 | `get board.bqdiag` | Diagnose/Debug: BQ25798-Register-Dump — PG-/Ladezustand, TS-Region, aktive Fehler-Flags |
 | `get board.selftest` | I2C-Komponenten-Probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC inkl. Write-Verify) |
@@ -135,7 +136,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Akkuchemie wählen |
 | `set board.batcap` | `100`–`100000` (mAh) | Akkukapazität setzen |
 | `set board.imax` | `50`–`1500` (mA) | Max. Ladestrom setzen |
-| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO/Na-Ion) |
+| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (nicht bei LTO/Na-ion) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
@@ -145,7 +146,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 
 ## Schnellstart-Rezepte
 
-### Li-Ion 1S mit 10Ah und Solar
+### Li-ion 1S mit 10Ah und Solar
 ```bash
 set board.bat liion1s
 set board.batcap 10000
@@ -174,7 +175,7 @@ set board.mppt 1
 set board.leds off
 ```
 
-### Na-Ion 1S mit 10Ah und Solar
+### Na-ion 1S mit 10Ah und Solar
 ```bash
 set board.bat naion1s
 set board.batcap 10000

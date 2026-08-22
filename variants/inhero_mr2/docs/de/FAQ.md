@@ -9,7 +9,7 @@
 
 1. [Welche Akkuchemie soll ich einsetzen?](#1-welche-akkuchemie-soll-ich-einsetzen)
 2. [Kann ich auch Akkupacks ohne eingebauten NTC nutzen?](#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen)
-3. [Warum steigt die Stromaufnahme bei sinkender Batteriespannung?](#3-warum-steigt-die-stromaufnahme-bei-sinkender-batteriespannung)
+3. [Warum steigt die Stromaufnahme bei sinkender Akkuspannung?](#3-warum-steigt-die-stromaufnahme-bei-sinkender-akkuspannung)
 
 **🔋 Laden & Solar**
 
@@ -26,7 +26,7 @@
 11. [Warum zeigt der SOC 0% oder N/A an?](#11-warum-zeigt-der-soc-0-oder-na-an)
 12. [Wann sollte ich `set board.tccal` ausführen?](#12-wann-sollte-ich-set-boardtccal-ausführen)
 13. [Wie funktioniert das Temperatur-Derating?](#13-wie-funktioniert-das-temperatur-derating)
-14. [Was ist TTL (Time-To-Live)?](#14-was-ist-ttl-time-to-live)
+14. [Was ist Batt-TTL?](#14-was-ist-batt-ttl)
 
 **🔩 Hardware**
 
@@ -50,9 +50,9 @@
 
 ### 1. Welche Akkuchemie soll ich einsetzen?
 
-Das Inhero MR2 unterstützt **Li-Ion**, **LiFePO4**, **LTO (2S)** und **Na-Ion**. Die richtige Wahl hängt von den Einsatzbedingungen ab — insbesondere Temperaturbereich, verfügbarer Bauraum und erwartete Lebensdauer.
+Das Inhero MR2 unterstützt **Li-ion**, **LiFePO4**, **LTO (2S)** und **Na-ion**. Die richtige Wahl hängt von den Einsatzbedingungen ab — insbesondere Temperaturbereich, verfügbarer Bauraum und erwartete Lebensdauer.
 
-Kurzempfehlung: **LiFePO4** für die meisten Indoor-/gemäßigten Setups, **LTO** für extreme Kälte oder maximale Zyklenlebensdauer, **Li-Ion** wenn der Bauraum knapp ist, **Na-Ion** für nachhaltige Kälteeinsätze.
+Kurzempfehlung: **LiFePO4** für die meisten Indoor-/gemäßigten Setups, **LTO** für extreme Kälte oder maximale Zyklenlebensdauer, **Li-ion** wenn der Bauraum knapp ist, **Na-ion** für nachhaltige Kälteeinsätze.
 
 → **Ausführlicher Guide:** [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Detaillierter Vergleich, Vor- & Nachteile, Einsatzempfehlungen, Kapazitätsplanung, Solar-Dimensionierung, Sicherheitshinweise und Langzeitalterung.
 
@@ -62,28 +62,28 @@ Kurzempfehlung: **LiFePO4** für die meisten Indoor-/gemäßigten Setups, **LTO*
 
 ### 2. Kann ich auch Akkupacks ohne eingebauten NTC nutzen?
 
-**Ja, aber nur mit dem Onboard-NTC.** Schließe die Solder-Bridge auf der Rückseite des Boards – damit wird der Onboard-NTC (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380) aktiviert. Der TS-Pin am Batteriestecker bleibt dann unbenutzt.
+**Ja, aber nur mit dem Onboard-NTC.** Schließe die Solder-Bridge auf der Rückseite des Boards – damit wird der Onboard-NTC (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380) aktiviert. Der TS-Pin am Akkustecker bleibt dann unbenutzt.
 
-Falls dein Akkupack einen eingebauten NTC hat, muss dieser zwischen **TS (Pin 3)** und **GND (Pin 2)** verdrahtet sein (siehe [DATASHEET.md — Batterie-Stecker](DATASHEET.md#steckerbelegung--batterie-stecker-jst-ph20-3p-von-links-nach-rechts)). Ein kompatibler 10k-NTC (Beta ~3380) reicht für grundlegende Frostschutzfunktion – die Temperaturgenauigkeit sinkt jedoch etwas.
+Falls dein Akkupack einen eingebauten NTC hat, muss dieser zwischen **TS (Pin 3)** und **GND (Pin 2)** verdrahtet sein (siehe [DATASHEET.md — Akku-Stecker](DATASHEET.md#steckerbelegung--akku-stecker-jst-ph20-3p-von-links-nach-rechts)). Ein kompatibler 10k-NTC (Beta ~3380) reicht für grundlegende Frostschutzfunktion – die Temperaturgenauigkeit sinkt jedoch etwas.
 
-**Wichtig:** Ohne NTC (Solder-Bridge offen und kein externer NTC angeschlossen) interpretiert der BQ25798 den TS-Pin bei Li-Ion und LiFePO4 als Frostbedingung – das Laden wird blockiert und die BQ-Status-LED blinkt. Bei LTO und Na-Ion tritt dieses Problem nicht auf, da JEITA dort deaktiviert ist.
+**Wichtig:** Ohne NTC (Solder-Bridge offen und kein externer NTC angeschlossen) interpretiert der BQ25798 den TS-Pin bei Li-ion und LiFePO4 als Frostbedingung – das Laden wird blockiert und die BQ-Status-LED blinkt. Bei LTO und Na-ion tritt dieses Problem nicht auf, da JEITA dort deaktiviert ist.
 
 ---
 
-### 3. Warum steigt die Stromaufnahme bei sinkender Batteriespannung?
+### 3. Warum steigt die Stromaufnahme bei sinkender Akkuspannung?
 
-Das Inhero MR2 hat einen hocheffizienten **Buck-Converter**, der die Batteriespannung auf 3,3 V für MCU und Funk herunterregelt. Weil dieser Wandler effizient arbeitet, zieht das Board eine annähernd **konstante Leistung** (Watt), keinen konstanten Strom (Ampere).
+Das Inhero MR2 hat einen hocheffizienten **Buck-Converter**, der die Akkuspannung auf 3,3 V für MCU und Funk herunterregelt. Weil dieser Wandler effizient arbeitet, zieht das Board eine annähernd **konstante Leistung** (Watt), keinen konstanten Strom (Ampere).
 
 Weil Leistung = Spannung × Strom:
 - Bei 4,6 V (LTO voll): ~6,3 mA
-- Bei 3,7 V (Li-Ion Nennspannung): ~7,8 mA
+- Bei 3,7 V (Li-ion Nennspannung): ~7,8 mA
 - Bei 3,2 V (LiFePO4 Nennspannung): ~9,1 mA
 
 Alle drei Fälle verbrauchen exakt **29 mW**. Das ist normales Verhalten, kein Fehler.
 
 **Praktische Konsequenz:** Akkus immer in **Wh** (Energie) dimensionieren, nicht in mAh — besonders beim Vergleich verschiedener Chemien. Eine naive „mA × Stunden“-Rechnung überschätzt den Kapazitätsbedarf für höherspannige Chemien wie LTO.
 
-→ **Ausführliche Erklärung:** [BATTERY_GUIDE.md — Warum der Strom von der Batteriespannung abhängt](BATTERY_GUIDE.md#warum-der-strom-von-der-batteriespannung-abhängt)
+→ **Ausführliche Erklärung:** [BATTERY_GUIDE.md — Warum der Strom von der Akkuspannung abhängt](BATTERY_GUIDE.md#warum-der-strom-von-der-akkuspannung-abhängt)
 
 ---
 
@@ -91,7 +91,7 @@ Alle drei Fälle verbrauchen exakt **29 mW**. Das ist normales Verhalten, kein F
 
 ### 4. Welchen mAh-Wert gebe ich bei `set board.batcap` ein?
 
-Gib die **Nennkapazität abzüglich eines Abschlags** ein. Da die Ladeschlussspannung zugunsten der Akkuschonung reduziert ist, steht nicht die volle Nennkapazität zur Verfügung. Ein etwas pessimistischerer Wert ist sicherer: Wenn der SOC 10 % anzeigt, sind dann auch wirklich ≥ 10 % im Akku. So wirst du nicht von einem unerwarteten Low-Voltage-Sleep überrascht. Auch die TTL-Vorhersage (Time-To-Live) wird damit konservativer und zuverlässiger.
+Gib die **Nennkapazität abzüglich eines Abschlags** ein. Da die Ladeschlussspannung zugunsten der Akkuschonung reduziert ist, steht nicht die volle Nennkapazität zur Verfügung. Ein etwas pessimistischerer Wert ist sicherer: Wenn der SOC 10 % anzeigt, sind dann auch wirklich ≥ 10 % im Akku. So wirst du nicht von einem unerwarteten Low-Voltage-Sleep überrascht. Auch die Batt-TTL-Vorhersage wird damit konservativer und zuverlässiger.
 
 **Faustregel: 90 % der Nennkapazität.** Beispiel: 10.000 mAh Nennkapazität → `set board.batcap 9000`.
 
@@ -112,7 +112,7 @@ Warum `imax` korrekt einstellen?
 3. **Panel-Kompatibilität:** Ist `imax` zu hoch gesetzt, versucht das Board kurzzeitig mehr Strom vom Panel zu ziehen als es liefern kann — der Laderegler erkennt den Spannungseinbruch und stoppt das Laden.
 
 **Berechnung:** Panelleistung ÷ Akkuspannung = imax.
-Beispiel: 2-W-Panel, Li-Ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.imax 540`.
+Beispiel: 2-W-Panel, Li-ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.imax 540`.
 
 ---
 
@@ -127,11 +127,11 @@ Beispiel: 2-W-Panel, Li-Ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.ima
 | `40%` | Max. 40 % von imax (z. B. 500 mA → 200 mA) |
 | `100%` | Keine Reduzierung, voller Ladestrom |
 
-**Unterhalb von ca. –2 °C (T-Cold)** wird das Laden für **Li-Ion und LiFePO4** per JEITA immer komplett blockiert – unabhängig von `fmax`.
+**Unterhalb von ca. –2 °C (T-Cold)** wird das Laden für **Li-ion und LiFePO4** per JEITA immer komplett blockiert – unabhängig von `fmax`.
 
 **Wichtig:** Nur das Laden wird eingeschränkt. Bei ausreichend Solarleistung läuft das Board weiterhin auf Solarstrom – der Akku wird weder geladen noch entladen.
 
-**LTO / Na-Ion:** `fmax` hat keine Wirkung, da JEITA für diese Chemien deaktiviert ist.
+**LTO / Na-ion:** `fmax` hat keine Wirkung, da JEITA für diese Chemien deaktiviert ist.
 
 ---
 
@@ -170,7 +170,7 @@ Langsames Blinken der BQ-Status-LED signalisiert einen **Charger-Fehler**. Häuf
 
 1. **Kein NTC angeschlossen (häufigste Ursache):** Weder externer NTC am TS-Pin noch Solder-Bridge für den Onboard-NTC geschlossen. Der BQ25798 interpretiert den offenen TS-Pin als Frostbedingung und blockiert das Laden. → **Lösung:** Solder-Bridge schließen oder kompatiblen NTC (10 kΩ @ 25 °C, Beta ~3380) zwischen TS (Pin 3) und GND (Pin 2) anschließen.
 
-2. **Tatsächlich zu kalt / zu warm:** Unterhalb von ca. –2 °C (T-Cold-Schwelle mit Inhero-Spannungsteiler) wird das Laden für Li-Ion und LiFePO4 per JEITA komplett blockiert. Oberhalb von ca. 58 °C (T-Hot-Schwelle) wird das Laden ebenfalls ausgesetzt. → Bei LTO und Na-Ion tritt dies nicht auf (JEITA deaktiviert).
+2. **Tatsächlich zu kalt / zu warm:** Unterhalb von ca. –2 °C (T-Cold-Schwelle mit Inhero-Spannungsteiler) wird das Laden für Li-ion und LiFePO4 per JEITA komplett blockiert. Oberhalb von ca. 58 °C (T-Hot-Schwelle) wird das Laden ebenfalls ausgesetzt. → Bei LTO und Na-ion tritt dies nicht auf (JEITA deaktiviert).
 
 3. **Anderer Charger-Fehler:** Der BQ25798 kann auch Fehler wie VBAT-Überspannung (VBAT_OVP), Eingangsüberspannung (VBUS_OVP) oder Watchdog-Timeout signalisieren. Diese treten im Normalbetrieb selten auf.
 
@@ -197,7 +197,7 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 
 **SOC zeigt 0%** nach dem Aufwachen aus dem **Low-Voltage-Sleep**. Das ist beabsichtigt: Der Coulomb-Counter lief während des Sleeps nicht, daher ist der Ladestand unbekannt. Der SOC startet bei 0% und beginnt wieder zu zählen. Beim nächsten „Charge Done“ synchronisiert sich der SOC sauber auf 100%.
 
-**Hinweis:** Bei Kälte ist die entnehmbare Kapazität geringer als die gespeicherte Ladung. `get board.telem` zeigt das als `SOC:95.0% (79%)`. Die TTL berücksichtigt das automatisch. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
+**Hinweis:** Bei Kälte ist die entnehmbare Kapazität geringer als die gespeicherte Ladung. `get board.telem` zeigt das als `SOC:95.0% (79%)`. Die Batt-TTL berücksichtigt das automatisch. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
 
 ---
 
@@ -222,31 +222,33 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 SOC% ist **rein Coulomb-basiert** — er spiegelt die tatsächlich gespeicherte Ladung wider und ändert sich nicht mit der Temperatur. Nur reale Ladungsströme (gemessen vom INA228 Coulomb-Counter) verändern den SOC%.
 
 Die **entnehmbare Kapazität** sinkt jedoch bei Kälte durch verlangsamte elektrochemische Kinetik und erhöhten Innenwiderstand bei TX-Peaks (~100 mA). Die Firmware berechnet einen chemiespezifischen Derating-Faktor `f(T)`, der verwendet wird für:
-- **TTL-Berechnung** — Trapped-Charge-Modell: entnehmbar = max(0, verbleibend − Kapazität × (1−f(T)))
+- **Batt-TTL-Berechnung** — Trapped-Charge-Modell: entnehmbar = max(0, verbleibend − Kapazität × (1−f(T)))
 - **CLI-Anzeige** — `get board.telem` zeigt den derateten Wert in Klammern: `SOC:95.0% (78%)` = gespeichert (entnehmbar)
 
 Der Derating-Faktor ist sichtbar in `get board.socdebug` (Feld `d=`).
 
-→ **Vollständige Details:** [POWER_MANAGEMENT.md — Temperatur-Derating](POWER_MANAGEMENT.md#5-time-to-live-ttl-prognose)
+→ **Vollständige Details:** [POWER_MANAGEMENT.md — Temperatur-Derating](POWER_MANAGEMENT.md#5-batt-ttl-prognose)
 
 ---
 
-### 14. Was ist TTL (Time-To-Live)?
+### 14. Was ist Batt-TTL?
 
-TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getter-status-abfragen). Siehe [POWER_MANAGEMENT.md — TTL-Prognose](POWER_MANAGEMENT.md#5-time-to-live-ttl-prognose) für den Algorithmus.
+> **Batt-TTL** steht für *Battery Time-To-Live* — die geschätzte Restlaufzeit im Akkubetrieb. Gemeint ist nicht das Hop-Limit, das „TTL“ im Mesh-Netz bezeichnet.
+
+Batt-TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen Energiebilanz. Angezeigt in [`get board.stats`](CLI_CHEAT_SHEET.md#getter-status-abfragen). Siehe [POWER_MANAGEMENT.md — Batt-TTL-Prognose](POWER_MANAGEMENT.md#5-batt-ttl-prognose) für den Algorithmus.
 
 **Funktionsweise:**
 - Ein 168-Stunden-Ringpuffer (7 Tage) erfasst stündlich Lade-/Entladedaten des INA228-Coulomb-Counters.
-- **Formel:** `TTL = entnehmbare Kapazität / |7-Tage-Durchschnitt täglicher Nettoverbrauch| × 24h` — dabei ist entnehmbar = verbleibende Ladung (aus SOC%) minus temperaturgesperrtem Anteil (siehe Kältebetrieb unten; bei moderaten Temperaturen identisch mit `SOC% × Kapazität / 100`)
-- **Anzeigeformat:** `T:12d0h` (12 Tage, 0 Stunden) oder `T:12h` (< 24 Stunden)
+- **Formel:** `Batt-TTL = entnehmbare Kapazität / |7-Tage-Durchschnitt täglicher Nettoverbrauch| × 24h` — dabei ist entnehmbar = verbleibende Ladung (aus SOC%) minus temperaturgesperrtem Anteil (siehe Kältebetrieb unten; bei moderaten Temperaturen identisch mit `SOC% × Kapazität / 100`)
+- **Anzeigeformat:** `BT:12d0h` (12 Tage, 0 Stunden) oder `BT:12h` (< 24 Stunden)
 
-**TTL zeigt N/A oder 0, wenn:**
+**Batt-TTL zeigt N/A oder 0, wenn:**
 - Weniger als 24 Stunden Daten gesammelt wurden
 - Das Board auf Solarüberschuss läuft (kein Defizit)
 
-**Hinweis:** Ohne `set board.batcap` wird ein grober Chemie-Standardwert (1500–2000 mAh) verwendet — für eine aussagekräftige TTL die reale Kapazität setzen.
+**Hinweis:** Ohne `set board.batcap` wird ein grober Chemie-Standardwert (1500–2000 mAh) verwendet — für eine aussagekräftige Batt-TTL die reale Kapazität setzen.
 
-**Kältebetrieb:** TTL verwendet das Trapped-Charge-Modell — Kälte sperrt den Boden der Entladekurve, dadurch fällt die entnehmbare Kapazität bei niedrigem SOC besonders steil. Im Winter bei 20% SOC kann die entnehmbare Kapazität bereits nahe null sein. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
+**Kältebetrieb:** Batt-TTL verwendet das Trapped-Charge-Modell — Kälte sperrt den Boden der Entladekurve, dadurch fällt die entnehmbare Kapazität bei niedrigem SOC besonders steil. Im Winter bei 20% SOC kann die entnehmbare Kapazität bereits nahe null sein. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating).
 
 ---
 
@@ -254,7 +256,7 @@ TTL ist eine geschätzte **verbleibende Laufzeit** basierend auf der aktuellen E
 
 ### 15. Hat das Board einen Verpolschutz?
 
-**Nein.** Das Board hat **keinen Hardware-Verpolschutz** – weder am Batterie- noch am Solareingang. Ein verpolt angeschlossener Akku oder ein verpolt angeschlossenes Solarpanel kann zu **sofortigem, irreversiblem Schaden** am Board führen.
+**Nein.** Das Board hat **keinen Hardware-Verpolschutz** – weder am Akku- noch am Solareingang. Ein verpolt angeschlossener Akku oder ein verpolt angeschlossenes Solarpanel kann zu **sofortigem, irreversiblem Schaden** am Board führen.
 
 **Immer die Polarität prüfen, bevor ein Kabel eingesteckt wird.** Siehe [DATASHEET.md — Sicherheits- und Schutzfunktionen](DATASHEET.md#sicherheits--und-schutzfunktionen).
 
@@ -361,7 +363,7 @@ Die Castellated Pads können direkt auf eine Trägerplatine gelötet werden. Sie
 - MPPT, LED-Einstellungen
 - NTC-Kalibrierungsoffset
 
-**Hinweis:** Energiestatistiken (168h-Ringpuffer für TTL) liegen nur im RAM und beginnen nach jedem Reboot oder Update neu.
+**Hinweis:** Energiestatistiken (168h-Ringpuffer für Batt-TTL) liegen nur im RAM und beginnen nach jedem Reboot oder Update neu.
 
 Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Korruption (selten) verloren. Siehe [POWER_MANAGEMENT.md — Statistik-Persistenz](POWER_MANAGEMENT.md#11-statistik-persistenz) für technische Details.
 
@@ -369,7 +371,7 @@ Einstellungen gehen nur bei einem vollständigen Flash-Erase oder Dateisystem-Ko
 
 Die Firmware nutzt die RTC (Real-Time Clock) für mehrere Schutzmechanismen. Eine falsch gehende Uhr führt nicht zum Totalausfall — Pakete werden weiterhin weitergeleitet — aber es treten spürbare Probleme auf:
 
-- **Advertisements werden verworfen:** Jedes Advertisement ist kryptographisch signiert (Ed25519 über Public Key + Zeitstempel + App-Daten). Empfänger vergleichen den enthaltenen Zeitstempel mit dem zuletzt gespeicherten Wert und ignorieren kleinere oder gleiche Timestamps als Replay-Attacke. Der bestehende Eintrag auf anderen Nodes bleibt erhalten, wird aber nicht mehr aktualisiert — Name, Position und „zuletzt gesehen" veralten zunehmend.
+- **Adverts werden verworfen:** Jedes Advert ist kryptographisch signiert (Ed25519 über Public Key + Zeitstempel + App-Daten). Empfänger vergleichen den enthaltenen Zeitstempel mit dem zuletzt gespeicherten Wert und ignorieren kleinere oder gleiche Timestamps als Replay-Attacke. Der bestehende Kontakt-Eintrag auf anderen Nodes bleibt erhalten, wird aber nicht mehr aktualisiert — Name, Position und „zuletzt gesehen" veralten zunehmend.
 - **Debug-Logs mit falschen Zeitstempeln:** `getLogDateTime()` zeigt falsche absolute Uhrzeiten. Relative Berechnungen wie „zuletzt gehört vor X Sekunden" bleiben korrekt, da sie intern dieselbe (falsche) Clock-Quelle nutzen.
 
 Login, Admin-Befehle und der Rate-Limiter sind **nicht betroffen** — Login/Befehle vergleichen ausschließlich Client-Timestamps untereinander, und der Rate-Limiter nutzt nur relative Zeitdifferenzen, die bei monoton laufender Uhr korrekt bleiben. Ein `clock sync` kann also jederzeit nach dem Einloggen ausgeführt werden.
@@ -385,11 +387,11 @@ Das Inhero MR2 hat eine Hardware-RTC, die bei einem normalen Reboot die Zeit beh
 
 `clock sync` und `time <epoch>` erlauben nur ein **Vorstellen** der Uhr — Zurückstellen wird mit `ERR: clock cannot go backwards` abgelehnt.
 
-**Warum?** Die Firmware nutzt steigende Timestamps als Schutz gegen Replay-Attacken. Sowohl Advertisements als auch Admin-Befehle werden verworfen, wenn ihr Timestamp kleiner oder gleich dem zuletzt gespeicherten ist. Da andere Nodes im Mesh den letzten (hohen) Timestamp gespeichert haben, würde ein Uhrrücksprung dazu führen, dass neue Advertisements meshweit abgelehnt werden.
+**Warum?** Die Firmware nutzt steigende Timestamps als Schutz gegen Replay-Attacken. Sowohl Adverts als auch Admin-Befehle werden verworfen, wenn ihr Timestamp kleiner oder gleich dem zuletzt gespeicherten ist. Da andere Nodes im Mesh den letzten (hohen) Timestamp gespeichert haben, würde ein Uhrrücksprung dazu führen, dass neue Adverts meshweit abgelehnt werden.
 
 **Lösung: `clkreboot`** — setzt die Uhr auf einen niedrigen Wert zurück und startet das Board neu; dabei werden die Replay-Zeitstempel je Client zurückgesetzt (gespeicherte Client-Einträge bleiben erhalten). Danach `clock sync` ausführen, um die korrekte Zeit zu setzen.
 
-> **Hinweis:** Nach `clkreboot` werden Advertisements vorübergehend von Nodes verworfen, die noch den alten Timestamp gespeichert haben. Die Sichtbarkeit normalisiert sich, sobald die Einträge dort ablaufen.
+> **Hinweis:** Nach `clkreboot` werden Adverts vorübergehend von Nodes verworfen, die noch den alten Timestamp gespeichert haben. Die Sichtbarkeit normalisiert sich, sobald die Einträge dort ablaufen.
 
 Siehe auch [FAQ #23](#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit).
 

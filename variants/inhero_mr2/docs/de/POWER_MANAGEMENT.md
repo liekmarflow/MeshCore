@@ -10,9 +10,9 @@
 - [2. Coulomb Counter & SOC (Ladezustand)](#2-coulomb-counter--soc-ladezustand)
 - [3. Tägliche Energiebilanz](#3-tägliche-energiebilanz)
 - [4. Solar-Energieverwaltung](#4-solar-energieverwaltung)
-  - [BQ25798 ADC bei niedrigen Batteriespannungen](#bq25798-adc-bei-niedrigen-batteriespannungen)
+  - [BQ25798 ADC bei niedrigen Akkuspannungen](#bq25798-adc-bei-niedrigen-akkuspannungen)
   - [JEITA-WARM-Zone & VBAT_OVP-Vermeidung](#jeita-warm-zone--vbat_ovp-vermeidung)
-- [5. Time-To-Live (TTL)-Prognose](#5-time-to-live-ttl-prognose)
+- [5. Batt-TTL-Prognose](#5-batt-ttl-prognose)
 - [6. RTC-Wakeup-Management](#6-rtc-wakeup-management)
 - [7. Energieverwaltungsablauf](#7-energieverwaltungsablauf)
 - [8. INA228 ALERT-Pin (Rev 1.1)](#8-ina228-alert-pin-rev-11)
@@ -35,7 +35,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 2. **System Sleep mit GPIO-Latch** (< 500µA) mit RTC-Wake - Minimaler Stromverbrauch bei Low-Voltage
 3. **CE-Pin FET-Safety** (DMN2004TK-7) - Invertierte Logik, Solar-Laden in System Sleep möglich
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
-5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Batterie
+5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Akku
 6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
 
 ### Feature-Matrix
@@ -46,8 +46,8 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | RTC-Wakeup (Low-Voltage-Recovery) | Aktiv | 60 min (periodisch) |
 | BQ CE-Pin Safety (FET-invertiert) | Aktiv | GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
 | System Sleep mit gelatchtem CE | Aktiv | < 500µA, GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Solar-Laden möglich |
-| SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
-| SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
+| SOC via INA228 + manuelle Akkukapazität | Aktiv | `set board.batcap` verfügbar |
+| SOC→Li-ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 
 
@@ -62,7 +62,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ Shunt, 1.6A max, Coulomb Counter, BUVL Alert |
 | **BME280** | Temperatur-/Feuchte-/Drucksensor | 0x76 | — | NTC-Kalibrier-Referenz (`set board.tccal`), Selftest |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up. Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) zur Bedeutung der Uhrzeit. |
-| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-batteriespannungen)) |
+| **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-akkuspannungen)) |
 | **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
 | **TPS62840** | Buck Converter | - | EN via 3.3V_off-Schalter | 750mA, 3.3V Rail |
 | **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 (ext. Pull-Down) | N-FET, Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → Laden an. Pull-Down zieht Gate LOW wenn floating. |
@@ -76,7 +76,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT auf P1.02
 - **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
 - **Verarbeitung**: `tickPeriodic()` prüft Flag im Main-Loop-Kontext → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
-- **Arming**: `armLowVoltageAlert()` wird bei Batterie-Konfiguration aufgerufen (setzt BUVL-Schwelle + aktiviert ISR)
+- **Arming**: `armLowVoltageAlert()` wird bei Akku-Konfiguration aufgerufen (setzt BUVL-Schwelle + aktiviert ISR)
 
 ### Low-Voltage-Flow
 
@@ -102,10 +102,10 @@ sd_power_system_off() → System Sleep mit GPIO-Latch (< 500µA)
 
 | Chemie | lowv_sleep_mv (ALERT) | lowv_wake_mv (0% SOC) | Hysterese |
 |--------|----------------------|----------------------|-----------|
-| **Li-Ion 1S** | 3100 | 3300 | 200mV |
+| **Li-ion 1S** | 3100 | 3300 | 200mV |
 | **LiFePO4 1S** | 2700 | 2900 | 200mV |
 | **LTO 2S** | 3900 | 4100 | 200mV |
-| **Na-Ion 1S** | 2500 | 2700 | 200mV |
+| **Na-ion 1S** | 2500 | 2700 | 200mV |
 
 **Implementierung**: `BoardConfigContainer` — `battery_properties[]` Lookup-Tabelle
 - `lowv_sleep_mv` → INA228 BUVL Alert-Schwelle, löst System Sleep aus
@@ -146,7 +146,7 @@ Die Akkukapazität **muss manuell gesetzt werden**, da sie in der Praxis stark v
 - **CLI-Befehl**: `set board.batcap <mAh>`
 - **Erlaubter Bereich**: 100-100000mAh
 
-**Wichtig**: Ohne korrekte Kapazität sind SOC% und TTL-Berechnungen ungenau!
+**Wichtig**: Ohne korrekte Kapazität sind SOC% und Batt-TTL-Berechnungen ungenau!
 
 #### Persistenz-Mechanik
 **Speicherpfad**: `/inheromr2/batCap.txt` (LittleFS via SimplePreferences)
@@ -195,7 +195,7 @@ Die Stundenwerte werden in `updateBatterySOC()` (alle 60s) aus den Deltas des IN
 ```
 last_24h_net_mah       = Σ(solar − entladen) über die letzten 24 Stunden
 avg_3day_daily_net_mah = Σ(solar − entladen) über 72h / 3    (braucht ≥ 24h Daten)
-avg_7day_daily_net_mah = Σ(solar − entladen) über 168h / 7   (braucht ≥ 24h Daten; Basis für TTL)
+avg_7day_daily_net_mah = Σ(solar − entladen) über 168h / 7   (braucht ≥ 24h Daten; Basis für Batt-TTL)
 ```
 
 **Living Status**:
@@ -272,13 +272,13 @@ tickPeriodic()  [aufgerufen von tick(), Main-Loop]
 - **SOC Update**: 60 Sekunden (via tickPeriodic)
 - **Hourly Stats**: 60 Minuten (via tickPeriodic)
 
-### BQ25798 ADC bei niedrigen Batteriespannungen
+### BQ25798 ADC bei niedrigen Akkuspannungen
 
 > **Referenz:** BQ25798 Datasheet (TI SLUSE22), Section 9.3.16 — ADC
 
 #### Problem
 
-Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**, die im reinen Batteriebetrieb (ohne Solar) relevant werden. Bei niedrigen Batteriespannungen kann der ADC seine Konvertierung nicht abschließen — `ADC_EN` bleibt gesetzt und die Firmware läuft in einen Timeout.
+Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**, die im reinen Akkubetrieb (ohne Solar) relevant werden. Bei niedrigen Akkuspannungen kann der ADC seine Konvertierung nicht abschließen — `ADC_EN` bleibt gesetzt und die Firmware läuft in einen Timeout.
 
 #### Datasheet-Zitat (Section 9.3.16)
 
@@ -292,18 +292,18 @@ Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**, die im 
 | Bedingung | VBUS | VBAT | TS-Kanal | ADC | Temperatur |
 |-----------|------|------|----------|-----|------------|
 | Solar angeschlossen | > 3.4V | beliebig | aktiviert | ✅ läuft | ✅ verfügbar |
-| Batteriebetrieb, normal | — | ≥ 3.2V | aktiviert | ✅ läuft | ✅ verfügbar |
-| Batteriebetrieb, niedrig | — | 2.9–3.2V | **deaktiviert** | ✅ läuft | ❌ nicht verfügbar |
-| Batteriebetrieb, kritisch | — | < 2.9V | deaktiviert | ❌ Timeout | ❌ nicht verfügbar |
+| Akkubetrieb, normal | — | ≥ 3.2V | aktiviert | ✅ läuft | ✅ verfügbar |
+| Akkubetrieb, niedrig | — | 2.9–3.2V | **deaktiviert** | ✅ läuft | ❌ nicht verfügbar |
+| Akkubetrieb, kritisch | — | < 2.9V | deaktiviert | ❌ Timeout | ❌ nicht verfügbar |
 
 #### Firmware-Lösung: VBAT-abhängige TS-Kanal-Steuerung
 
-Die Firmware liest die aktuelle Batteriespannung vom INA228 und übergibt sie an `BqDriver::getTelemetryData(vbat_mv)`:
+Die Firmware liest die aktuelle Akkuspannung vom INA228 und übergibt sie an `BqDriver::getTelemetryData(vbat_mv)`:
 
 - **VBAT ≥ 3.2V** (oder unbekannt): TS-Kanal aktiviert → ADC-Schwelle 3.2V, Temperatur verfügbar
 - **VBAT < 3.2V**: TS-Kanal deaktiviert → ADC-Schwelle sinkt auf 2.9V, Temperatur als "N/A" angezeigt
 
-Dadurch funktioniert der ADC im Bereich 2.9–3.2V weiterhin für Solar-Messungen (VBUS, IBUS), auch wenn die Batterietemperatur nicht gelesen werden kann.
+Dadurch funktioniert der ADC im Bereich 2.9–3.2V weiterhin für Solar-Messungen (VBUS, IBUS), auch wenn die Akkutemperatur nicht gelesen werden kann.
 
 #### ADC-Kanal-Konfiguration (nur benötigte Kanäle)
 
@@ -347,10 +347,10 @@ Mit den BQ25798 POR-Defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `E
 42°C Umgebung → TS = 44,65% REGN (unter VT3_FALL = 44,8%)
   → BQ tritt in WARM-Zone ein
   → JEITA_VSET reduziert VREG: 3,5V − 400mV = 3,1V (LiFePO4)
-  → Batterie bei 3,47V > 104% × 3,1V = 3,224V → VBAT_OVP ausgelöst
-  → Wandler stoppt, EN_AUTO_IBATDIS zieht IBAT_LOAD = 30mA aus Batterie
+  → Akku bei 3,47V > 104% × 3,1V = 3,224V → VBAT_OVP ausgelöst
+  → Wandler stoppt, EN_AUTO_IBATDIS zieht IBAT_LOAD = 30mA aus dem Akku
   → Gesamtverbrauch: −11mA (System) + −30mA (IBAT_LOAD) = −41mA
-  → Recovery erfordert VBAT < 102% × 3,1V = 3,162V → stundenlanger Batterieverbrauch
+  → Recovery erfordert VBAT < 102% × 3,1V = 3,162V → stundenlanger Akkuverbrauch
 ```
 
 #### Fix: Drei Register-Einstellungen in `configureBaseBQ()`
@@ -360,7 +360,7 @@ Mit den BQ25798 POR-Defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `E
 | `setTsWarm(BQ25798_TS_WARM_55C)` | NTC Control 1 (0x18), Bits 5:4 | 55 °C (37,7% REGN) | WARM-Zone beginnt bei ~52 °C (Inhero), nicht ~42 °C |
 | `setJeitaVSet(BQ25798_JEITA_VSET_UNCHANGED)` | NTC Control 0 (0x17), Bits 7:5 | UNCHANGED | Keine VREG-Reduktion in WARM — verhindert VBAT_OVP |
 | `JEITA_ISETH` (POR-Default beibehalten) | NTC Control 0, Bits 4:3 | 11b = ICHG unchanged | Keine Ladestrom-Reduktion in WARM |
-| `setAutoIBATDIS(false)` | Charger Control 0, Bit 7 | 0 | Deaktiviert 30-mA-Batterieentladung bei OVP |
+| `setAutoIBATDIS(false)` | Charger Control 0, Bit 7 | 0 | Deaktiviert 30-mA-Akkuentladung bei OVP |
 
 > **Ergebnis:** Mit JEITA_VSET=UNCHANGED und JEITA_ISETH=ICHG unchanged ist die WARM-Zone (T3–T5) effektiv neutralisiert. Die Ladung läuft mit voller Spannung und vollem Strom bis T-Hot (~58 °C), wo die Ladung komplett gesperrt wird.
 
@@ -382,16 +382,18 @@ Mit den BQ25798 POR-Defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `E
 
 ---
 
-## 5. Time-To-Live (TTL)-Prognose
+## 5. Batt-TTL-Prognose
+
+> **Batt-TTL** steht für *Battery Time-To-Live* — die geschätzte Restlaufzeit im Akkubetrieb. Gemeint ist nicht das Hop-Limit, das „TTL“ im Mesh-Netz bezeichnet.
 
 ### Datenbasis und Zeitbasis
 
-Die TTL-Berechnung basiert auf dem **7-Tage gleitenden Durchschnitt** des täglichen Netto-Energieverbrauchs, der aus einem **168-Stunden-Ringpuffer** (7 Tage) stündlicher INA228-Coulomb-Counter-Messungen berechnet wird.
+Die Batt-TTL-Berechnung basiert auf dem **7-Tage gleitenden Durchschnitt** des täglichen Netto-Energieverbrauchs, der aus einem **168-Stunden-Ringpuffer** (7 Tage) stündlicher INA228-Coulomb-Counter-Messungen berechnet wird.
 
 #### Datenfluss
 
 ```
-INA228 Hardware Coulomb Counter (24-bit ADC, ±0.1% Genauigkeit)
+INA228 Hardware Coulomb Counter (20-bit ADC, ±0.1% Genauigkeit)
         │
         ▼
 updateHourlyStats() — jede Stunde
@@ -404,7 +406,7 @@ calculateRollingStats() — nach jedem Stunden-Update
         │  Mindestvoraussetzung: ≥ 24 Stunden gültige Daten
         ▼
 calculateTTL() — nach calculateRollingStats()
-        │  extractable_mah / |deficit_per_day| × 24 = TTL Stunden
+        │  extractable_mah / |deficit_per_day| × 24 = Batt-TTL Stunden
         │  (extractable = gespeichert − eingeschlossene Ladung, siehe Formel unten)
         ▼
 socStats.ttl_hours → getTTL_Hours() → board.stats / Telemetrie
@@ -415,10 +417,10 @@ socStats.ttl_hours → getTTL_Hours() → board.stats / Telemetrie
 - **Aufgerufen**: Nach `calculateRollingStats()` (stündlich)
 - **Zeitbasis**: 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) aus stündlichen Samples
 
-**Voraussetzungen für TTL > 0**:
+**Voraussetzungen für Batt-TTL > 0**:
 1. `living_on_battery == true` (24h-Netto ist negativ, d.h. Energiedefizit)
 2. `avg_7day_daily_net_mah < 0` (7-Tage-Durchschnitt zeigt Netto-Entladung)
-3. `capacity_mah > 0` (Batteriekapazität bekannt, via `set board.batcap`)
+3. `capacity_mah > 0` (Akkukapazität bekannt, via `set board.batcap`)
 4. Mindestens **24 Stunden** gültige Daten im Ringpuffer
 
 **Formel** (Trapped-Charge-Modell):
@@ -431,27 +433,27 @@ TTL_hours = extractable_mah / daily_deficit_mah × 24
 ```
 f(T) ist der chemie-spezifische Kälte-Derating-Faktor (`temp_derating_factor`); f(T) = 1 bei ≥ 25 °C — bei moderaten Temperaturen ist also nichts eingeschlossen und die Formel reduziert sich auf remaining/deficit.
 
-**TTL = 0 bedeutet**:
+**Batt-TTL = 0 bedeutet**:
 - Gerät wird solar versorgt (Netto-Überschuss) → `living_on_battery == false`
 - Noch keine 24h Daten gesammelt (Kaltstart)
-- Batteriekapazität unbekannt
+- Akkukapazität unbekannt
 
-**Infinite TTL (Telemetrie)**:
+**Infinite Batt-TTL (Telemetrie)**:
 - Wenn `living_on_battery == false` und SOC valide → wird als 990 Tage (Max-Wert) übertragen
 
 **Beispiel**:
 - SOC: 60% = 1200mAh gespeichert (bei 2000mAh Kapazität)
 - Temperatur ≥ 25 °C → f(T) = 1, nichts eingeschlossen → entnehmbar = 1200mAh
 - 7-Tage-Durchschnitt: -100 mAh/Tag (aus 168h Stunden-Samples)
-- TTL: 1200 / 100 × 24 = 288 Stunden = 12 Tage
+- Batt-TTL: 1200 / 100 × 24 = 288 Stunden = 12 Tage
 
 **CLI-Ausgabe**: `board.stats`
 ```
-+150/+120/+90mAh C:200 D:50 3C:180 3D:60 7C:160 7D:70 SOL M:85% T:N/A   ← Solar-Überschuss
++150/+120/+90mAh C:200 D:50 3C:180 3D:60 7C:160 7D:70 SOL M:85% BT:N/A   ← Solar-Überschuss
 ```
 oder
 ```
--80/-100/-110mAh C:10 D:90 3C:15 3D:115 7C:20 7D:130 BAT M:45% T:12d0h  ← 12 Tage bis leer
+-80/-100/-110mAh C:10 D:90 3C:15 3D:115 7C:20 7D:130 BAT M:45% BT:12d0h  ← 12 Tage bis leer
 ```
 
 ---
@@ -555,7 +557,7 @@ Der SOC wird beim Shutdown nicht geschrieben — beim nächsten erfolgreichen Re
 ### Wake-up-Check (Anti-Motorboating)
 **Methode**: `InheroMr2Board::begin()`
 
-Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Batteriespannung für Wake-up-Entscheidungen.
+Der Code prüft `GPREGRET2` für den Shutdown-Grund und die Akkuspannung für Wake-up-Entscheidungen.
 
 **2 Fälle**:
 
@@ -599,17 +601,17 @@ else {
 
 **Direkter ADC-Read** (boardConfig noch nicht bereit):
 ```cpp
-// Muss direkt aus den INA228-ADC-Registern lesen (24-bit, ±0,1 % Genauigkeit)
+// Muss direkt aus den INA228-ADC-Registern lesen (20-Bit-ADC, linksbündig im 24-Bit-Register, ±0,1 % Genauigkeit)
 uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 ```
 
 **Spannungsschwellen** (chemie-spezifisch, 1-Level-System):
 | Chemie | lowv_sleep_mv (ALERT) | lowv_wake_mv (Recovery) | Hysterese |
 |--------|----------------------|------------------------|-----------|
-| Li-Ion 1S | 3100 | 3300 | 200mV |
+| Li-ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
-| Na-Ion 1S | 2500 | 2700 | 200mV |
+| Na-ion 1S | 2500 | 2700 | 200mV |
 
 **Anti-Motorboating**: Der Early-Boot-Check in `begin()` verhindert, dass das System bei knapper Spannung immer wieder bootet und sofort abstürzt. Erst wenn VBAT über `lowv_wake_mv` liegt, wird normal gebootet.
 
@@ -686,7 +688,7 @@ radio.std_init(&SPI);  // → setDio2AsRfSwitch(true) → DIO2 steuert TX/RX
 ## 10. BQ25798 CE-Pin Safety (Rev 1.1 — FET-invertiert)
 
 ### Problem
-Der BQ25798 startet mit Default-Konfiguration (1S Li-Ion, 4.2V Ladespannung). Wenn eine LiFePO4-Batterie (3.5V max) verbunden ist und der RAK noch nicht gebootet hat, würde der BQ25798 die Batterie überladen → **Brandgefahr**.
+Der BQ25798 startet mit Default-Konfiguration (1S Li-ion, 4.2V Ladespannung). Wenn ein LiFePO4-Akku (3.5V max) verbunden ist und der RAK noch nicht gebootet hat, würde der BQ25798 den Akku überladen → **Brandgefahr**.
 
 ### Hardware-Design (Rev 1.1 — FET-invertiert)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
@@ -750,8 +752,8 @@ In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown
 Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind **nur im RAM** gespeichert und gehen bei jedem Reboot verloren — egal ob System Sleep oder Cold Boot. Es existiert kein Persistenzmechanismus (weder `.noinit`-Section noch LittleFS-Snapshot).
 
 **Persistente Daten** (überleben Reboots via LittleFS):
-- Batterietyp (`batType`)
-- Batteriekapazität (`batCap`)
+- Akkutyp (`batType`)
+- Akkukapazität (`batCap`)
 - NTC-Kalibrierung (`tcCal`)
 - MPPT-Einstellung (`mpptEn`)
 - Frostverhalten (`frost`)
@@ -762,7 +764,7 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 - 168h Energie-Ringpuffer (stündliche Charge/Discharge/Solar mAh)
 - MPPT-Statistiken (168h MPPT-Aktivitätsbuffer)
 - SOC-Prozentwert (wird nach Recovery auf 0% gesetzt, bei "Charging Done" auf 100% synchronisiert)
-- TTL-Berechnung (benötigt mind. 24h Daten nach jedem Neustart)
+- Batt-TTL-Berechnung (benötigt mind. 24h Daten nach jedem Neustart)
 - Tägliche Energiebilanz (7-Tage-Fenster baut sich nach Neustart neu auf)
 
 Die INA228-Kalibrierung (SHUNT_CAL aus CURRENT_LSB und dem 100mΩ-Shunt) wird bei jedem Boot in `Ina228Driver::begin()` aus festen Konstanten berechnet und braucht deshalb keine Persistenz. Einen Laufzeit-Korrekturfaktor gibt es nicht mehr — bei Rev 1.1 ist er durch das PCB-Layout und die Shunt-Toleranz entbehrlich.
@@ -773,11 +775,11 @@ Die INA228-Kalibrierung (SHUNT_CAL aus CURRENT_LSB und dem 100mΩ-Shunt) wird be
 
 ### Getter
 ```bash
-board.bat       # Batterietyp abfragen
+board.bat       # Akkutyp abfragen
                 # Ausgabe: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Frost-Ladeverhalten abfragen
-                # Ausgabe: 0% | 20% | 40% | 100% (LTO/Na-Ion: N/A)
+                # Ausgabe: 0% | 20% | 40% | 100% (LTO/Na-ion: N/A)
 
 board.imax      # Maximaler Ladestrom abfragen
                 # Ausgabe: <strom>mA (z.B. 500mA)
@@ -790,12 +792,12 @@ board.telem     # Echtzeit-Telemetrie mit SOC
                 # Beispiel: B:3.85V/125.4mA/22C SOC:68.5% S:5.12V/385mA
                 # Beispiel: B:3.85V/-8.2mA/N/A SOC:N/A S:0.00V/0mA
 
-board.stats     # Energie-Statistiken (Bilanz + MPPT + TTL)
-                # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
-                # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
-                # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:12d0h
+board.stats     # Energie-Statistiken (Bilanz + MPPT + Batt-TTL)
+                # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% BT:<ttl>
+                # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% BT:N/A
+                # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% BT:12d0h
                 # SOL = Solar-Überschuss, BAT = Energiedefizit
-                # T: Time To Live (N/A bei Solar-Überschuss oder <24h Daten)
+                # BT: Batt-TTL (N/A bei Solar-Überschuss oder <24h Daten)
 
 board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                 # Ausgabe: "PG / CC HIZ:never" oder "!PG / !CHG HIZ:3m ago"
@@ -814,26 +816,26 @@ board.tccal     # NTC-Temperatur-Kalibrieroffset
 board.leds      # LED-Aktivstatus (Heartbeat + BQ Stat)
                 # Ausgabe: "LEDs: ON (Heartbeat + BQ Stat)"
 
-board.batcap    # Batteriekapazität
+board.batcap    # Akkukapazität
                 # Ausgabe: 10000 mAh (gesetzt) oder 2000 mAh (Default; LiFePO4-Default 1500 mAh)
 ```
 
 ### Setter
 ```bash
-set board.bat <type>        # Batteriechemie setzen
+set board.bat <type>        # Akkuchemie setzen
                             # Optionen: liion1s | lifepo1s | lto2s | naion1s | none
 
 set board.fmax <wert>       # Frost-Ladestromabsenkung setzen
                             # Optionen: 0% | 20% | 40% | 100%
                             # Begrenzt Ladestrom im T-Cool-Bereich (ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README)
-                            # Bei LTO / Na-Ion ohne Wirkung (JEITA deaktiviert)
+                            # Bei LTO / Na-ion ohne Wirkung (JEITA deaktiviert)
 
 set board.imax <mA>         # Maximalen Ladestrom setzen
                             # Bereich: 50-1500 mA
 
 set board.mppt <0|1>        # MPPT ein-/ausschalten
 
-set board.batcap <mAh>      # Batteriekapazität setzen
+set board.batcap <mAh>      # Akkukapazität setzen
                             # Bereich: 100-100000 mAh
 
 set board.tccal             # NTC-Temperatur kalibrieren (auto via BME280)
@@ -874,7 +876,7 @@ set board.soc <percent>     # SOC manuell setzen (0-100, INA228 muss bereit sein
 | `updateBatterySOC()` | BoardConfigContainer.cpp | Coulomb-Counter-SOC-Berechnung |
 | `updateHourlyStats()` | BoardConfigContainer.cpp | Stündliche Abtastung in den 168h-Ringpuffer |
 | `calculateRollingStats()` | BoardConfigContainer.cpp | Rollierende 24h/3d/7d-Summen + living_on_battery |
-| `calculateTTL()` | BoardConfigContainer.cpp | Time-To-Live-Prognose |
+| `calculateTTL()` | BoardConfigContainer.cpp | Batt-TTL-Prognose |
 | `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 100mΩ-Kalibrierung, ADC-Konfiguration |
 | `Ina228Driver::readVBATDirect()` | lib/Ina228Driver.cpp | Statischer Early-Boot-VBAT-Read |
 
@@ -931,7 +933,7 @@ if (boardConfig.getIna228Driver() != nullptr) {
 
 ## Szenarien
 
-### Szenario A: Normale Entladung (Low-Voltage System Sleep) - Li-Ion
+### Szenario A: Normale Entladung (Low-Voltage System Sleep) - Li-ion
 ```
 t=0:      VBAT = 3.7V → Normal (60s checks, Coulomb Counter läuft)
           Daily balance: Today +150mAh SOLAR
@@ -979,7 +981,7 @@ t=+2h:    RTC-Wake → VBAT = 2.95V (weiter gesunken, kein Solar)
           - Sofort wieder schlafen
           - Board pendelt weiter mit < 500µA + stündlichem Boot (~0.03mAh)
           
-t=+∞:     Bei < 500µA kann die Batterie monatelang überleben
+t=+∞:     Bei < 500µA kann der Akku monatelang überleben
           - Sobald Solar verfügbar → VBAT steigt → normaler Boot bei >3300mV
           - KEIN Latching: System kann IMMER von selbst recovern
 ```
@@ -1001,22 +1003,22 @@ Tag 2:    VBAT = 3.05V, SOC = 58%
           3-Tage-Durchschnitt: (350+130-280)/3 = +66.7 mAh/Tag
           7-Tage-Durchschnitt: (350+130-280)/7 = +28.6 mAh/Tag
           (168h-Fenster noch teilgefüllt — die Summe wird immer durch 7 geteilt)
-          → 7-Tage-Durchschnitt positiv → TTL bleibt 0 (Anzeige N/A)
+          → 7-Tage-Durchschnitt positiv → Batt-TTL bleibt 0 (Anzeige N/A)
 
 Tag 3:    VBAT = 2.95V, SOC = 42%
           Geladen: +150mAh (dichte Bewölkung), Entladen: -500mAh
           last_24h_net = -350mAh → BAT
 
           3-Tage-Durchschnitt: (130-280-350)/3 = -166.7 mAh/Tag
-          7-Tage-Durchschnitt: (350+130-280-350)/7 = -21.4 mAh/Tag → negativ → TTL wird berechnet
+          7-Tage-Durchschnitt: (350+130-280-350)/7 = -21.4 mAh/Tag → negativ → Batt-TTL wird berechnet
           living_on_battery = true
 
-          TTL-Berechnung (Basis 7-Tage-Durchschnitt, ≥25 °C → f(T)=1, nichts eingeschlossen):
+          Batt-TTL-Berechnung (Basis 7-Tage-Durchschnitt, ≥25 °C → f(T)=1, nichts eingeschlossen):
           gespeichert = 42% × 1500mAh = 630mAh
           Defizit = |-21.4| = 21.4 mAh/Tag
-          TTL = (630 / 21.4) × 24 ≈ 706 Stunden ≈ 29.4 Tage
+          Batt-TTL = (630 / 21.4) × 24 ≈ 706 Stunden ≈ 29.4 Tage
 
-          CLI-Ausgabe: "-350/-167/-21mAh C:150 D:500 3C:.. 3D:.. 7C:.. 7D:.. BAT M:45% T:29d10h"
+          CLI-Ausgabe: "-350/-167/-21mAh C:150 D:500 3C:.. 3D:.. 7C:.. 7D:.. BAT M:45% BT:29d10h"
 ```
 
 ---

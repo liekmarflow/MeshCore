@@ -13,10 +13,10 @@ See [FAQ.md](FAQ.md) for explanations of key parameters (`imax`, `fmax`, `batcap
 
 ```bash
 # Battery chemistry
-set board.bat liion1s          # Li-Ion 1S (3.7V nominal)
+set board.bat liion1s          # Li-ion 1S (3.7V nominal)
 set board.bat lifepo1s         # LiFePO4 1S (3.2V nominal)
 set board.bat lto2s            # LTO 2S (2x 2.3V nominal)
-set board.bat naion1s          # Na-Ion 1S (3.1V nominal)
+set board.bat naion1s          # Na-ion 1S (3.1V nominal)
 set board.bat none             # No battery / unknown (charging disabled)
 
 # Battery capacity (100–100000 mAh)
@@ -31,7 +31,7 @@ set board.fmax 0%              # Charging blocked
 set board.fmax 20%             # max. 20% of imax
 set board.fmax 40%             # max. 40% of imax
 set board.fmax 100%            # no reduction
-# Note: No effect on LTO / Na-Ion (JEITA disabled)
+# Note: No effect on LTO / Na-ion (JEITA disabled)
 
 # MPPT on/off
 set board.mppt 1               # Enable MPPT
@@ -73,14 +73,15 @@ get board.conf                 # Summary of all configs (B, F, M, I, Vco, V0)
 get board.telem                # Battery+Solar: V, I, T, SOC
 
 # Energy & Statistics
-get board.stats                # Energy balance (24h/3d/7d), C/D, MPPT%, TTL
-                               #   TTL = Time To Live (hours until battery empty)
+get board.stats                # Energy balance (24h/3d/7d), C/D, MPPT%, Batt-TTL
+                               #   Batt-TTL = battery time-to-live (hours until battery empty),
+                               #   not a packet hop limit
                                #   Basis: 7-day average of daily net deficit
                                #   from hourly INA228 coulomb counter samples (168h ring buffer)
                                #   Formula: extractable / |7d-avg-deficit| × 24, where
 #   extractable = SOC% × capacity − trapped charge
 #   (cold-temperature derating; 0 at normal temperatures)
-                               #   TTL only shown in BAT mode (net deficit)
+                               #   Batt-TTL only shown in BAT mode (net deficit)
                                #   Prerequisite: min. 24h data + capacity known
 
 # Charger & Diagnostics
@@ -114,12 +115,12 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `get board.bat` | Battery type (`liion1s`, `lifepo1s`, `lto2s`, `naion1s`, `none`) |
 | `get board.batcap` | Battery capacity in mAh (set/default) |
 | `get board.imax` | Maximum charge current in mA |
-| `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`, LTO/Na-Ion: `N/A`) |
+| `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`, LTO/Na-ion: `N/A`) |
 | `get board.mppt` | MPPT status (`0`/`1`) |
 | `get board.leds` | LED status Heartbeat + BQ Stat (`ON`/`OFF`) |
 | `get board.conf` | Summary: B(at) F(max) M(ppt) I(max) Vco V0 |
 | `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC — see [TELEMETRY.md](TELEMETRY.md) |
-| `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, TTL (7d-avg-based) |
+| `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, Batt-TTL (7d-avg-based) |
 | `get board.cinfo` | Charger status + PG-stuck HIZ toggle (e.g. "PG / CC HIZ:3m ago") |
 | `get board.bqdiag` | Diagnostic/debug: BQ25798 register dump — PG/charge state, TS region, active fault flags |
 | `get board.selftest` | I2C device probe — `INA:OK BQ:OK RTC:OK BME:OK` (RTC also write-verified) |
@@ -135,7 +136,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Set battery chemistry |
 | `set board.batcap` | `100`–`100000` (mAh) | Set battery capacity |
 | `set board.imax` | `50`–`1500` (mA) | Set max charge current |
-| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (not for LTO/Na-Ion) |
+| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (not for LTO/Na-ion) |
 | `set board.mppt` | `0`/`1` · `true`/`false` | Enable/disable MPPT |
 | `set board.leds` | `on`/`off` · `1`/`0` | Enable/disable LEDs |
 | `set board.soc` | `0`–`100` (%) | Manually set SOC |
@@ -145,7 +146,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 
 ## Quick-Start Recipes
 
-### Li-Ion 1S with 10Ah and Solar
+### Li-ion 1S with 10Ah and Solar
 ```bash
 set board.bat liion1s
 set board.batcap 10000
@@ -174,7 +175,7 @@ set board.mppt 1
 set board.leds off
 ```
 
-### Na-Ion 1S with 10Ah and Solar
+### Na-ion 1S with 10Ah and Solar
 ```bash
 set board.bat naion1s
 set board.batcap 10000

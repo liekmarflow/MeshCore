@@ -9,7 +9,7 @@
 
 ## Board-Übersicht
 
-Das Inhero MR2 ist ein LoRa-Mesh-Repeater-Board auf Basis des **RAK4630**-Moduls (nRF52840 + SX1262) mit integriertem intelligentem Solar-Laderegler, Leistungsüberwachung und Tiefentladeschutz. Unterstützte Akku-Konfigurationen sind 1S-Li-Ion, 1S-LiFePO4, 2S-LTO und 1S-Na-Ion. Das Board wurde speziell für den autarken Langzeiteinsatz an abgelegenen oder schwer erreichbaren Standorten entwickelt. In Mitteleuropa ist ein ununterbrochener Repeater-Dauerbetrieb mit unverschatteten Solarmodulen ≥ 1 W und Akkukapazitäten ≥ 9 Ah möglich.
+Das Inhero MR2 ist ein LoRa-Mesh-Repeater-Board auf Basis des **RAK4630**-Moduls (nRF52840 + SX1262) mit integriertem intelligentem Solar-Laderegler, Leistungsüberwachung und Tiefentladeschutz. Unterstützte Akku-Konfigurationen sind 1S-Li-ion, 1S-LiFePO4, 2S-LTO und 1S-Na-ion. Das Board wurde speziell für den autarken Langzeiteinsatz an abgelegenen oder schwer erreichbaren Standorten entwickelt. In Mitteleuropa ist ein ununterbrochener Repeater-Dauerbetrieb mit unverschatteten Solarmodulen ≥ 1 W und Akkukapazitäten ≥ 9 Ah möglich.
 
 Die Lade- und Entladeschlussspannungen (siehe Tabelle [Unterstützte Akkuchemien](#unterstützte-akkuchemien)) sind so gewählt, dass die Akkus im Sommer nicht übermäßig belastet werden und gleichzeitig der Sleep-Betrieb bei Energiemangel sicher eingeleitet werden kann.
 
@@ -22,7 +22,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Watchdog Timer (WDT)** | Hardware-Watchdog des nRF52840. Startet das Board automatisch neu, wenn die Firmware hängt – wichtig für den unbeaufsichtigten Dauerbetrieb. |
 | **Low-Voltage-Protection** | INA228 ALERT-Interrupt bei Unterschreitung der chemie-spezifischen Schwelle → kontrollierter System Sleep mit RTC-Wake. Solarladung bleibt im Sleep aktiv (CE-Pin latched). |
 | **Laderegler nur bei aktiver Firmware** | Der BQ25798 lädt ausschließlich, wenn die Firmware aktiv läuft. Ohne geflashte Firmware oder bei ausgeschaltetem „3.3V off“-Schalter bleibt die Ladung deaktiviert. Der nRF52840 muss als Host den Laderegler jederzeit überwachen können. |
-| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-Ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~2–3 °C; effektiver T-Cool-Bereich ca. −2 °C bis +3 °C, siehe JEITA-Tabelle im README). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Batterieentladung deaktiviert — siehe [README.md — JEITA](README.md#jeita-temperaturzonen-konfiguration) für Details. **Hinweis:** Die JEITA-Schwellen werden vom BQ25798 direkt in Hardware ausgewertet. Die `set board.tccal`-Kalibrierung korrigiert nur die CLI-/Telemetrie-Temperaturanzeige und beeinflusst das JEITA-Verhalten nicht — siehe [FAQ #12](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen). |
+| **JEITA-Temperaturschutz** | Temperaturabhängige Ladestromreduktion über den NTC-Sensor (TS-Pin). Frostladeschutz konfigurierbar per `set board.fmax`. Bei LTO und Na-ion ist JEITA deaktiviert. Der Inhero-Spannungsteiler (RT1=5,6 kΩ, RT2=27 kΩ) verschiebt TS-Schwellen nach unten ggü. TI-Referenz (~2–3 °C; effektiver T-Cool-Bereich ca. −2 °C bis +3 °C, siehe JEITA-Tabelle im README). WARM-Zone konfiguriert auf Start bei ~52 °C (Register: 55 °C), effektiv neutralisiert (VREG + ICHG unverändert in WARM), automatische Akkuentladung deaktiviert — siehe [README.md — JEITA](README.md#jeita-temperaturzonen-konfiguration) für Details. **Hinweis:** Die JEITA-Schwellen werden vom BQ25798 direkt in Hardware ausgewertet. Die `set board.tccal`-Kalibrierung korrigiert nur die CLI-/Telemetrie-Temperaturanzeige und beeinflusst das JEITA-Verhalten nicht — siehe [FAQ #12](FAQ.md#12-wann-sollte-ich-set-boardtccal-ausführen). |
 
 > **⚠ WARNUNG — Kein Verpolschutz:** Das Board verfügt über **keinen Hardware-Verpolschutz** an Akku- oder Solareingang. Ein verpolter Anschluss führt zu **sofortiger, irreversibler Beschädigung** des Boards. Vor dem Anschließen immer die Polarität prüfen.
 
@@ -41,7 +41,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Funk** | Semtech SX1262 (via RAK4630) |
 | **Frequenz** | LoRa Sub-GHz (regionsabhängig) |
 | **Konnektivität** | LoRa, BLE 5.0, USB-C |
-| **Versorgungsspannung** | 1S Li-Ion / 1S LiFePO4 / 2S LTO / 1S Na-Ion (per Firmware konfigurierbar) |
+| **Versorgungsspannung** | 1S Li-ion / 1S LiFePO4 / 2S LTO / 1S Na-ion (per Firmware konfigurierbar) |
 | **Solareingang** | 3,6 V – 24 V (MPPT) |
 | **Max. Solar-Voc** | 25 V |
 | **USB-Laden** | 5 V über USB-C (Schottky-Diode auf VBUS-BQ, gleicher Ladepfad wie Solar) |
@@ -79,7 +79,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **Led 1+2** | Status-LEDs | LED1 + LED2 = RAK4630 User-LEDs (Heartbeat / Boot-Indikator, rechte Seite, übereinander) |
 | **Chrg. Led** | Lade-LED | BQ25798 STAT-Ausgang – zeigt Ladezustand an (rechts unten, neben Solar-Connector) |
 | **3.3V off** | Power-Schalter | Schiebeschalter zum Trennen der 3,3 V-Versorgung (links unten). **⚠ Achtung: Invertierte Logik!** Schalterstellung „ON" = EN-Pin auf Low = Board **aus**. Schalterstellung „OFF" = EN-Pin auf High = Board **ein**. |
-| **Bat-Conn** (JST PH2.0-3P) | Batterie-Stecker | 3-poliger JST PH2.0 Stecker: **Batt+**, **Batt−**, **TS** (unten links) |
+| **Bat-Conn** (JST PH2.0-3P) | Akku-Stecker | 3-poliger JST PH2.0 Stecker: **Batt+**, **Batt−**, **TS** (unten links) |
 | **Solar-Conn** (JST PH2.0-2P) | Solar-Stecker | 2-poliger JST PH2.0 Stecker: **Solar+**, **Solar−** (unten rechts) |
 | **Ø 2.5mm** | Montagebohrungen | 4× M2.5 Befestigungslöcher in den Ecken |
 
@@ -93,12 +93,12 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 | **INA228** | Leistungsmonitor | Coulomb Counter mit ALERT-Interrupt |
 | **TPS62840** | Buck Converter | DC/DC, 750 mA, EN geschaltet über „3.3V off“-Schalter |
 
-### Steckerbelegung – Batterie-Stecker (JST PH2.0-3P, von links nach rechts)
+### Steckerbelegung – Akku-Stecker (JST PH2.0-3P, von links nach rechts)
 
 | Pin | Signal | Beschreibung |
 |-----|--------|-------------|
-| 1 | **Batt +** | Batterie-Pluspol |
-| 2 | **Batt −** | Batterie-Minuspol (GND) |
+| 1 | **Batt +** | Akku-Pluspol |
+| 2 | **Batt −** | Akku-Minuspol (GND) |
 | 3 | **TS** | Temperatursensor (NTC) für JEITA-Ladeschutz. Erforderlicher Typ: NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel |
 
 > **⚠ WARNUNG:** Kein Verpolschutz. Vor dem Anschließen unbedingt korrekte Polarität prüfen.
@@ -165,7 +165,7 @@ Siehe auch [FAQ #16 — „3.3V off“-Schalter](FAQ.md#16-was-macht-der-schalte
 
 | Label (→ Bild) | Beschreibung |
 |----------------|-------------|
-| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC vom Typ NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel über TS-Pin des Batterie-Steckers erforderlich. Siehe [FAQ #2](FAQ.md#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen). |
+| **Solder-Bridge** (close for onboard Temp-Sensor) | Lötbrücke für den Onboard-NTC-Temperatursensor (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380). **Geschlossen** = Onboard-NTC aktiv. **Offen** = externer NTC vom Typ NCP15XH103F03RC (10 kΩ @ 25 °C, Beta 3380) oder kompatibel über TS-Pin des Akku-Steckers erforderlich. Siehe [FAQ #2](FAQ.md#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen). |
 
 ---
 
@@ -195,10 +195,10 @@ Siehe auch [FAQ #16 — „3.3V off“-Schalter](FAQ.md#16-was-macht-der-schalte
 
 | Typ | Nennspannung | Ladeendspannung | Low-V Sleep | Low-V Wake | Hysterese |
 |-----|-------------|----------------|-------------|------------|-----------|
-| **Li-Ion 1S** | 3,7 V | 4,1 V | 3100 mV | 3300 mV | 200 mV |
+| **Li-ion 1S** | 3,7 V | 4,1 V | 3100 mV | 3300 mV | 200 mV |
 | **LiFePO4 1S** | 3,2 V | 3,5 V | 2700 mV | 2900 mV | 200 mV |
 | **LTO 2S** | 4,6 V (2× 2,3 V) | 5,4 V | 3900 mV | 4100 mV | 200 mV |
-| **Na-Ion 1S** | 3,1 V | 3,9 V | 2500 mV | 2700 mV | 200 mV |
+| **Na-ion 1S** | 3,1 V | 3,9 V | 2500 mV | 2700 mV | 200 mV |
 | **none** | — | — | — | — | — |
 
 > **Die richtige Chemie wählen:** Siehe [BATTERY_GUIDE.md](BATTERY_GUIDE.md) für einen detaillierten Vergleich von Vor-/Nachteilen und Einsatzempfehlungen. Eine Kurzübersicht gibt es auch in [FAQ #1](FAQ.md#1-welche-akkuchemie-soll-ich-einsetzen).

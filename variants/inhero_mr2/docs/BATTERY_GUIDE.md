@@ -6,20 +6,20 @@
 
 - [Introduction](#introduction)
 - [1. Chemistry Overview](#1-chemistry-overview)
-  - [Li-Ion (NMC/NCA, 1S)](#li-ion-nmcnca-1s)
+  - [Li-ion (NMC/NCA, 1S)](#li-ion-nmcnca-1s)
   - [LiFePO4 (LFP, 1S)](#lifepo4-lfp-1s)
   - [LTO (Lithium Titanate, 2S)](#lto-lithium-titanate-2s)
-  - [Na-Ion (Sodium Ion, 1S)](#na-ion-sodium-ion-1s)
+  - [Na-ion (Sodium Ion, 1S)](#na-ion-sodium-ion-1s)
 - [2. Comparison Table](#2-comparison-table)
 - [3. Temperature Behavior](#3-temperature-behavior)
   - [Cold Performance Ranking](#cold-performance-ranking)
   - [Charging in Cold Conditions](#charging-in-cold-conditions)
   - [Temperature Derating](#temperature-derating)
 - [4. Cell Selection & Form Factors](#4-cell-selection--form-factors)
-  - [Li-Ion Cells](#li-ion-cells)
+  - [Li-ion Cells](#li-ion-cells)
   - [LiFePO4 Cells](#lifepo4-cells)
   - [LTO Cells](#lto-cells)
-  - [Na-Ion Cells](#na-ion-cells)
+  - [Na-ion Cells](#na-ion-cells)
 - [5. Capacity Planning](#5-capacity-planning)
   - [Power Consumption](#power-consumption)
   - [Why current depends on battery voltage](#why-current-depends-on-battery-voltage)
@@ -36,7 +36,7 @@
 
 ## Introduction
 
-Choosing the right battery chemistry is one of the most impactful decisions when deploying an Inhero MR2 repeater. It affects runtime, cold-weather reliability, service life, safety, and total cost of ownership. This guide provides the information needed to make an informed choice.
+Choosing the right battery chemistry is one of the most impactful decisions when deploying an Inhero MR2 repeater. It affects battery life, cold-weather reliability, service life, safety, and total cost of ownership. This guide provides the information needed to make an informed choice.
 
 The Inhero MR2 supports **four battery chemistries**, each with distinct characteristics. There is no single "best" chemistry — the right choice depends on your deployment conditions.
 
@@ -44,7 +44,7 @@ The Inhero MR2 supports **four battery chemistries**, each with distinct charact
 
 ## 1. Chemistry Overview
 
-### Li-Ion (NMC/NCA, 1S)
+### Li-ion (NMC/NCA, 1S)
 
 The most common rechargeable chemistry. NMC (Nickel-Manganese-Cobalt) and NCA (Nickel-Cobalt-Aluminum) cells dominate the consumer market.
 
@@ -82,7 +82,7 @@ Iron-phosphate cathode chemistry. Popular in solar and off-grid applications for
 **Weaknesses:**
 - **Most cold-sensitive** of all supported chemistries
 - Flat discharge curve makes voltage-based SOC estimation unreliable (the Inhero MR2 solves this with a coulomb counter)
-- Slightly lower energy density than Li-Ion
+- Slightly lower energy density than Li-ion
 - Must not be charged below 0 °C — lithium plating risk damages the cell permanently
 
 **Inhero MR2 specifics:**
@@ -105,11 +105,11 @@ Lithium titanate anode chemistry. Used in industrial and transit applications fo
 - Very flat discharge curve
 
 **Weaknesses:**
-- **Low energy density** (~80 Wh/kg) — needs 2–3× the volume of Li-Ion for the same capacity
+- **Low energy density** (~80 Wh/kg) — needs 2–3× the volume of Li-ion for the same capacity
 - **2S configuration requires an external balancer** — without balancer, cells drift over time and risk over-charge/over-discharge of individual cells
 - Exotic form factors — typically cylindrical with screw terminals or aluminum housing
 - Difficult to spot-weld (aluminum housing)
-- Expensive (2–3× per Wh vs. Li-Ion)
+- Expensive (2–3× per Wh vs. Li-ion)
 - Limited retail availability — specialty suppliers only
 
 **Inhero MR2 specifics:**
@@ -119,7 +119,7 @@ Lithium titanate anode chemistry. Used in industrial and transit applications fo
 - `set board.fmax` has no effect (shown as "N/A")
 - Cell count set to 2S in BQ25798 configuration
 
-### Na-Ion (Sodium Ion, 1S)
+### Na-ion (Sodium Ion, 1S)
 
 Sodium-ion technology — the sustainable alternative using abundant, non-critical raw materials.
 
@@ -133,7 +133,7 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 
 **Weaknesses:**
 - **New technology** — limited cell availability as of 2025/2026
-- Lower energy density than Li-Ion (~130 Wh/kg, improving)
+- Lower energy density than Li-ion (~130 Wh/kg, improving)
 - Fewer validated cell options and public datasheets
 - Cycle life still below LiFePO4 in most current cells (1000–3000 cycles)
 - Market still maturing — quality variation between manufacturers
@@ -148,7 +148,7 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 
 ## 2. Comparison Table
 
-| | Li-Ion 1S | LiFePO4 1S | LTO 2S | Na-Ion 1S |
+| | Li-ion 1S | LiFePO4 1S | LTO 2S | Na-ion 1S |
 |---|---|---|---|---|
 | **Energy density** | ~250 Wh/kg | ~160 Wh/kg | ~80 Wh/kg | ~130 Wh/kg |
 | **Cycle life (to 80%)** | 500–1000 | 2000–5000 | 10 000+ | 1000–3000 |
@@ -179,8 +179,8 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 From best to worst cold-weather performance:
 
 1. **LTO** — 82% extractable at −20 °C, charges in frost
-2. **Na-Ion** — 78% extractable at −20 °C, charges in frost
-3. **Li-Ion** — 55% extractable at −20 °C, charging blocked in frost
+2. **Na-ion** — 78% extractable at −20 °C, charges in frost
+3. **Li-ion** — 55% extractable at −20 °C, charging blocked in frost
 4. **LiFePO4** — 46% extractable at −20 °C, charging blocked in frost
 
 *(Datasheet values at 0.2C–0.5C loads — see the note in section 2; under the MR2's much gentler load the firmware's derating model below shows higher values.)*
@@ -191,18 +191,18 @@ From best to worst cold-weather performance:
 
 | Chemistry | Charging in frost? | Mechanism |
 |---|---|---|
-| **Li-Ion** | No — blocked below −2 °C | JEITA T-Cold (hardware, BQ25798) |
+| **Li-ion** | No — blocked below −2 °C | JEITA T-Cold (hardware, BQ25798) |
 | **LiFePO4** | No — blocked below −2 °C | JEITA T-Cold (hardware, BQ25798) |
 | **LTO** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
-| **Na-Ion** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
+| **Na-ion** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
 
-For Li-Ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). Note that selecting Li-Ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
+For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). Note that selecting Li-ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
 
-**Why is frost charging dangerous for Li-Ion and LiFePO4?** At low temperatures, lithium ions cannot intercalate properly into the graphite anode. Instead, they deposit as metallic lithium on the anode surface ("lithium plating"). This permanently reduces capacity and can create internal short circuits — a safety hazard.
+**Why is frost charging dangerous for Li-ion and LiFePO4?** At low temperatures, lithium ions cannot intercalate properly into the graphite anode. Instead, they deposit as metallic lithium on the anode surface ("lithium plating"). This permanently reduces capacity and can create internal short circuits — a safety hazard.
 
-LTO and Na-Ion use different anode materials (lithium titanate and hard carbon respectively) that do not suffer from lithium plating, making frost charging safe.
+LTO and Na-ion use different anode materials (lithium titanate and hard carbon respectively) that do not suffer from lithium plating, making frost charging safe.
 
-> **Field experience vs. theory:** Many repeater operators successfully charge Li-Ion cells in frost with low solar currents (<0.1C) and report no measurable degradation over multiple winters. The [YYCMesh community](https://yycmesh.com/blog/cold-weather-charging) documented two years of alpine deployments in the Canadian Rockies (down to −40 °C) with standard 18650 cells and found internal resistance still within factory spec. Their key factors: very low charge rates (<0.05C), passive solar heating of enclosures, and charging coinciding with the warmest part of the day.
+> **Field experience vs. theory:** Many repeater operators successfully charge Li-ion cells in frost with low solar currents (<0.1C) and report no measurable degradation over multiple winters. The [YYCMesh community](https://yycmesh.com/blog/cold-weather-charging) documented two years of alpine deployments in the Canadian Rockies (down to −40 °C) with standard 18650 cells and found internal resistance still within factory spec. Their key factors: very low charge rates (<0.05C), passive solar heating of enclosures, and charging coinciding with the warmest part of the day.
 >
 > This is valuable real-world data and the practice clearly works for many setups. However, these results apply specifically to configurations with **large battery capacities and relatively low PV power** (keeping charge rates well below 0.05C). They should not be taken as a general dismissal of lithium plating risks. *It depends* — on charge rate, cell quality, panel size, and temperature. The degradation from lithium plating is **cumulative and subtle** — it may not manifest as sudden failure but as gradual capacity loss over years. Two additional risks are often underestimated:
 >
@@ -214,7 +214,7 @@ LTO and Na-Ion use different anode materials (lithium titanate and hard carbon r
 ### Temperature Derating
 
 The firmware uses a **Trapped Charge** model to estimate **extractable** capacity at the current battery temperature. Cold temperatures lock the bottom of the discharge curve — the cell reaches its cutoff voltage while charge is still stored. SOC% itself is purely Coulomb-based (stored charge) and temperature-independent. Derating is applied to:
-- **TTL calculation** — Trapped Charge: extractable = max(0, remaining − capacity × (1−f(T)))
+- **Batt-TTL calculation** — Trapped Charge: extractable = max(0, remaining − capacity × (1−f(T)))
 - **CLI display** — `get board.telem` shows the derated value in parentheses: `SOC:95.0% (78%)`
 
 The derating model uses a per-chemistry linear function:
@@ -228,15 +228,15 @@ T_ref = 25 °C for all chemistries (no derating at room temperature and above).
 
 | Chemistry | k (/°C) | f_min | At −20 °C | At −10 °C | At 0 °C | At 10 °C |
 |-----------|---------|-------|-----------|-----------|---------|---------|
-| Li-Ion | 0.005 | 0.75 | 0.78 | 0.83 | 0.88 | 0.93 |
+| Li-ion | 0.005 | 0.75 | 0.78 | 0.83 | 0.88 | 0.93 |
 | LiFePO4 | 0.006 | 0.70 | 0.73 | 0.79 | 0.85 | 0.91 |
-| Na-Ion | 0.003 | 0.85 | 0.87 | 0.90 | 0.93 | 0.96 |
+| Na-ion | 0.003 | 0.85 | 0.87 | 0.90 | 0.93 | 0.96 |
 | LTO | 0.002 | 0.88 | 0.91 | 0.93 | 0.95 | 0.97 |
 
 **Practical effects:**
 - SOC% is temperature-independent — only changes with actual charge flow
 - The derated (extractable) value in `telem` decreases as the battery cools
-- TTL estimates reflect extractable capacity at the current temperature (Trapped Charge model)
+- Batt-TTL estimates reflect extractable capacity at the current temperature (Trapped Charge model)
 
 → See [FAQ #13 — How does temperature derating work?](FAQ.md#13-how-does-temperature-derating-work) for further technical details.
 
@@ -244,7 +244,7 @@ T_ref = 25 °C for all chemistries (no derating at room temperature and above).
 
 ## 4. Cell Selection & Form Factors
 
-### Li-Ion Cells
+### Li-ion Cells
 
 | Form Factor | Typical Capacity | Notes |
 |---|---|---|
@@ -262,7 +262,7 @@ T_ref = 25 °C for all chemistries (no derating at room temperature and above).
 
 | Form Factor | Typical Capacity | Notes |
 |---|---|---|
-| **18650** | 1400–1800 mAh | Lower capacity than Li-Ion 18650; less common |
+| **18650** | 1400–1800 mAh | Lower capacity than Li-ion 18650; less common |
 | **26650** | 2500–3600 mAh | Larger diameter; popular for LFP |
 | **32650** | 5000–6000 mAh | Large cylindrical; good for high-capacity packs |
 | **Prismatic** | 5000–50 000 mAh | Flat cells; efficient use of space |
@@ -286,10 +286,10 @@ The Inhero MR2 configures the BQ25798 for 2S operation but provides **no built-i
 **Tips:**
 - Use a passive or active balancer board rated for your cell voltage range (2.0–2.7 V per cell)
 - Yinlong/Toshiba SCiB are common LTO cell brands
-- Expect 2–3× the volume and weight compared to Li-Ion for the same energy
+- Expect 2–3× the volume and weight compared to Li-ion for the same energy
 - Screw terminals are robust for outdoor deployments — no spot-welding needed
 
-### Na-Ion Cells
+### Na-ion Cells
 
 | Form Factor | Typical Capacity | Notes |
 |---|---|---|
@@ -330,9 +330,9 @@ Since Power = Voltage × Current, a higher battery voltage means lower current f
 
 | Chemistry | Nominal Voltage | Idle | Measured typical | Worst case (10% DC) |
 |---|---|---|---|---|
-| Na-Ion | 3.1 V | ~8.1 mA (25 mW) | ~13.2 mA (41 mW) | ~21.0 mA (65 mW) |
+| Na-ion | 3.1 V | ~8.1 mA (25 mW) | ~13.2 mA (41 mW) | ~21.0 mA (65 mW) |
 | LiFePO4 | 3.2 V | ~7.8 mA (25 mW) | ~12.8 mA (41 mW) | ~20.3 mA (65 mW) |
-| Li-Ion | 3.7 V | ~6.8 mA (25 mW) | ~11.1 mA (41 mW) | ~17.6 mA (65 mW) |
+| Li-ion | 3.7 V | ~6.8 mA (25 mW) | ~11.1 mA (41 mW) | ~17.6 mA (65 mW) |
 | LTO (2S) | 4.6 V | ~5.4 mA (25 mW) | ~8.9 mA (41 mW) | ~14.1 mA (65 mW) |
 
 > **Important for capacity planning:** Don't just multiply mA × hours to get mAh — that only works within one chemistry at one voltage. When comparing across chemistries, always calculate in **Wh** (energy): `Energy (Wh) = Wh/day × Days`. Then convert to your chemistry: `mAh = Wh × 1000 ÷ V_nominal`. Use **0.98 Wh/day** (measured typical) or **1.57 Wh/day** (worst case 10% DC) depending on expected traffic and safety margin.
@@ -347,7 +347,7 @@ Since Power = Voltage × Current, a higher battery voltage means lower current f
 
 **Convert to mAh for your chemistry:** `mAh = Wh × 1000 ÷ V_nominal`
 
-The mAh column below is calculated at 3.3 V (≈ LiFePO4 / Na-Ion nominal). For Li-Ion or LTO, use the energy column with the formula above — see [Why current depends on battery voltage](#why-current-depends-on-battery-voltage).
+The mAh column below is calculated at 3.3 V (≈ LiFePO4 / Na-ion nominal). For Li-ion or LTO, use the energy column with the formula above — see [Why current depends on battery voltage](#why-current-depends-on-battery-voltage).
 
 | Desired Autonomy | Measured typical (0.98 Wh/day) | Worst case (1.57 Wh/day) | mAh @ 3.3 V (typical) | Recommended |
 |---|---|---|---|---|
@@ -356,11 +356,11 @@ The mAh column below is calculated at 3.3 V (≈ LiFePO4 / Na-Ion nominal). For 
 | **14 days** (solar, winter) | 13.7 Wh | 22.0 Wh | 4158 mAh | 6000 mAh |
 | **30 days** (alpine, minimal solar) | 29.4 Wh | 47.1 Wh | 8909 mAh | 12000+ mAh |
 
-> **Cold-weather margin:** For deployments below 0 °C, increase capacity by the inverse of the derating factor to compensate for reduced extractable capacity. Example: LiFePO4 at −10 °C has f(T) = 0.79, so you need `capacity / 0.79 ≈ 1.27×` the capacity compared to room temperature. The TTL calculation applies this derating automatically.
+> **Cold-weather margin:** For deployments below 0 °C, increase capacity by the inverse of the derating factor to compensate for reduced extractable capacity. Example: LiFePO4 at −10 °C has f(T) = 0.79, so you need `capacity / 0.79 ≈ 1.27×` the capacity compared to room temperature. The Batt-TTL calculation applies this derating automatically.
 
 ### The 90% Rule
 
-Set `board.batcap` to **90% of nominal capacity**. The Inhero MR2 uses conservative charge voltages (e.g. 4.1 V instead of 4.2 V for Li-Ion), which means the top ~10% of nominal capacity is intentionally not used — this significantly improves cycle life.
+Set `board.batcap` to **90% of nominal capacity**. The Inhero MR2 uses conservative charge voltages (e.g. 4.1 V instead of 4.2 V for Li-ion), which means the top ~10% of nominal capacity is intentionally not used — this significantly improves cycle life.
 
 **Example:** 10 000 mAh nominal → `set board.batcap 9000`
 
@@ -374,10 +374,10 @@ Set `board.batcap` to **90% of nominal capacity**. The Inhero MR2 uses conservat
 
 | Chemistry | Panel | Charge Current | `set board.imax` |
 |---|---|---|---|
-| Li-Ion (3.7 V) | 2 W | 540 mA | `set board.imax 540` |
+| Li-ion (3.7 V) | 2 W | 540 mA | `set board.imax 540` |
 | LiFePO4 (3.2 V) | 1 W | 310 mA | `set board.imax 310` |
 | LTO (4.6 V) | 5 W | 1090 mA | `set board.imax 1090` |
-| Na-Ion (3.1 V) | 3 W | 970 mA | `set board.imax 970` |
+| Na-ion (3.1 V) | 3 W | 970 mA | `set board.imax 970` |
 
 **Panel sizing guidelines:**
 - The Inhero MR2 consumes ~7.6 mA @ 3.3 V idle, **measured ~12.3 mA typical** (~0.98 Wh/day), worst case ~19.8 mA at full EU868 g3 10% duty cycle (~1.57 Wh/day)
@@ -395,8 +395,8 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 - In summer, vertical panels produce less than optimally tilted ones — but summer yield is never the bottleneck for autonomy
 
 **Chemistry-specific considerations:**
-- **Li-Ion / LiFePO4:** Solar charging is blocked in frost (<−2 °C). On cold winter days, the panel may produce power but the battery won't accept charge until it warms above −2 °C. Meanwhile, the board runs directly on solar if power is sufficient. Note that PV panels produce **more power in cold weather** (silicon temperature coefficient ~−0.35%/°C), so actual charge currents can exceed nominal ratings — another reason why hardware-level charge blocking via JEITA is essential rather than relying on "low current" assumptions.
-- **LTO / Na-Ion:** Solar charging works even in deep frost — a significant advantage for alpine deployments where frost can persist for days or weeks.
+- **Li-ion / LiFePO4:** Solar charging is blocked in frost (<−2 °C). On cold winter days, the panel may produce power but the battery won't accept charge until it warms above −2 °C. Meanwhile, the board runs directly on solar if power is sufficient. Note that PV panels produce **more power in cold weather** (silicon temperature coefficient ~−0.35%/°C), so actual charge currents can exceed nominal ratings — another reason why hardware-level charge blocking via JEITA is essential rather than relying on "low current" assumptions.
+- **LTO / Na-ion:** Solar charging works even in deep frost — a significant advantage for alpine deployments where frost can persist for days or weeks.
 
 ---
 
@@ -404,20 +404,20 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 
 | Chemistry | Thermal Runaway | Requires BMS/Protection? | Inhero MR2 Protection |
 |---|---|---|---|
-| **Li-Ion** | ⚠️ Yes — fire/explosion risk under abuse | Yes — mandatory | JEITA, low-V sleep, OVP, charge voltage limit |
+| **Li-ion** | ⚠️ Yes — fire/explosion risk under abuse | Yes — mandatory | JEITA, low-V sleep, OVP, charge voltage limit |
 | **LiFePO4** | ✅ No — inherently safe | Recommended | JEITA, low-V sleep, OVP |
 | **LTO** | ✅ No — inherently safe | Recommended (balancer!) | Low-V sleep, OVP, cell count config |
-| **Na-Ion** | ✅ No under normal conditions | Recommended | Low-V sleep, OVP |
+| **Na-ion** | ✅ No under normal conditions | Recommended | Low-V sleep, OVP |
 
 **Inhero MR2 built-in safety features (all chemistries):**
 - **Low-voltage sleep** — INA228 ALERT ISR triggers system sleep to prevent deep discharge
 - **Charge voltage limit** — BQ25798 configured per chemistry to prevent overcharge
 - **VBAT_OVP** — Hardware overvoltage protection in BQ25798
 - **200 mV hysteresis** — Prevents motorboating (rapid on/off cycling) near empty
-- **JEITA temperature protection** (Li-Ion/LiFePO4 only) — Hardware charge control via NTC
+- **JEITA temperature protection** (Li-ion/LiFePO4 only) — Hardware charge control via NTC
 
 **User responsibilities:**
-- Li-Ion: Use cells with protection circuit (PCM) or a proper BMS
+- Li-ion: Use cells with protection circuit (PCM) or a proper BMS
 - LTO 2S: **External balancer is mandatory** for long-term operation
 - All chemistries: Set correct chemistry via `set board.bat` — wrong chemistry = wrong voltages = damage risk
 
@@ -427,25 +427,25 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 
 | Scenario | Recommended | Alternative | Notes |
 |---|---|---|---|
-| **Indoor, moderate climate (0–40 °C)** | **LiFePO4** | Li-Ion | LiFePO4: best safety + cycle life balance |
-| **Outdoor, temperate (−5 to +35 °C)** | **LiFePO4** | Li-Ion | Frost is rare; fmax handles occasional cold |
-| **Space-constrained enclosure** | **Li-Ion** | — | Highest energy density; nothing else fits |
-| **Alpine, extreme cold (−20 °C and below)** | **LTO** | Na-Ion | LTO: charges in frost, 82% capacity at −20 °C |
-| **Cold climate, moderate frost (−10 to −15 °C)** | **Na-Ion** or **LTO** | LiFePO4 (with margin) | Both charge in frost; Na-Ion balances density and cold |
+| **Indoor, moderate climate (0–40 °C)** | **LiFePO4** | Li-ion | LiFePO4: best safety + cycle life balance |
+| **Outdoor, temperate (−5 to +35 °C)** | **LiFePO4** | Li-ion | Frost is rare; fmax handles occasional cold |
+| **Space-constrained enclosure** | **Li-ion** | — | Highest energy density; nothing else fits |
+| **Alpine, extreme cold (−20 °C and below)** | **LTO** | Na-ion | LTO: charges in frost, 82% capacity at −20 °C |
+| **Cold climate, moderate frost (−10 to −15 °C)** | **Na-ion** or **LTO** | LiFePO4 (with margin) | Both charge in frost; Na-ion balances density and cold |
 | **Maximum service life (>10 years)** | **LTO** | LiFePO4 | LTO: 10 000+ cycles; solar repeater essentially unlimited |
-| **Sustainability / ethical sourcing** | **Na-Ion** | LiFePO4 | No cobalt, no lithium; improving rapidly |
-| **Maritime / coastal (salt, humidity)** | **LiFePO4** | Li-Ion | Sealed prismatic cells; inherent safety in harsh environments |
-| **Mobile / portable** | **Li-Ion** | LiFePO4 | Weight and volume matter most |
-| **Budget-constrained** | **Li-Ion** | LiFePO4 | Lowest cost per Wh |
+| **Sustainability / ethical sourcing** | **Na-ion** | LiFePO4 | No cobalt, no lithium; improving rapidly |
+| **Maritime / coastal (salt, humidity)** | **LiFePO4** | Li-ion | Sealed prismatic cells; inherent safety in harsh environments |
+| **Mobile / portable** | **Li-ion** | LiFePO4 | Weight and volume matter most |
+| **Budget-constrained** | **Li-ion** | LiFePO4 | Lowest cost per Wh |
 
 *(Extractable-capacity percentages are datasheet values at 0.2C–0.5C loads — see the note in section 2.)*
 
 > **Winter alpine checklist:**
-> 1. Choose LTO or Na-Ion for frost charging
+> 1. Choose LTO or Na-ion for frost charging
 > 2. Oversize battery capacity by 1.5–2× for cold derating
 > 3. Oversize solar panel by 3–5× for short winter days
 > 4. Enable MPPT (`set board.mppt 1`)
-> 5. If using Li-Ion/LiFePO4: configure `set board.fmax` and run `set board.tccal`
+> 5. If using Li-ion/LiFePO4: configure `set board.fmax` and run `set board.tccal`
 > 6. Monitor via `get board.stats` and `get board.socdebug`
 
 ---
@@ -454,10 +454,10 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 
 | Chemistry | Cycles to 80% | Calendar Aging | Optimal Storage SOC |
 |---|---|---|---|
-| **Li-Ion** | 500–1000 | Moderate (faster at high temp/SOC) | 40–60% at 15–25 °C |
+| **Li-ion** | 500–1000 | Moderate (faster at high temp/SOC) | 40–60% at 15–25 °C |
 | **LiFePO4** | 2000–5000 | Low | 50% at room temperature |
 | **LTO** | 10 000+ | Very low | Any SOC; very tolerant |
-| **Na-Ion** | 1000–3000 | Low | 0 V (unique — no damage) |
+| **Na-ion** | 1000–3000 | Low | 0 V (unique — no damage) |
 
 **Solar repeater context:** A well-dimensioned solar repeater does **not** do 1 full cycle per day. The actual profile is shallow micro-cycling with strong seasonal variation:
 
@@ -470,16 +470,16 @@ This means the battery experiences perhaps **10–30 equivalent full cycles per 
 
 | Chemistry | Cycles to 80% | Equivalent Full Cycles/Year | Expected Service Life |
 |---|---|---|---|
-| **Li-Ion** | 500–1000 | ~10–30 | **15–50+ years** (cycle-limited) |
+| **Li-ion** | 500–1000 | ~10–30 | **15–50+ years** (cycle-limited) |
 | **LiFePO4** | 2000–5000 | ~10–30 | **65+ years** (cycle-limited) |
 | **LTO** | 10 000+ | ~10–30 | **effectively unlimited** |
-| **Na-Ion** | 1000–3000 | ~10–30 | **30–100+ years** (cycle-limited) |
+| **Na-ion** | 1000–3000 | ~10–30 | **30–100+ years** (cycle-limited) |
 
 > **The real aging threat is not cycling — it's calendar aging at high SOC and temperature.**
 >
-> In summer, the battery sits at 95–100% SOC for months in an enclosure that can reach 50 °C in direct sun. For Li-Ion, this combination (high SOC + high temperature) is the #1 aging accelerator. This is exactly why the Inhero MR2 uses **conservative charge cutoff voltages** (e.g. 4.1 V instead of 4.2 V for Li-Ion) — lower Vco reduces the resting SOC and dramatically slows calendar aging.
+> In summer, the battery sits at 95–100% SOC for months in an enclosure that can reach 50 °C in direct sun. For Li-ion, this combination (high SOC + high temperature) is the #1 aging accelerator. This is exactly why the Inhero MR2 uses **conservative charge cutoff voltages** (e.g. 4.1 V instead of 4.2 V for Li-ion) — lower Vco reduces the resting SOC and dramatically slows calendar aging.
 
-**How bad is it? Typical NMC Li-Ion calendar capacity loss per year (no cycling, storage only):**
+**How bad is it? Typical NMC Li-ion calendar capacity loss per year (no cycling, storage only):**
 
 | Temperature | 4.2 V (100% SOC) | 4.1 V (~85% SOC) | Reduction |
 |---|---|---|---|
@@ -487,20 +487,20 @@ This means the battery experiences perhaps **10–30 equivalent full cycles per 
 | 40 °C (warm enclosure) | ~8–15%/year | ~3–5%/year | 2–3× slower |
 | **50 °C (sun-exposed)** | **~20–30%/year** | **~6–10%/year** | **3× slower** |
 
-> At 4.2 V and 50 °C, a Li-Ion cell reaches 80% capacity (end of life) in roughly **3 years**. At 4.1 V and 50 °C, the same cell lasts **8–10 years**. The 100 mV Vco reduction alone buys 2–3× more service life — at the cost of only ~10% less usable capacity.
+> At 4.2 V and 50 °C, a Li-ion cell reaches 80% capacity (end of life) in roughly **3 years**. At 4.1 V and 50 °C, the same cell lasts **8–10 years**. The 100 mV Vco reduction alone buys 2–3× more service life — at the cost of only ~10% less usable capacity.
 >
-> **Bottom line:** For sun-exposed outdoor deployments, the Vco reduction from 4.2→4.1 V is the single most effective measure to extend Li-Ion life. If the enclosure regularly exceeds 40 °C, consider LiFePO4 or LTO instead — these chemistries are largely immune to calendar aging at high SOC.
+> **Bottom line:** For sun-exposed outdoor deployments, the Vco reduction from 4.2→4.1 V is the single most effective measure to extend Li-ion life. If the enclosure regularly exceeds 40 °C, consider LiFePO4 or LTO instead — these chemistries are largely immune to calendar aging at high SOC.
 >
-> LiFePO4 and LTO are far more tolerant of sustained high SOC. Na-Ion ages moderately. For hot/exposed deployments, prefer LiFePO4 or LTO.
+> LiFePO4 and LTO are far more tolerant of sustained high SOC. Na-ion ages moderately. For hot/exposed deployments, prefer LiFePO4 or LTO.
 
 ---
 
 ## 10. Future Outlook
 
-**Na-Ion** is the chemistry to watch. As of 2025/2026:
+**Na-ion** is the chemistry to watch. As of 2025/2026:
 - Energy density is improving with each generation (target: 160+ Wh/kg)
 - Major manufacturers (CATL, BYD, HiNa) are ramping production
-- Cell costs are expected to drop below Li-Ion within 2–3 years
+- Cell costs are expected to drop below Li-ion within 2–3 years
 - Ideal for stationary applications where absolute energy density is less critical
 
 **Solid-state batteries** may appear in the 2028+ timeframe but are unlikely to be relevant for off-grid repeater applications in the near term.

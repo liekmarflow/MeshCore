@@ -17,7 +17,7 @@
 
 ## Overview
 
-The Inhero MR2 is an application-specific hardware platform designed for autonomous, long-term operation of mesh infrastructure. Unlike conventional general-purpose solutions, it is optimized for maximum reliability at hard-to-reach locations. With an active idle consumption of only 6.0 mA at 4.2 V and 7.7 mA at 3.3 V (USB off, no radio TX), the board is exceptionally efficient for a full-featured repeater — enabling long runtimes even with compact batteries and small solar panels. A universal solar input with active MPPT maximizes energy harvesting, enabling compact, low-profile installations while avoiding costly over-dimensioning of peripherals. With native support for Li-Ion, LiFePO4, LTO and Na-Ion batteries, combined with autonomous recovery logic via RTC wakeup, a consistent "install & forget" approach is achieved even under extreme environmental conditions. The design minimizes long-term operating costs at sites where manual maintenance visits would be disproportionately expensive due to difficult accessibility.
+The Inhero MR2 is an application-specific hardware platform for the autonomous, long-term operation of mesh infrastructure at hard-to-reach locations. Active idle consumption is 6.0 mA at 4.2 V and 7.7 mA at 3.3 V (USB off, no radio TX), which gives a full-featured repeater long battery life from a compact cell and a small solar panel. A universal solar input with active MPPT harvests over a wide input range, so a compact, low-profile installation is usually enough and the peripherals need no over-dimensioning. Li-ion, LiFePO4, LTO and Na-ion batteries are supported natively, and RTC-based recovery brings the board back on its own after a low-voltage shutdown, so an empty battery does not force a site visit. This lowers long-term operating costs at sites where a manual service visit is expensive because the location is hard to reach.
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
@@ -41,7 +41,7 @@ The Inhero MR2 is an application-specific hardware platform designed for autonom
 | System Sleep with latched CE | Active | < 500µA, GPIO4 latch preserved HIGH → FET ON → CE LOW → solar charging possible |
 | SOC 0% after Low-Voltage Recovery | Active | SOC initialized to 0% on recovery, auto-sync on "Charging Done" |
 | SOC via INA228 + manual battery capacity | Active | `set board.batcap` available |
-| SOC→Li-Ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
+| SOC→Li-ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
 | MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
 | PFM Forward Mode | Active (chip default) | Enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low solar currents |
 
@@ -75,10 +75,10 @@ The Inhero MR2 is an application-specific hardware platform designed for autonom
 
 | Chemistry | lowv_sleep_mv | lowv_wake_mv | Hysteresis |
 |-----------|--------------|-------------|------------|
-| Li-Ion 1S | 3100 | 3300 | 200mV |
+| Li-ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
-| Na-Ion 1S | 2500 | 2700 | 200mV |
+| Na-ion 1S | 2500 | 2700 | 200mV |
 
 - **lowv_sleep_mv**: INA228 ALERT threshold → triggers System Sleep with GPIO latch
 - **lowv_wake_mv**: RTC wake threshold → boot only when VBAT is above, also 0% SOC marker
@@ -103,20 +103,22 @@ The Inhero MR2 is an application-specific hardware platform designed for autonom
 - **200mV uniform hysteresis** for all chemistries (lowv_sleep_mv → lowv_wake_mv)
 - **Manual capacity:** `set board.batcap` for fixed capacity
 
-### SOC→Li-Ion mV Mapping (Workaround)
-- **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The Companion App uses a Li-Ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
-- **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-Ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%. See [TELEMETRY.md](TELEMETRY.md) for details on how this affects the app display.
+### SOC→Li-ion mV Mapping (Workaround)
+- **Problem**: MeshCore only transmits `getBattMilliVolts()`, not SOC%. The MeshCore app uses a Li-ion curve for SOC calculation — incorrect display for LiFePO4/LTO.
+- **Solution**: When valid coulomb-counting SOC is available, an equivalent Li-ion 1S OCV (3000–4200 mV) is returned, so the app displays the correct SOC%. See [TELEMETRY.md](TELEMETRY.md) for details on how this affects the app display.
 - This workaround will be removed once MeshCore supports native SOC% transmission.
 - → [FAQ #11 — SOC shows 0% or N/A?](FAQ.md#11-why-does-the-soc-show-0-or-na)
 
-### Time-To-Live (TTL) Prediction
+### Batt-TTL Prediction
+
+> **Batt-TTL** is short for *battery time-to-live* — the estimated remaining runtime on battery. It is not the packet hop limit that "TTL" denotes in mesh networking.
 - **Time base:** 7-day moving average (`avg_7day_daily_net_mah`) of daily net energy consumption
 - **Data source:** 168-hour ring buffer (7 days) with hourly INA228 coulomb counter samples (charged/discharged/solar mAh)
 - **Formula:** `TTL_hours = max(0, SOC% × capacity_mah / 100 − capacity_mah × (1 − f(T))) / |avg_7day_daily_net_mah| × 24`
 - **f(T):** Cold-temperature derating factor (trapped-charge model) — at low temperatures part of the stored charge is unusable and is subtracted first; f(T) = 1 at warm temperatures
 - **Prerequisites:** `living_on_battery == true` (24h deficit), min. 24h data, capacity known
-- **TTL = 0:** Solar surplus, no 24h data available, or capacity unknown
-- **CLI:** TTL is shown in `get board.stats` (BAT mode only, e.g. `T:12d0h`)
+- **Batt-TTL = 0:** Solar surplus, no 24h data available, or capacity unknown
+- **CLI:** Batt-TTL is shown in `get board.stats` (BAT mode only, e.g. `BT:12d0h`)
 - **Telemetry:** Transmitted as days via CayenneLPP Distance field (max. 990 days for "infinite"). See [TELEMETRY.md](TELEMETRY.md) for channel details.
 
 ### Solar Power Management
@@ -188,7 +190,7 @@ get board.fmax      # Query frost charge behavior
                     # Note: Only charging is restricted. With sufficient
                     # solar, the board continues to run on solar power —
                     # the battery is neither charged nor discharged.
-                    # LTO / Na-Ion batteries: N/A (JEITA disabled, charges even in frost)
+                    # LTO / Na-ion batteries: N/A (JEITA disabled, charges even in frost)
 
 get board.imax      # Query maximum charge current
                     # Output: <current>mA (e.g. 200mA)
@@ -212,9 +214,9 @@ get board.telem     # Query real-time telemetry with SOC
                     # - S: Solar (Voltage/Current — accuracy depends on BQ25798 IBUS ADC)
 
 get board.stats     # Query energy statistics (balance + MPPT)
-                    # Output: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
-                    # Example: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
-                    # Example: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
+                    # Output: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% BT:<ttl>
+                    # Example: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% BT:N/A
+                    # Example: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% BT:72h
                     # Components:
                     # - +125: Last 24h net balance (charge - discharge) in mAh
                     # - +45: 3-day average net balance in mAh
@@ -225,8 +227,8 @@ get board.stats     # Query energy statistics (balance + MPPT)
                     # - SOL: Running on solar (self-sufficient)
                     # - BAT: Living on battery (deficit mode)
                     # - M:85%: MPPT enabled percentage (7-day average)
-                    # - T:72h: Time To Live (only shown if BAT mode, 7d-avg basis)
-                    #   Format: T:12d5h (≥24h) or T:72h (<24h) or T:N/A
+                    # - BT:72h: Batt-TTL (only shown if BAT mode, 7d-avg basis)
+                    #   Format: BT:12d5h (≥24h) or BT:72h (<24h) or BT:N/A
 
 get board.cinfo     # Charger info + last PG-stuck HIZ toggle
                     # Output: <state> + flags
@@ -270,7 +272,7 @@ set board.fmax <behavior>      # Set frost charge behavior
                                # Note: Only charging is restricted. With sufficient
                                # solar, the board continues to run on solar power —
                                # the battery is neither charged nor discharged.
-                               # N/A for LTO / Na-Ion batteries (JEITA disabled)
+                               # N/A for LTO / Na-ion batteries (JEITA disabled)
 
 set board.imax <current>       # Set maximum charge current in mA
                                # Range: 50-1500mA (BQ25798 minimum: 50mA)

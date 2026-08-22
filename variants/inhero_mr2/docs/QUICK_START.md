@@ -18,13 +18,17 @@ This guide walks you through commissioning and the most important CLI commands.
 
 > **⚠ WARNING — No Reverse Polarity Protection:** The board has no hardware reverse polarity protection. Connecting the battery with reversed polarity will cause immediate, irreversible damage. Always verify correct polarity before plugging in.
 
-## 4) Configure Repeater via USB
-- Connect the repeater to a computer via USB cable.
-- Go to https://meshcore.io/flasher -> Repeater Setup to configure (LoRa settings, name, admin password, etc.).
-- This sets the basic parameters on the device.
+## 4) Flash the Firmware and Configure the Repeater
+- Connect the board to a computer via USB cable.
+- The board ships with a bootloader only. Firmware for the MR2 is released from the Inhero fork — flasher.meshcore.io does not carry this board yet (upstream PRs #3131 / #3132 are pending).
+- Download the UF2 from https://github.com/liekmarflow/MeshCore/releases
+- Double-tap the reset button (right side, below USB-C). A mass-storage device named `RAK4630` or `FTHR840` appears.
+- Drag the UF2 onto that drive; the board reboots into the firmware.
+- The MR2 runs MeshCore's **repeater** role (build `Inhero_MR2_repeater`); a **sensor** build (`Inhero_MR2_sensor`) is also provided.
+- Then go to https://flasher.meshcore.io -> Repeater Setup to configure LoRa settings, name and admin password.
 
 ## 5) Open CLI
-- https://meshcore.io/flasher -> Console
+- https://flasher.meshcore.io -> Console
 - or MeshCore App -> Manage -> Command-Line
 - Board-specific commands are set here.
 
@@ -59,7 +63,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - 100% = no reduction, full charge current even in cold conditions.
 - Below approx. -2 °C (T-Cold): Charging always completely blocked by JEITA.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
-- Note: For LTO and Na-Ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
+- Note: For LTO and Na-ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
 - → [FAQ #6 — What does fmax control?](FAQ.md#6-what-does-set-boardfmax-control)
 
 ## 10) Enable MPPT
@@ -89,9 +93,9 @@ The `imax` values below are derived from the rule of thumb from section 8:
 **`imax ≈ panel power ÷ panel voltage × 1.2`** (e.g. 2 W ÷ 5 V × 1.2 ≈ 480 mA → round to 500).
 `fmax` is given as a percentage of `imax` and only applies in the T-Cool zone (approx. -2 °C to +3 °C, see JEITA table in README).
 
-### Li-Ion 1S (3.7V nominal)
+### Li-ion 1S (3.7V nominal)
 ```bash
-set board.bat liion1s    # chemistry: 1S Li-Ion (sets charge profile + low-V thresholds)
+set board.bat liion1s    # chemistry: 1S Li-ion (sets charge profile + low-V thresholds)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
 set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA = 100 mA
 ```
@@ -110,14 +114,14 @@ set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 
                          # fmax is omitted: rejected for LTO (JEITA disabled — LTO charges even at frost)
 ```
 
-### Na-Ion 1S (3.1V nominal)
+### Na-ion 1S (3.1V nominal)
 ```bash
-set board.bat naion1s    # chemistry: 1S Na-Ion (sets charge profile + low-V thresholds)
+set board.bat naion1s    # chemistry: 1S Na-ion (sets charge profile + low-V thresholds)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-                         # fmax is omitted: rejected for Na-Ion (JEITA disabled)
+                         # fmax is omitted: rejected for Na-ion (JEITA disabled)
 ```
 
-Note: `set board.fmax` is rejected with an error for LTO and Na-Ion (JEITA disabled); `get board.fmax` shows N/A.
+Note: `set board.fmax` is rejected with an error for LTO and Na-ion (JEITA disabled); `get board.fmax` shows N/A.
 
 ## Solar Panel Notes
 - Maximum open-circuit voltage (Voc) for the input: 25V.
@@ -139,14 +143,14 @@ Note: `set board.fmax` is rejected with an error for LTO and Na-Ion (JEITA disab
 - **⚠ Warning:** Since VBUS-USB and VBUS-BQ share the same bus (via the Schottky diode), a **short circuit on the solar connector will also short VBUS-USB**. Never short-circuit the solar input while USB is connected.
 
 ## Voltage Thresholds per Battery Chemistry
-Thresholds are optimized for maximum lifespan and stable operation.
+Thresholds are chosen for long service life and stable operation.
 
 | Battery Chemistry | lowv_sleep_mv (System Sleep) | lowv_wake_mv (0% SOC) | Hysteresis |
 |---|---|---|---|
-| Li-Ion 1S | 3100 | 3300 | 200mV |
+| Li-ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
-| Na-Ion 1S | 2500 | 2700 | 200mV |
+| Na-ion 1S | 2500 | 2700 | 200mV |
 
 ## Low-Voltage Behavior
 - **Low-Voltage System Sleep:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware latches CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → charging active), configures the RTC wake timer, and enters System Sleep with GPIO latch (< 500µA). P0.04 is excluded from `disconnectLeakyPullups()` so the GPIO latch stays HIGH. Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
@@ -182,7 +186,7 @@ get board.conf
 
 ## Getter Quick Reference (all relevant board getters)
 - `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, naion1s, none).
-- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A for LTO/Na-Ion).
+- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A for LTO/Na-ion).
 - `get board.imax` - Maximum charge current in mA.
 - `get board.mppt` - MPPT status (0/1).
 - `get board.leds` - LED status (Heartbeat + BQ Stat).

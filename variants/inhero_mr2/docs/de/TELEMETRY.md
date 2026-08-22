@@ -2,7 +2,7 @@
 
 > 🇬🇧 [English version](../TELEMETRY.md)
 
-Das Inhero MR2 sendet Telemetriedaten im [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp)-Format über vier Kanäle. Die Companion-App zeigt diese als **Kanal 1–4** an.
+Das Inhero MR2 sendet Telemetriedaten im [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp)-Format über vier Kanäle. Die MeshCore-App zeigt diese als **Kanal 1–4** an.
 
 ---
 
@@ -17,22 +17,22 @@ Basisdaten des Nodes.
 
 ### Akkustand & SOC-Workaround
 
-MeshCore überträgt auf Kanal 1 aktuell nur die Batterie-**Spannung** — es gibt kein natives SOC%-Feld. Die Companion-App rechnet diese Spannung über eine fest hinterlegte **Li-Ion-Entladekurve** in Prozent um. Das funktioniert gut für Li-Ion-Zellen, liefert aber falsche Werte für LiFePO₄, LTO oder Na-Ion (deren Spannungskurve deutlich flacher verläuft).
+MeshCore überträgt auf Kanal 1 aktuell nur die Akku-**Spannung** — es gibt kein natives SOC%-Feld. Die MeshCore-App rechnet diese Spannung über eine fest hinterlegte **Li-ion-Entladekurve** in Prozent um. Das funktioniert gut für Li-ion-Zellen, liefert aber falsche Werte für LiFePO₄, LTO oder Na-ion (deren Spannungskurve deutlich flacher verläuft).
 
 Das MR2 umgeht diese Einschränkung:
 
 | SOC-Status | Was `getBattMilliVolts()` liefert | App zeigt |
 |------------|-----------------------------------|-----------|
-| **SOC noch nicht gültig** | Echte Batteriespannung vom INA228 | Prozent basierend auf Li-Ion-Kurve (kann bei Nicht-Li-Ion ungenau sein) |
-| **SOC gültig** (Coulomb-Counter kalibriert) | Fake Li-Ion OCV, rückgerechnet aus echtem SOC% (`socToLiIonMilliVolts()`) | Korrekter Prozentwert — die Li-Ion-Kurve der App dekodiert zurück zum ursprünglichen SOC% |
+| **SOC noch nicht gültig** | Echte Akkuspannung vom INA228 | Prozent basierend auf Li-ion-Kurve (kann bei Nicht-Li-ion ungenau sein) |
+| **SOC gültig** (Coulomb-Counter kalibriert) | Fake Li-ion OCV, rückgerechnet aus echtem SOC% (`socToLiIonMilliVolts()`) | Korrekter Prozentwert — die Li-ion-Kurve der App dekodiert zurück zum ursprünglichen SOC% |
 
-> **OCV** = Open Circuit Voltage (Leerlaufspannung) — die Ruhespannung der Batterie ohne Last. Die OCV-Kurve (Spannung vs. SOC%) ist charakteristisch für jede Batteriechemie und wird hier als Lookup-Tabelle verwendet, um SOC% zurück in eine Spannung umzurechnen, die die App interpretieren kann.
+> **OCV** = Open Circuit Voltage (Leerlaufspannung) — die Ruhespannung des Akkus ohne Last. Die OCV-Kurve (Spannung vs. SOC%) ist charakteristisch für jede Akkuchemie und wird hier als Lookup-Tabelle verwendet, um SOC% zurück in eine Spannung umzurechnen, die die App interpretieren kann.
 
 Der SOC wird gültig, sobald ein **Referenzpunkt** existiert — entweder manuell via `set board.soc <Prozent>` oder automatisch bei einem „Charging Done"-Event (setzt SOC auf 100 %).
 
-Ohne `set board.batcap <mAh>` wird eine chemie-typische Default-Kapazität (1500–2000 mAh) angenommen. Das Setzen der echten Kapazität ist also für die Genauigkeit von Prozentwert und TTL nötig — nicht dafür, dass der SOC gültig wird.
+Ohne `set board.batcap <mAh>` wird eine chemie-typische Default-Kapazität (1500–2000 mAh) angenommen. Das Setzen der echten Kapazität ist also für die Genauigkeit von Prozentwert und Batt-TTL nötig — nicht dafür, dass der SOC gültig wird.
 
-Die Rückrechnung nutzt eine stückweise lineare Li-Ion-OCV-Tabelle (3000 mV bei 0 % → 4200 mV bei 100 %). So zeigt die App den korrekten Coulomb-gezählten SOC unabhängig von der tatsächlichen Batteriechemie an.
+Die Rückrechnung nutzt eine stückweise lineare Li-ion-OCV-Tabelle (3000 mV bei 0 % → 4200 mV bei 100 %). So zeigt die App den korrekten Coulomb-gezählten SOC unabhängig von der tatsächlichen Akkuchemie an.
 
 ---
 
@@ -51,31 +51,31 @@ Daten des BME280-Umgebungssensors (immer auf dem MR2 vorhanden).
 
 ---
 
-## Kanal 3 — Batterie (INA228 / BQ25798)
+## Kanal 3 — Akku (INA228 / BQ25798)
 
-Hochpräzise Batteriedaten vom INA228-Coulomb-Counter und BQ25798-Ladecontroller.
+Hochpräzise Akkudaten vom INA228-Coulomb-Counter und BQ25798-Ladecontroller.
 
 | Feld | LPP-Typ | Einheit | Quelle | Beschreibung |
 |------|---------|---------|--------|--------------|
-| Spannung | Voltage | V | INA228 | Batteriespannung (20-Bit-ADC, ±0,1 % Genauigkeit) |
+| Spannung | Voltage | V | INA228 | Akkuspannung (20-Bit-ADC, ±0,1 % Genauigkeit) |
 | SOC | Percentage | % | INA228 | Ladezustand per Coulomb-Counting — *optional, nur wenn kalibriert* |
-| Strom | Current | A | INA228 | Batteriestrom. Negativ = Entladung, positiv = Ladung |
-| Temperatur | Temperature | °C / °F | BQ25798 NTC | Batterietemperatur am NTC-Fühler |
-| TTL | Distance | Tage | berechnet | Geschätzte Restlaufzeit — *optional, nur bei gültigem SOC* |
+| Strom | Current | A | INA228 | Akkustrom. Negativ = Entladung, positiv = Ladung |
+| Temperatur | Temperature | °C / °F | BQ25798 NTC | Akkutemperatur am NTC-Fühler |
+| Batt-TTL | Distance | Tage | berechnet | Geschätzte Restlaufzeit — *optional, nur bei gültigem SOC* |
 
-### SOC & TTL
+### SOC & Batt-TTL
 
-SOC und TTL erscheinen nur, wenn der Coulomb-Counter einen gültigen Referenzpunkt hat — entweder ein manuell gesetzter SOC (`set board.soc`) oder ein „Charging Done"-Event. Der Prozentwert basiert auf der konfigurierten Batteriekapazität (`set board.batcap`; sonst wird eine chemie-typische Default-Kapazität von 1500–2000 mAh angenommen). Solange der SOC nicht gültig ist, werden diese Felder weggelassen.
+SOC und Batt-TTL erscheinen nur, wenn der Coulomb-Counter einen gültigen Referenzpunkt hat — entweder ein manuell gesetzter SOC (`set board.soc`) oder ein „Charging Done"-Event. Der Prozentwert basiert auf der konfigurierten Akkukapazität (`set board.batcap`; sonst wird eine chemie-typische Default-Kapazität von 1500–2000 mAh angenommen). Solange der SOC nicht gültig ist, werden diese Felder weggelassen.
 
-### TTL-Kodierung
+### Batt-TTL-Kodierung
 
-Der TTL-Wert (Time-To-Live) wird als **CayenneLPP-Distance-Wert** in Tagen übertragen, da CayenneLPP keinen nativen „Dauer"-Typ hat. Die Companion-App zeigt ihn als Entfernung an (z. B. „42 m"), aber der Wert repräsentiert **Tage Restlaufzeit**.
+Der Batt-TTL-Wert wird als **CayenneLPP-Distance-Wert** in Tagen übertragen, da CayenneLPP keinen nativen „Dauer"-Typ hat. Die MeshCore-App zeigt ihn als Entfernung an (z. B. „42 m"), aber der Wert repräsentiert **Tage Restlaufzeit**.
 
 | Bedingung | Übertragener Wert | Bedeutung |
 |-----------|-------------------|-----------|
-| Endliche TTL | `ttlHours / 24.0` | Geschätzte verbleibende Tage im Akkubetrieb |
+| Endliche Batt-TTL | `ttlHours / 24.0` | Geschätzte verbleibende Tage im Akkubetrieb |
 | Überschuss (Ladung > Verbrauch) | `990.0` (Sentinel-Wert) | Praktisch unendlich — Gerät gewinnt Ladung |
-| Unbekannt (SOC noch nicht gültig) | *nicht gesendet* | TTL kann noch nicht berechnet werden |
+| Unbekannt (SOC noch nicht gültig) | *nicht gesendet* | Batt-TTL kann noch nicht berechnet werden |
 
 ### Sentinel-Werte Temperatur
 
@@ -100,7 +100,7 @@ Solareingangsdaten vom BQ25798-Ladecontroller.
 | Strom | Current | A | BQ25798 | Solarstrom (IBUS) |
 | MPPT 7-Tage | Percentage | % | Firmware | MPPT-Aktivierung der letzten 7 Tage. Zeigt, wie viel Prozent der Zeit der MPPT-Regler aktiv Solar-Energie eingespeist hat. |
 
-> **Hinweis — Genauigkeit Solarstrom:** Der BQ25798 IBUS-ADC hat eine Auflösung von 1 mA (15-Bit-Modus), zeigt jedoch bei niedrigen Strömen einen erheblichen Messfehler (~±30 mA). Werte unter ca. 150 mA sollten nur als grobe Schätzungen betrachtet werden. Für präzise Strommessung nutzt die Batterie-Seite stattdessen den INA228.
+> **Hinweis — Genauigkeit Solarstrom:** Der BQ25798 IBUS-ADC hat eine Auflösung von 1 mA (15-Bit-Modus), zeigt jedoch bei niedrigen Strömen einen erheblichen Messfehler (~±30 mA). Werte unter ca. 150 mA sollten nur als grobe Schätzungen betrachtet werden. Für präzise Strommessung nutzt die Akku-Seite stattdessen den INA228.
 
 > **Hinweis:** Der MPPT-Prozentwert ist ein gleitender 7-Tage-Durchschnitt. Ein niedriger Wert (z. B. 1 %) bedeutet, dass das Panel nur selten genug Leistung liefert, um den MPPT-Regler zu aktivieren — z. B. bei bedecktem Himmel oder ungünstigem Panelwinkel.
 
@@ -110,19 +110,19 @@ Solareingangsdaten vom BQ25798-Ladecontroller.
 
 Die Kanäle werden dynamisch zugewiesen:
 
-1. **Kanal 1** (`TELEM_CHANNEL_SELF`) ist fest definiert und enthält die MeshCore-Basisdaten (Batteriespannung und MCU-Chiptemperatur).
+1. **Kanal 1** (`TELEM_CHANNEL_SELF`) ist fest definiert und enthält die MeshCore-Basisdaten (Akkuspannung und MCU-Chiptemperatur).
 2. `querySensors()` weist jedem aktiven Sensor einen eigenen Kanal direkt nach Kanal 1 zu — der BME280 landet daher auf **Kanal 2**.
-3. Der **Batterie-Kanal** wird von `queryBoardTelemetry()` als nächster freier Kanal ermittelt (`findNextFreeLppChannel`).
-4. Der **Solar-Kanal** = Batterie-Kanal + 1.
+3. Der **Akku-Kanal** wird von `queryBoardTelemetry()` als nächster freier Kanal ermittelt (`findNextFreeLppChannel`).
+4. Der **Solar-Kanal** = Akku-Kanal + 1.
 
-`querySensors()` belegt Kanal 2 mit dem BME280, bevor `queryBoardTelemetry()` läuft — in der Praxis landen die Batteriedaten daher auf Kanal 3 und Solar auf Kanal 4.
+`querySensors()` belegt Kanal 2 mit dem BME280, bevor `queryBoardTelemetry()` läuft — in der Praxis landen die Akkudaten daher auf Kanal 3 und Solar auf Kanal 4.
 
 ```
 Reihenfolge im CayenneLPP-Paket:
 ┌───────────────────────────────────────────────┐
 │ Kanal 1: Spannung (INA228 / SOC-Fake)         │  ← MyMesh.cpp (getBattMilliVolts)
 │ Kanal 2: Temp., Luftfeuchte, Luftdruck, Höhe  │  ← BME280 (querySensors)
-│ Kanal 3: VBAT, [SOC], IBAT, TBAT, [TTL]       │  ← queryBoardTelemetry()
+│ Kanal 3: VBAT, [SOC], IBAT, TBAT, [Batt-TTL]       │  ← queryBoardTelemetry()
 │ Kanal 4: VSOL, ISOL, MPPT%                    │  ← queryBoardTelemetry()
 │ Kanal 1: MCU-Chiptemperatur                   │  ← MyMesh.cpp (getMCUTemperature)
 └───────────────────────────────────────────────┘

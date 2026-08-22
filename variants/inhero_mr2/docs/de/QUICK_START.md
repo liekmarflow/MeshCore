@@ -18,13 +18,17 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 > **⚠ WARNUNG — Kein Verpolschutz:** Das Board hat keinen Hardware-Verpolschutz. Ein verpolter Akkuanschluss führt zu sofortiger, irreversibler Beschädigung. Vor dem Anschließen immer die Polarität prüfen.
 
-## 4) Repeater per USB konfigurieren
-- Repeater per USB-Kabel mit dem Rechner verbinden.
-- Auf https://meshcore.io/flasher -> Repeater-Setup konfigurieren (LoRa-Settings, Name, Admin-Passwort usw.).
-- Dadurch werden die Grundparameter im Gerät gesetzt.
+## 4) Firmware flashen und Repeater konfigurieren
+- Board per USB-Kabel mit dem Rechner verbinden.
+- Ausgeliefert wird das Board nur mit Bootloader. Die Firmware für den MR2 wird aus dem Inhero-Fork veröffentlicht — flasher.meshcore.io führt dieses Board noch nicht (die Upstream-PRs #3131 / #3132 stehen aus).
+- UF2 von https://github.com/liekmarflow/MeshCore/releases laden.
+- Reset-Taster doppelt tippen (rechte Seite, unter USB-C). Es erscheint ein Massenspeicher-Laufwerk namens `RAK4630` oder `FTHR840`.
+- UF2 auf dieses Laufwerk ziehen; das Board startet in die Firmware.
+- Der MR2 fährt die **Repeater**-Rolle von MeshCore (Build `Inhero_MR2_repeater`); ein **Sensor**-Build (`Inhero_MR2_sensor`) steht ebenfalls bereit.
+- Danach auf https://flasher.meshcore.io -> Repeater-Setup die LoRa-Settings, den Namen und das Admin-Passwort konfigurieren.
 
 ## 5) CLI öffnen
-- https://meshcore.io/flasher -> Console
+- https://flasher.meshcore.io -> Console
 - oder MeshCore-App -> Manage -> Command-Line
 - Hier werden die Board-spezifischen Commands gesetzt.
 
@@ -59,7 +63,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - 100% = keine Reduktion, voller Ladestrom auch bei Kälte.
 - Unter ca. -2 °C (T-Cold): Laden immer komplett gesperrt durch JEITA.
 - Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO und Na-Ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt, lädt auch bei Frost).
+- Hinweis: Bei LTO und Na-ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt, lädt auch bei Frost).
 - → [FAQ #6 — Was steuert fmax?](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst)
 
 ## 10) MPPT aktivieren
@@ -89,9 +93,9 @@ Die `imax`-Werte unten leiten sich aus der Faustformel aus Abschnitt 8 ab:
 **`imax ≈ Panelleistung ÷ Panelspannung × 1.2`** (z.B. 2 W ÷ 5 V × 1.2 ≈ 480 mA → aufgerundet auf 500).
 `fmax` ist ein Prozentwert von `imax` und wirkt nur in der T-Cool-Zone (ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README).
 
-### Li-Ion 1S (3.7V nominal)
+### Li-ion 1S (3.7V nominal)
 ```bash
-set board.bat liion1s    # Chemie: 1S Li-Ion (setzt Ladeprofil + Low-V-Schwellen)
+set board.bat liion1s    # Chemie: 1S Li-ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
 set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 500 mA = 100 mA
 ```
@@ -110,14 +114,14 @@ set board.imax 700       # max. Ladestrom — ≈ 3 W Panel @ 5 V (3 W ÷ 5 V ×
                          # fmax entfällt: wird bei LTO abgelehnt (JEITA deaktiviert — LTO lädt auch bei Frost)
 ```
 
-### Na-Ion 1S (3.1V nominal)
+### Na-ion 1S (3.1V nominal)
 ```bash
-set board.bat naion1s    # Chemie: 1S Na-Ion (setzt Ladeprofil + Low-V-Schwellen)
+set board.bat naion1s    # Chemie: 1S Na-ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-                         # fmax entfällt: wird bei Na-Ion abgelehnt (JEITA deaktiviert)
+                         # fmax entfällt: wird bei Na-ion abgelehnt (JEITA deaktiviert)
 ```
 
-Hinweis: `set board.fmax` wird bei LTO und Na-Ion mit Fehler abgelehnt (JEITA deaktiviert); `get board.fmax` zeigt N/A.
+Hinweis: `set board.fmax` wird bei LTO und Na-ion mit Fehler abgelehnt (JEITA deaktiviert); `get board.fmax` zeigt N/A.
 
 ## Solarpanel-Hinweise
 - Maximale Leerlaufspannung (Voc) für den Eingang: 25V.
@@ -139,18 +143,18 @@ Hinweis: `set board.fmax` wird bei LTO und Na-Ion mit Fehler abgelehnt (JEITA de
 - **⚠ Warnung:** Da VBUS-USB und VBUS-BQ denselben Bus teilen (über die Schottky-Diode), führt ein **Kurzschluss am Solarstecker auch zum Kurzschluss von VBUS-USB**. Den Solareingang niemals kurzschließen, während USB angeschlossen ist.
 
 ## Spannungsschwellen je Akkuchemie
-Die Schwellen sind auf maximale Lebensdauer und stabilen Betrieb optimiert.
+Die Schwellen sind auf lange Lebensdauer und stabilen Betrieb ausgelegt.
 
 | Akkuchemie | lowv_sleep_mv (System Sleep) | lowv_wake_mv (0% SOC) | Hysterese |
 |---|---|---|---|
-| Li-Ion 1S | 3100 | 3300 | 200mV |
+| Li-ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
-| Na-Ion 1S | 2500 | 2700 | 200mV |
+| Na-ion 1S | 2500 | 2700 | 200mV |
 
 ## Verhalten bei Low-Voltage
 - **Low-Voltage System Sleep:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware latcht CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → Laden aktiv), konfiguriert den RTC-Wake-Timer und geht in System Sleep mit GPIO-Latch (< 500µA). P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen, damit der GPIO-Latch HIGH bleibt. Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
-- **Solar-Recovery:** Im System Sleep bleibt der GPIO4-Latch HIGH erhalten → DMN2004TK-7 FET ON → CE LOW → Laden aktiv. Solar-Laden läuft autonom weiter bis die Batterie über `lowv_wake_mv` geladen ist. Ohne GPIO-Latch (RAK stromlos): ext. Pull-Down am Gate → FET OFF → CE HIGH → Laden AUS (Safety-Default).
+- **Solar-Recovery:** Im System Sleep bleibt der GPIO4-Latch HIGH erhalten → DMN2004TK-7 FET ON → CE LOW → Laden aktiv. Solar-Laden läuft autonom weiter bis der Akku über `lowv_wake_mv` geladen ist. Ohne GPIO-Latch (RAK stromlos): ext. Pull-Down am Gate → FET OFF → CE HIGH → Laden AUS (Safety-Default).
 
 ## CLI-Beispiele (kompakt)
 ```bash
@@ -181,12 +185,12 @@ get board.conf
 ```
 
 ## Getter-Kurzinfos (alle relevanten Board-Getter)
-- `get board.bat` - Aktueller Batterietyp (liion1s, lifepo1s, lto2s, naion1s, none).
-- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%; N/A bei LTO/Na-Ion).
+- `get board.bat` - Aktueller Akkutyp (liion1s, lifepo1s, lto2s, naion1s, none).
+- `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%; N/A bei LTO/Na-ion).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).
 - `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
-- `get board.batcap` - Batteriekapazität in mAh (set/default).
+- `get board.batcap` - Akkukapazität in mAh (set/default).
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T). Siehe [TELEMETRY.md](TELEMETRY.md) für die App-Anzeige.
 - `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
 - `get board.cinfo` - Ladegerät-Status (Charger State + Flags).

@@ -17,7 +17,7 @@
 
 ## Übersicht
 
-Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur, die im Gegensatz zu herkömmlichen Universallösungen auf maximale Zuverlässigkeit an wartungsintensiven Standorten optimiert ist. Mit einem aktiven Idle-Verbrauch von nur 6,0 mA bei 4,2 V bzw. 7,7 mA bei 3,3 V (USB aus, kein Radio-TX) ist das Board für einen voll ausgestatteten Repeater außergewöhnlich sparsam — das ermöglicht lange Laufzeiten selbst mit kompakten Akkus und kleinen Solarpanels. Ein universeller Solareingang mit aktivem MPPT maximiert die Energieausbeute, was kompakte, unauffällige Installationen ermöglicht und teure Überdimensionierungen der Peripherie vermeidet. Dank nativer Unterstützung für Li-Ion, LiFePO4, LTO sowie Na-Ion und einer autonomen Recovery-Logik via RTC-Wakeup wird ein konsequenter „Install & Forget"-Ansatz auch unter extremen Umweltbedingungen realisiert. Das Design minimiert so die langfristigen Betriebskosten an Orten, an denen manuelle Wartungseinsätze aufgrund schwieriger Erreichbarkeit unverhältnismäßig aufwändig wären.
+Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autarken Dauerbetrieb von Mesh-Infrastruktur an schwer erreichbaren Standorten. Der aktive Idle-Verbrauch beträgt 6,0 mA bei 4,2 V bzw. 7,7 mA bei 3,3 V (USB aus, kein Radio-TX) — das gibt einem voll ausgestatteten Repeater lange Akkulaufzeit mit einer kompakten Zelle und einem kleinen Solarpanel. Ein universeller Solareingang mit aktivem MPPT erntet über einen weiten Eingangsbereich, sodass eine kompakte, unauffällige Installation in der Regel genügt und die Peripherie nicht überdimensioniert werden muss. Li-ion, LiFePO4, LTO und Na-ion werden nativ unterstützt, und die RTC-Recovery holt das Board nach einer Unterspannungsabschaltung selbsttätig zurück, sodass ein leerer Akku keinen Einsatz vor Ort erzwingt. Das senkt die langfristigen Betriebskosten an Orten, an denen ein manueller Wartungseinsatz teuer ist, weil der Standort schwer erreichbar ist.
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
@@ -40,8 +40,8 @@ Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autark
 | BQ CE-Pin Safety (FET-invertiert) | Aktiv | GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low), Dual-Layer: GPIO + I2C |
 | System Sleep mit gelatchtem CE | Aktiv | < 500µA, GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Solar-Laden möglich |
 | SOC 0% nach Low-Voltage-Recovery | Aktiv | SOC wird bei Recovery auf 0% initialisiert, auto-sync bei "Charging Done" |
-| SOC via INA228 + manuelle Batteriekapazität | Aktiv | `set board.batcap` verfügbar |
-| SOC→Li-Ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
+| SOC via INA228 + manuelle Akkukapazität | Aktiv | `set board.batcap` verfügbar |
+| SOC→Li-ion mV Mapping (Workaround) | Aktiv | Wird entfernt wenn MeshCore SOC% nativ übermittelt |
 | MPPT-Recovery + Stuck-PGOOD-Handling | Aktiv | Cooldown-Logik aktiv |
 | PFM Forward Mode | Aktiv (Chip-Default) | Ab Werk im BQ25798 aktiv (PFM_FWD_DIS=0, REG0x12); die Firmware ändert ihn nicht. Verbessert Effizienz bei niedrigen Solarströmen |
 
@@ -75,10 +75,10 @@ Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autark
 
 | Chemie | lowv_sleep_mv | lowv_wake_mv | Hysterese |
 |--------|--------------|-------------|-----------|
-| Li-Ion 1S | 3100 | 3300 | 200mV |
+| Li-ion 1S | 3100 | 3300 | 200mV |
 | LiFePO4 1S | 2700 | 2900 | 200mV |
 | LTO 2S | 3900 | 4100 | 200mV |
-| Na-Ion 1S | 2500 | 2700 | 200mV |
+| Na-ion 1S | 2500 | 2700 | 200mV |
 
 - **lowv_sleep_mv**: INA228 ALERT-Schwelle → löst System Sleep mit GPIO-Latch aus
 - **lowv_wake_mv**: RTC-Wake-Schwelle → Boot nur wenn VBAT darüber liegt, gleichzeitig 0% SOC-Marker
@@ -103,20 +103,22 @@ Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autark
 - **200mV einheitliche Hysterese** für alle Chemien (lowv_sleep_mv → lowv_wake_mv)
 - **Manuelle Kapazität:** `set board.batcap` für feste Kapazität
 
-### SOC→Li-Ion mV Mapping (Workaround)
-- **Problem**: MeshCore überträgt nur `getBattMilliVolts()`, keinen SOC%. Die Companion App nutzt eine Li-Ion-Kurve zur SOC-Berechnung — falsche Anzeige bei LiFePO4/LTO.
-- **Lösung**: Bei validem Coulomb-Counting-SOC wird eine äquivalente Li-Ion 1S OCV (3000–4200 mV) zurückgegeben, sodass die App den korrekten SOC% anzeigt. Siehe [TELEMETRY.md](TELEMETRY.md) für Details zur App-Anzeige.
+### SOC→Li-ion mV Mapping (Workaround)
+- **Problem**: MeshCore überträgt nur `getBattMilliVolts()`, keinen SOC%. Die MeshCore-App nutzt eine Li-ion-Kurve zur SOC-Berechnung — falsche Anzeige bei LiFePO4/LTO.
+- **Lösung**: Bei validem Coulomb-Counting-SOC wird eine äquivalente Li-ion 1S OCV (3000–4200 mV) zurückgegeben, sodass die App den korrekten SOC% anzeigt. Siehe [TELEMETRY.md](TELEMETRY.md) für Details zur App-Anzeige.
 - Dieser Workaround wird entfernt, sobald MeshCore die native Übertragung des SOC% unterstützt.
 - → [FAQ #11 — SOC zeigt 0% oder N/A?](FAQ.md#11-warum-zeigt-der-soc-0-oder-na-an)
 
-### Time-To-Live (TTL) Prognose
+### Batt-TTL-Prognose
+
+> **Batt-TTL** steht für *Battery Time-To-Live* — die geschätzte Restlaufzeit im Akkubetrieb. Gemeint ist nicht das Hop-Limit, das „TTL“ im Mesh-Netz bezeichnet.
 - **Zeitbasis:** 7-Tage gleitender Durchschnitt (`avg_7day_daily_net_mah`) des täglichen Netto-Energieverbrauchs
 - **Datenbasis:** 168-Stunden-Ringpuffer (7 Tage) mit stündlichen INA228-Coulomb-Counter-Samples (charged/discharged/solar mAh)
 - **Formel:** `TTL_hours = max(0, SOC% × capacity_mah / 100 − capacity_mah × (1 − f(T))) / |avg_7day_daily_net_mah| × 24`
 - **f(T):** Kälte-Derating-Faktor (Trapped-Charge-Modell) — bei niedrigen Temperaturen ist ein Teil der gespeicherten Ladung nicht nutzbar und wird vorab abgezogen; f(T) = 1 bei warmen Temperaturen
 - **Voraussetzungen:** `living_on_battery == true` (24h-Defizit), mind. 24h Daten, Kapazität bekannt
-- **TTL = 0:** Solar-Überschuss, keine 24h Daten vorhanden, oder Kapazität unbekannt
-- **CLI:** TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `T:12d0h`)
+- **Batt-TTL = 0:** Solar-Überschuss, keine 24h Daten vorhanden, oder Kapazität unbekannt
+- **CLI:** Batt-TTL wird in `get board.stats` angezeigt (nur im BAT-Modus, z.B. `BT:12d0h`)
 - **Telemetrie:** Wird als Tage via CayenneLPP Distance-Feld übertragen (max. 990 Tage für "unendlich"). Siehe [TELEMETRY.md](TELEMETRY.md) für Kanal-Details.
 
 ### Solar-Energieverwaltung
@@ -150,11 +152,11 @@ Der BQ25798 nutzt den TS-Pin (NTC-Thermistor) für JEITA-konforme temperaturabh�
 **Wichtige Firmware-Einstellungen in `configureBaseBQ()`:**
 
 - **`TS_WARM = 55°C`** (BQ-Registerwert): Verschiebt die WARM-Zonen-Schwelle vom Default 45 °C (44,8% REGN, ~41,8 °C mit Inhero-Teiler) auf 37,7% REGN (~52,2 °C mit Inhero-Teiler). Verhindert vorzeitigen WARM-Zonen-Eintritt bei moderaten Temperaturen.
-- **`JEITA_VSET = UNCHANGED`**: Keine Reduktion der Battery-Regulation-Spannung in der WARM-Zone. Der POR-Default (VREG−400 mV) würde VREG auf 3,1 V für LiFePO4 reduzieren und VBAT_OVP bei normalen Batteriespannungen (3,3–3,5 V) auslösen.
+- **`JEITA_VSET = UNCHANGED`**: Keine Reduktion der Battery-Regulation-Spannung in der WARM-Zone. Der POR-Default (VREG−400 mV) würde VREG auf 3,1 V für LiFePO4 reduzieren und VBAT_OVP bei normalen Akkuspannungen (3,3–3,5 V) auslösen.
 - **`JEITA_ISETH = ICHG unchanged`** (POR-Default, beibehalten): Keine Ladestrom-Reduktion in der WARM-Zone. Zusammen mit JEITA_VSET=UNCHANGED ist die WARM-Zone effektiv neutralisiert — Ladung läuft mit voller Spannung und vollem Strom weiter.
-- **`AUTO_IBATDIS = deaktiviert`**: Deaktiviert die automatische 30-mA-Batterieentladung des BQ25798 während VBAT_OVP. Der POR-Default entlädt die Batterie aktiv mit ~30 mA (IBAT_LOAD) bei OVP — kontraproduktiv für solarbetriebene Systeme.
+- **`AUTO_IBATDIS = deaktiviert`**: Deaktiviert die automatische 30-mA-Akkuentladung des BQ25798 während VBAT_OVP. Der POR-Default entlädt den Akku aktiv mit ~30 mA (IBAT_LOAD) bei OVP — kontraproduktiv für solarbetriebene Systeme.
 
-> **Hintergrund:** Mit den BQ25798-Standardeinstellungen verursachte die Kombination aus Inhero-Teiler-Offset und LiFePO4-Chemie eine Fehlerkette bei ~42 °C: WARM-Zonen-Eintritt → VREG auf 3,1 V reduziert → VBAT_OVP (Batterie bei 3,47 V > 104% × 3,1 V) → aktive 30-mA-Entladung → netto −45 mA Verbrauch trotz Solareinspeisung. Die obigen Einstellungen verhindern dies vollständig. Die WARM-Zone (52–58 °C mit Inhero-Teiler) hat nun keinen Einfluss auf das Ladeverhalten.
+> **Hintergrund:** Mit den BQ25798-Standardeinstellungen verursachte die Kombination aus Inhero-Teiler-Offset und LiFePO4-Chemie eine Fehlerkette bei ~42 °C: WARM-Zonen-Eintritt → VREG auf 3,1 V reduziert → VBAT_OVP (Akku bei 3,47 V > 104% × 3,1 V) → aktive 30-mA-Entladung → netto −45 mA Verbrauch trotz Solareinspeisung. Die obigen Einstellungen verhindern dies vollständig. Die WARM-Zone (52–58 °C mit Inhero-Teiler) hat nun keinen Einfluss auf das Ladeverhalten.
 
 ## Firmware-Build
 
@@ -173,7 +175,7 @@ platformio run -e Inhero_MR2_sensor
 
 ### Get-Befehle
 ```bash
-get board.bat       # Aktuellen Batterietyp abfragen
+get board.bat       # Aktuellen Akkutyp abfragen
                     # Ausgabe: liion1s | lifepo1s | lto2s | naion1s | none
 
 get board.fmax      # Frost-Ladeverhalten abfragen
@@ -188,7 +190,7 @@ get board.fmax      # Frost-Ladeverhalten abfragen
                     # Hinweis: Nur das Laden wird eingeschränkt. Bei ausreichend
                     # Solar wird das Board weiterhin mit Solarstrom betrieben —
                     # der Akku wird weder ge- noch entladen.
-                    # LTO / Na-Ion: N/A (JEITA deaktiviert, lädt auch bei Frost)
+                    # LTO / Na-ion: N/A (JEITA deaktiviert, lädt auch bei Frost)
 
 get board.imax      # Maximalen Ladestrom abfragen
                     # Ausgabe: <current>mA (z.B. 200mA)
@@ -212,9 +214,9 @@ get board.telem     # Echtzeit-Telemetrie mit SOC abfragen
                     # - S: Solar (Voltage/Strom — Genauigkeit abhängig vom BQ25798 IBUS-ADC)
 
 get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen
-                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% T:<ttl>
-                    # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% T:N/A
-                    # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% T:72h
+                    # Ausgabe: <24h>/<3d>/<7d>mAh C:<24h> D:<24h> 3C:<3d> 3D:<3d> 7C:<7d> 7D:<7d> <SOL|BAT> M:<mppt>% BT:<ttl>
+                    # Beispiel: +125/+45/+38mAh C:200 D:75 3C:150 3D:105 7C:140 7D:102 SOL M:85% BT:N/A
+                    # Beispiel: -30/-45/-40mAh C:10 D:40 3C:5 3D:50 7C:8 7D:48 BAT M:45% BT:72h
                     # Komponenten:
                     # - +125: Netto-Bilanz der letzten 24h (Ladung - Entladung) in mAh
                     # - +45: 3-Tage-Durchschnitt der Netto-Bilanz in mAh
@@ -223,10 +225,10 @@ get board.stats     # Energie-Statistiken (Bilanz + MPPT) abfragen
                     # - 3C/3D: 3-Tage-Durchschnitt geladene/entladene mAh
                     # - 7C/7D: 7-Tage-Durchschnitt geladene/entladene mAh
                     # - SOL: Läuft auf Solar (selbstversorgend)
-                    # - BAT: Lebt von der Batterie (Defizit-Modus)
+                    # - BAT: Lebt vom Akku (Defizit-Modus)
                     # - M:85%: MPPT-Aktivquote in Prozent (7-Tage-Durchschnitt)
-                    # - T:72h: Time To Live (nur im BAT-Modus, Basis 7-Tage-Durchschnitt)
-                    #   Format: T:12d5h (≥24h) oder T:72h (<24h) oder T:N/A
+                    # - BT:72h: Batt-TTL (nur im BAT-Modus, Basis 7-Tage-Durchschnitt)
+                    #   Format: BT:12d5h (≥24h) oder BT:72h (<24h) oder BT:N/A
 
 get board.cinfo     # Ladegerät-Info + letzter PG-Stuck HIZ-Toggle
                     # Ausgabe: <state> + flags
@@ -239,7 +241,7 @@ get board.selftest  # I²C-Hardware-Probe (alle Onboard-Komponenten)
 get board.conf      # Alle Konfigurationswerte abfragen
                     # Ausgabe: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
 
-get board.batcap    # Batteriekapazität abfragen
+get board.batcap    # Akkukapazität abfragen
                     # Ausgabe: <capacity> mAh (set) oder <capacity> mAh (default)
                     # Zeigt ob Kapazität manuell gesetzt oder Chemie-Default
 
@@ -253,7 +255,7 @@ get board.leds      # LED-Aktivstatus abfragen
 
 ### Set-Befehle
 ```bash
-set board.bat <type>           # Batterietyp setzen
+set board.bat <type>           # Akkutyp setzen
                                # Optionen: lto2s | lifepo1s | liion1s | naion1s | none
                                # none = kein Akku / unbekannt (Laden deaktiviert)
 
@@ -270,7 +272,7 @@ set board.fmax <behavior>      # Frost-Ladeverhalten setzen
                                # Hinweis: Nur das Laden wird eingeschränkt. Bei
                                # ausreichend Solar läuft das Board weiterhin auf
                                # Solarstrom — der Akku wird weder ge- noch entladen.
-                               # N/A für LTO / Na-Ion (JEITA deaktiviert)
+                               # N/A für LTO / Na-ion (JEITA deaktiviert)
 
 set board.imax <current>       # Maximalen Ladestrom in mA setzen
                                # Bereich: 50-1500mA (BQ25798-Minimum: 50mA)
@@ -278,7 +280,7 @@ set board.imax <current>       # Maximalen Ladestrom in mA setzen
 set board.mppt <1|0>           # MPPT aktivieren/deaktivieren
                                # 1 = aktiviert, 0 = deaktiviert
 
-set board.batcap <capacity>    # Batteriekapazität in mAh setzen
+set board.batcap <capacity>    # Akkukapazität in mAh setzen
                                # Bereich: 100-100000 mAh
                                # Wird für genaue SOC-Berechnung verwendet
 

@@ -1,8 +1,8 @@
-﻿# Telemetry Channels
+# Telemetry Channels
 
 > 🇩🇪 [Deutsche Version](de/TELEMETRY.md)
 
-The Inhero MR2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across four channels. The companion app displays these as **Channel 1–4**.
+The Inhero MR2 transmits telemetry data in [CayenneLPP](https://docs.mydevices.com/docs/lorawan/cayenne-lpp) format across four channels. The MeshCore app displays these as **Channel 1–4**.
 
 ---
 
@@ -17,22 +17,22 @@ Base data from the node.
 
 ### Battery Level & SOC Workaround
 
-MeshCore currently transmits only battery **voltage** on Channel 1 — there is no native SOC% field. The companion app converts this voltage back to a percentage using a hardcoded **Li-Ion discharge curve**. This works well for Li-Ion cells but produces wrong readings for LiFePO₄, LTO, or Na-Ion chemistries (which have a much flatter voltage curve).
+MeshCore currently transmits only battery **voltage** on Channel 1 — there is no native SOC% field. The MeshCore app converts this voltage back to a percentage using a hardcoded **Li-ion discharge curve**. This works well for Li-ion cells but produces wrong readings for LiFePO₄, LTO, or Na-ion chemistries (which have a much flatter voltage curve).
 
 The MR2 works around this limitation:
 
 | SOC State | What `getBattMilliVolts()` returns | App displays |
 |-----------|------------------------------------|--------------|
-| **SOC not yet valid** | Real battery voltage from INA228 | Percentage based on Li-Ion curve (may be inaccurate for non-Li-Ion) |
-| **SOC valid** (coulomb counter calibrated) | Fake Li-Ion OCV reverse-mapped from true SOC% (`socToLiIonMilliVolts()`) | Correct percentage — the app's Li-Ion curve decodes back to the original SOC% |
+| **SOC not yet valid** | Real battery voltage from INA228 | Percentage based on Li-ion curve (may be inaccurate for non-Li-ion) |
+| **SOC valid** (coulomb counter calibrated) | Fake Li-ion OCV reverse-mapped from true SOC% (`socToLiIonMilliVolts()`) | Correct percentage — the app's Li-ion curve decodes back to the original SOC% |
 
 > **OCV** = Open Circuit Voltage — the battery's resting voltage without load. The OCV curve (voltage vs. SOC%) is characteristic for each battery chemistry and is used here as a lookup table to reverse-map SOC% back to a voltage the app can interpret.
 
 The SOC becomes valid as soon as a **reference point** exists — either manually via `set board.soc <percent>` or automatically on a "Charging Done" event (which sets SOC to 100%).
 
-Without `set board.batcap <mAh>` a chemistry-typical default capacity (1500–2000 mAh) is assumed. Setting the real capacity is therefore required for the displayed percentage and the TTL to be accurate — not for the SOC to become valid.
+Without `set board.batcap <mAh>` a chemistry-typical default capacity (1500–2000 mAh) is assumed. Setting the real capacity is therefore required for the displayed percentage and the Batt-TTL to be accurate — not for the SOC to become valid.
 
-The reverse mapping uses a piecewise-linear Li-Ion OCV table (3000 mV at 0% → 4200 mV at 100%). This ensures the app displays the correct coulomb-counted SOC regardless of the actual battery chemistry.
+The reverse mapping uses a piecewise-linear Li-ion OCV table (3000 mV at 0% → 4200 mV at 100%). This ensures the app displays the correct coulomb-counted SOC regardless of the actual battery chemistry.
 
 ---
 
@@ -61,21 +61,21 @@ High-precision battery data from the INA228 coulomb counter and BQ25798 charge c
 | SOC | Percentage | % | INA228 | State of charge via coulomb counting — *optional, only when calibrated* |
 | Current | Current | A | INA228 | Battery current. Negative = discharging, positive = charging |
 | Temperature | Temperature | °C / °F | BQ25798 NTC | Battery temperature from NTC thermistor |
-| TTL | Distance | days | calculated | Estimated time-to-live (remaining runtime) — *optional, only with valid SOC* |
+| Batt-TTL | Distance | days | calculated | Estimated time-to-live (remaining runtime) — *optional, only with valid SOC* |
 
-### SOC & TTL
+### SOC & Batt-TTL
 
-SOC and TTL only appear when the coulomb counter has a valid reference point — either a manual SOC set (`set board.soc`) or a "Charging Done" event. The percentage is based on the configured battery capacity (`set board.batcap`; a chemistry-typical default of 1500–2000 mAh is assumed otherwise). Until the SOC is valid, these fields are omitted.
+SOC and Batt-TTL only appear when the coulomb counter has a valid reference point — either a manual SOC set (`set board.soc`) or a "Charging Done" event. The percentage is based on the configured battery capacity (`set board.batcap`; a chemistry-typical default of 1500–2000 mAh is assumed otherwise). Until the SOC is valid, these fields are omitted.
 
-### TTL Encoding
+### Batt-TTL Encoding
 
-The TTL (Time-To-Live) is transmitted as a **CayenneLPP Distance value** in days, since CayenneLPP has no native "duration" type. The companion app displays it as a distance (e.g. "42 m"), but the value represents **days of remaining runtime**.
+The Batt-TTL is transmitted as a **CayenneLPP Distance value** in days, since CayenneLPP has no native "duration" type. The MeshCore app displays it as a distance (e.g. "42 m"), but the value represents **days of remaining runtime**.
 
 | Condition | Transmitted Value | Meaning |
 |-----------|-------------------|---------|
-| Finite TTL | `ttlHours / 24.0` | Estimated remaining days on battery |
+| Finite Batt-TTL | `ttlHours / 24.0` | Estimated remaining days on battery |
 | Surplus (charging > consumption) | `990.0` (sentinel value) | Effectively infinite — device is gaining charge |
-| Unknown (SOC not yet valid) | *not sent* | TTL cannot be calculated yet |
+| Unknown (SOC not yet valid) | *not sent* | Batt-TTL cannot be calculated yet |
 
 ### Temperature Sentinel Values
 
@@ -122,7 +122,7 @@ Order in CayenneLPP packet:
 ┌───────────────────────────────────────────────┐
 │ Channel 1: Voltage (INA228 / SOC fake)        │  ← MyMesh.cpp (getBattMilliVolts)
 │ Channel 2: Temp, Humidity, Pressure, Alt.     │  ← BME280 (querySensors)
-│ Channel 3: VBAT, [SOC], IBAT, TBAT, [TTL]     │  ← queryBoardTelemetry()
+│ Channel 3: VBAT, [SOC], IBAT, TBAT, [Batt-TTL]     │  ← queryBoardTelemetry()
 │ Channel 4: VSOL, ISOL, MPPT%                  │  ← queryBoardTelemetry()
 │ Channel 1: MCU die temperature                │  ← MyMesh.cpp (getMCUTemperature)
 └───────────────────────────────────────────────┘
