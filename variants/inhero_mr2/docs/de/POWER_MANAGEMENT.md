@@ -23,7 +23,7 @@
 - [Siehe auch](#siehe-auch)
 
 > Diese Dokumentation beschreibt die Energieverwaltungs-Implementierung für das Inhero MR2 Board.
-> Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN via 3.3V_off-Schalter, CE-Pin via DMN2004TK-7 FET (invertiert).
+> Hardware Rev 1.1: INA228 ALERT auf P1.02, TPS62840 EN via 3.3V_off-Schalter, CE-Pin via N-FET (invertiert).
 
 ---
 
@@ -33,7 +33,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 
 1. **INA228 ALERT ISR** (P1.02) - Low-Voltage-Erkennung via Hardware-Interrupt
 2. **System Sleep mit GPIO-Latch** (< 500µA) mit RTC-Wake - Minimaler Stromverbrauch bei Low-Voltage
-3. **CE-Pin FET-Safety** (DMN2004TK-7) - Invertierte Logik, Solar-Laden in System Sleep möglich
+3. **CE-Pin FET-Safety** - Invertierte Logik, Solar-Laden in System Sleep möglich
 4. **Coulomb Counter** (INA228) - Echtzeit-SOC-Tracking
 5. **Tägliche Energiebilanz** (7-Tage rolling) - Solar vs. Akku
 6. **RTC-Wakeup-Management** (RV-3028-C7) - Periodische Recovery-Checks
@@ -63,9 +63,9 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 | **BME280** | Temperatur-/Feuchte-/Drucksensor | 0x76 | — | NTC-Kalibrier-Referenz (`set board.tccal`), Selftest |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up. Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) zur Bedeutung der Uhrzeit. |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC hat VBAT-abhängige Schwellen, siehe [Abschnitt 4](#bq25798-adc-bei-niedrigen-akkuspannungen)) |
-| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
+| **BQ CE-Pin** | Charge Enable | — | GPIO4 (P0.04) | Via N-FET: GPIO HIGH → FET ON → CE LOW → Laden an (BQ25798 CE active-low) |
 | **TPS62840** | Buck Converter | - | EN via 3.3V_off-Schalter | 750mA, 3.3V Rail |
-| **DMN2004TK-7** | CE-FET | — | Gate←GPIO4 (ext. Pull-Down) | N-FET, Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → Laden an. Pull-Down zieht Gate LOW wenn floating. |
+| **CE-FET** | N-FET | — | Gate←GPIO4 (ext. Pull-Down) | Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → Laden an. Pull-Down zieht Gate LOW wenn floating. |
 | **Schottky-Diode** | USB→VBUS-Diode | — | — | VBUS-USB → VBUS-BQ (Solareingang). USB-C CC1/CC2 über 4,7kΩ auf GND (USB-Sink). **⚠ Solar-Kurzschluss shortet auch VBUS-USB.** |
 
 ---
@@ -525,7 +525,7 @@ Der ISR setzt nur das Flag; `tick()` prüft es im Main-Loop.
 4. **LEDs aus**: PIN_LED1, PIN_LED2 LOW
 
 5. **CE-Pin HIGH latchen** (GPIO-Output-Latch für P0.04 erhalten):
-   - `digitalWrite(BQ_CE_PIN, HIGH)` → DMN2004TK-7 ON → CE LOW → Laden aktiv
+   - `digitalWrite(BQ_CE_PIN, HIGH)` → CE-FET ON → CE LOW → Laden aktiv
    - P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Latch bleibt HIGH im System Sleep
    - Ohne Latch: ext. Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
 
@@ -549,7 +549,7 @@ Der ISR setzt nur das Flag; `tick()` prüft es im Main-Loop.
 Der SOC wird beim Shutdown nicht geschrieben — beim nächsten erfolgreichen Recovery-Boot ruft `begin()` `setSOCManually(0.0)` auf (Low-Voltage-Recovery), der SOC startet also bei 0%.
 
 **Warum System Sleep mit GPIO-Latch?**
-- DMN2004TK-7 FET für CE-Pin → GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Laden aktiv
+- N-FET für CE-Pin → GPIO4-Latch HIGH erhalten → FET ON → CE LOW → Laden aktiv
 - Gesamtverbrauch: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
 
 **168h-Statistiken gehen bei System Sleep verloren** — es existiert kein Persistenzmechanismus für die Ring-Buffer-Daten. Nach Recovery starten die Statistiken bei Null.
@@ -692,9 +692,9 @@ Der BQ25798 startet mit Default-Konfiguration (1S Li-ion, 4.2V Ladespannung). We
 
 ### Hardware-Design (Rev 1.1 — FET-invertiert)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
-- **DMN2004TK-7 N-FET**: Gate ← GPIO4 (ext. Pull-Down), Drain → CE, Source → GND
+- **CE-N-FET**: Gate ← GPIO4 (ext. Pull-Down), Drain → CE, Source → GND
 - **Externer Pull-Down am Gate**: Zieht Gate LOW wenn GPIO floated → FET OFF
-- **Externer Pull-Up am CE**: 10kΩ zu VSYS → CE HIGH wenn FET OFF → **Laden AUS** (BQ25798 CE active-low)
+- **Externer Pull-Up am CE**: 100 kΩ auf REGN → CE HIGH wenn FET OFF → **Laden AUS** (BQ25798 CE active-low)
 - **GPIO HIGH** → FET ON → CE an GND (LOW) → **Laden AN**
 - **GPIO LOW** → Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
 - **GPIO High-Z** (stromlos/Reset) → Pull-Down am Gate → FET OFF → Pull-Up am CE → CE HIGH → **Laden AUS**
@@ -731,7 +731,7 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown()`):
 - `digitalWrite(BQ_CE_PIN, HIGH)` wird vor System Sleep aufgerufen
 - P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Output-Latch bleibt HIGH
-- GPIO4 gelatcht HIGH → DMN2004TK-7 FET ON → CE LOW → **Laden aktiv**
+- GPIO4 gelatcht HIGH → CE-FET ON → CE LOW → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
 - Stromverbrauch: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
 

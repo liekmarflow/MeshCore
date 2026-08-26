@@ -184,7 +184,7 @@ Siehe auch [FAQ #16 — „3.3V off“-Schalter](FAQ.md#16-was-macht-der-schalte
 
 | nRF52840-Pin | RAK-Modul-Pin | Funktion |
 |--------------|---------------|----------|
-| P0.04 | WB_IO4 | BQ CE-Pin (via DMN2004TK-7 N-FET, invertiert) |
+| P0.04 | WB_IO4 | BQ CE-Pin (via N-FET, invertiert) |
 | P1.02 | WB_IO2 | INA228 ALERT (Tiefentlade-Interrupt) |
 | P0.17 | WB_IO1 | RV-3028 RTC-Interrupt |
 | P0.21 | WB_IO3 | BQ25798 INT (ungenutzt, Polling; Pull-up) |

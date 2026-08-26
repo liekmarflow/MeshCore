@@ -154,7 +154,7 @@ Die Schwellen sind auf lange Lebensdauer und stabilen Betrieb ausgelegt.
 
 ## Verhalten bei Low-Voltage
 - **Low-Voltage System Sleep:** Wenn VBAT unter `lowv_sleep_mv` fällt, feuert der INA228 ALERT-Interrupt (P1.02). Die Firmware latcht CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → Laden aktiv), konfiguriert den RTC-Wake-Timer und geht in System Sleep mit GPIO-Latch (< 500µA). P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen, damit der GPIO-Latch HIGH bleibt. Periodische RTC-Wakes (stündlich) prüfen die Spannung — erst bei Erholung über `lowv_wake_mv` wird normal gebootet.
-- **Solar-Recovery:** Im System Sleep bleibt der GPIO4-Latch HIGH erhalten → DMN2004TK-7 FET ON → CE LOW → Laden aktiv. Solar-Laden läuft autonom weiter bis der Akku über `lowv_wake_mv` geladen ist. Ohne GPIO-Latch (RAK stromlos): ext. Pull-Down am Gate → FET OFF → CE HIGH → Laden AUS (Safety-Default).
+- **Solar-Recovery:** Im System Sleep bleibt der GPIO4-Latch HIGH erhalten → CE-FET ON → CE LOW → Laden aktiv. Solar-Laden läuft autonom weiter bis der Akku über `lowv_wake_mv` geladen ist. Ohne GPIO-Latch (RAK stromlos): ext. Pull-Down am Gate → FET OFF → CE HIGH → Laden AUS (Safety-Default).
 
 ## CLI-Beispiele (kompakt)
 ```bash

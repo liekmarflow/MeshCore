@@ -183,7 +183,7 @@ Langsames Blinken der BQ-Status-LED signalisiert einen **Charger-Fehler**. Häuf
 Das ist ein bewusstes Sicherheitsfeature. Der BQ25798-Charger wird über den **CE-Pin (Charge Enable)** gesteuert, der von der Firmware aktiv auf GPIO4 HIGH gesetzt werden muss.
 
 **Ohne Firmware** (oder mit aktiviertem 3.3V-off-Schalter):
-- Externer Pull-Down am DMN2004TK-7-FET-Gate → FET OFF → CE HIGH → **Laden deaktiviert**
+- Externer Pull-Down am CE-FET-Gate → FET OFF → CE HIGH → **Laden deaktiviert**
 
 Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn die Firmware hängt oder nicht installiert ist. Firmware per USB flashen und die Akkuchemie setzen (`set board.bat …`), um das Laden zu aktivieren. Siehe [POWER_MANAGEMENT.md — CE Pin Safety](POWER_MANAGEMENT.md#10-bq25798-ce-pin-safety-rev-11--fet-invertiert) für das Hardware-Design.
 

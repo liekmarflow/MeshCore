@@ -183,7 +183,7 @@ Slow blinking of the BQ status LED indicates a **charger fault**. Most common ca
 This is a deliberate safety feature. The BQ25798 charger is controlled via the **CE pin (Charge Enable)**, which requires the firmware to actively drive GPIO4 HIGH.
 
 **Without firmware** (or with the 3.3V off switch engaged):
-- External pull-down on the DMN2004TK-7 FET gate → FET OFF → CE HIGH → **charging disabled**
+- External pull-down on the CE FET gate → FET OFF → CE HIGH → **charging disabled**
 
 This ensures the battery cannot be overcharged if the firmware locks up or is not installed. Flash the firmware via USB and configure the battery chemistry (`set board.bat …`) to enable charging. See [POWER_MANAGEMENT.md — CE Pin Safety](POWER_MANAGEMENT.md#10-bq25798-ce-pin-safety-rev-11--fet-inverted) for the hardware design.
 

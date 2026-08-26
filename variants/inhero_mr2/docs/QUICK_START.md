@@ -154,7 +154,7 @@ Thresholds are chosen for long service life and stable operation.
 
 ## Low-Voltage Behavior
 - **Low-Voltage System Sleep:** When VBAT drops below `lowv_sleep_mv`, the INA228 ALERT interrupt fires (P1.02). The firmware latches CE HIGH (`digitalWrite(BQ_CE_PIN, HIGH)` → FET ON → CE LOW → charging active), configures the RTC wake timer, and enters System Sleep with GPIO latch (< 500µA). P0.04 is excluded from `disconnectLeakyPullups()` so the GPIO latch stays HIGH. Periodic RTC wakes (hourly) check voltage — only when recovery above `lowv_wake_mv` does it boot normally.
-- **Solar Recovery:** In System Sleep, GPIO4 latch is preserved HIGH → DMN2004TK-7 FET ON → CE LOW → charging active. Solar charging continues autonomously until the battery charges above `lowv_wake_mv`. Without GPIO latch (RAK unpowered): ext. pull-down on gate → FET OFF → CE HIGH → charging OFF (safety default).
+- **Solar Recovery:** In System Sleep, GPIO4 latch is preserved HIGH → CE FET ON → CE LOW → charging active. Solar charging continues autonomously until the battery charges above `lowv_wake_mv`. Without GPIO latch (RAK unpowered): ext. pull-down on gate → FET OFF → CE HIGH → charging OFF (safety default).
 
 ## CLI Examples (Compact)
 ```bash

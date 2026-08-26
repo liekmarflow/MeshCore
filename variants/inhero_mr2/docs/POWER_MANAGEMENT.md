@@ -23,7 +23,7 @@
 - [See Also](#see-also)
 
 > This documentation describes the power management implementation for the Inhero MR2 board.
-> Hardware Rev 1.1: INA228 ALERT on P1.02, TPS62840 EN via 3.3V_off switch, CE pin via DMN2004TK-7 FET (inverted).
+> Hardware Rev 1.1: INA228 ALERT on P1.02, TPS62840 EN via 3.3V_off switch, CE pin via N-FET (inverted).
 
 ---
 
@@ -33,7 +33,7 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 
 1. **INA228 ALERT ISR** (P1.02) - Low-voltage detection via hardware interrupt
 2. **System Sleep with GPIO latch** (< 500µA) with RTC wake - Minimal power consumption during low-voltage
-3. **CE Pin FET Safety** (DMN2004TK-7) - Inverted logic, solar charging possible in System Sleep
+3. **CE Pin FET Safety** - Inverted logic, solar charging possible in System Sleep
 4. **Coulomb Counter** (INA228) - Real-time SOC tracking
 5. **Daily Energy Balance** (7-day rolling) - Solar vs. battery
 6. **RTC Wakeup Management** (RV-3028-C7) - Periodic recovery checks
@@ -63,9 +63,9 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 | **BME280** | Temp/Humidity/Pressure sensor | 0x76 | — | NTC calibration reference (`set board.tccal`), selftest |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown timer, wake-up. See [FAQ #23](FAQ.md#23-why-does-the-repeater-board-need-a-correct-time) |
 | **BQ25798** | Battery Charger | 0x6B | INT→GPIO21 | MPPT, JEITA, 15-bit ADC (IBUS ~±30mA error at low currents; ADC has VBAT-dependent thresholds, see [Section 4](#bq25798-adc-at-low-battery-voltages)) |
-| **BQ CE Pin** | Charge Enable | — | GPIO4 (P0.04) | Via DMN2004TK-7 FET: GPIO HIGH → FET ON → CE LOW → charge ON (BQ25798 CE active-low) |
+| **BQ CE Pin** | Charge Enable | — | GPIO4 (P0.04) | Via N-FET: GPIO HIGH → FET ON → CE LOW → charge ON (BQ25798 CE active-low) |
 | **TPS62840** | Buck Converter | - | EN via 3.3V_off switch | 750mA, 3.3V rail |
-| **DMN2004TK-7** | CE FET | — | Gate←GPIO4 (ext. pull-down) | N-FET, Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → charging on. Pull-down defaults gate LOW when floating. |
+| **CE FET** | N-FET | — | Gate←GPIO4 (ext. pull-down) | Drain→CE, Source→GND. GPIO HIGH → FET ON → CE LOW → charging on. Pull-down defaults gate LOW when floating. |
 | **Schottky diode** | USB→VBUS Diode | — | — | VBUS-USB → VBUS-BQ (solar input). USB-C CC1/CC2 via 4.7kΩ to GND (USB sink). **⚠ Solar short also shorts VBUS-USB.** |
 
 ---
@@ -525,7 +525,7 @@ The ISR only sets the flag; `tick()` checks it in the main loop.
 4. **LEDs off**: PIN_LED1, PIN_LED2 LOW
 
 5. **Latch CE pin HIGH** (GPIO output latch preserved for P0.04):
-   - `digitalWrite(BQ_CE_PIN, HIGH)` → DMN2004TK-7 ON → CE LOW → charging active
+   - `digitalWrite(BQ_CE_PIN, HIGH)` → CE FET ON → CE LOW → charging active
    - P0.04 is excluded from `disconnectLeakyPullups()` → GPIO latch stays HIGH in System Sleep
    - Without latch: ext. pull-down on gate → FET OFF → pull-up on CE → CE HIGH → **charging OFF**
 
@@ -549,7 +549,7 @@ The ISR only sets the flag; `tick()` checks it in the main loop.
 SOC is not written during shutdown — on the next successful recovery boot, `begin()` calls `setSOCManually(0.0)` (low-voltage recovery), so SOC restarts at 0%.
 
 **Why System Sleep with GPIO latch?**
-- DMN2004TK-7 FET for CE pin → GPIO4 latch preserved HIGH → FET ON → CE LOW → charging active
+- N-FET for CE pin → GPIO4 latch preserved HIGH → FET ON → CE LOW → charging active
 - Total consumption: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents of all components)
 
 **168h statistics are lost on System Sleep** — no persistence mechanism exists for the ring buffer data. After recovery, statistics start from zero.
@@ -691,9 +691,9 @@ The BQ25798 starts with default configuration (1S Li-ion, 4.2V charge voltage). 
 
 ### Hardware Design (Rev 1.1 — FET-inverted)
 - **Pin**: `BQ_CE_PIN` = GPIO 4 (P0.04 / WB_IO4)
-- **DMN2004TK-7 N-FET**: Gate ← GPIO4 (ext. pull-down), Drain → CE, Source → GND
+- **CE N-FET**: Gate ← GPIO4 (ext. pull-down), Drain → CE, Source → GND
 - **External pull-down on Gate**: Defaults gate LOW when GPIO is floating → FET OFF
-- **External pull-up on CE**: 10kΩ to VSYS → CE HIGH when FET OFF → **charging OFF** (BQ25798 CE active-low)
+- **External pull-up on CE**: 100 kΩ to REGN → CE HIGH when FET OFF → **charging OFF** (BQ25798 CE active-low)
 - **GPIO HIGH** → FET ON → CE pulled to GND (LOW) → **charging ON**
 - **GPIO LOW** → pull-down on gate → FET OFF → pull-up on CE → CE HIGH → **charging OFF**
 - **GPIO High-Z** (unpowered/reset) → pull-down on gate → FET OFF → pull-up on CE → CE HIGH → **charging OFF**
@@ -730,7 +730,7 @@ bq.setChargeEnable(props->charge_enable);     // Software layer (I2C register)
 In Rev 1.1, **System Sleep with GPIO latch** is used (via `initiateShutdown()`):
 - `digitalWrite(BQ_CE_PIN, HIGH)` is called before entering System Sleep
 - P0.04 is excluded from `disconnectLeakyPullups()` → GPIO output latch preserved at HIGH
-- GPIO4 latched HIGH → DMN2004TK-7 FET ON → CE LOW → **charging active**
+- GPIO4 latched HIGH → CE FET ON → CE LOW → **charging active**
 - BQ25798 MPPT/CC/CV runs autonomously in hardware → solar charging possible
 - Power consumption: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents of all components)
 

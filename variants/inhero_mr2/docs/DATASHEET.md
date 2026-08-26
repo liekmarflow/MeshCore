@@ -184,7 +184,7 @@ See also [FAQ #16 — 3.3V off switch](FAQ.md#16-what-does-the-33v-off-switch-do
 
 | nRF52840 Pin | RAK Module Pin | Function |
 |--------------|----------------|----------|
-| P0.04 | WB_IO4 | BQ CE pin (via DMN2004TK-7 N-FET, inverted) |
+| P0.04 | WB_IO4 | BQ CE pin (via N-FET, inverted) |
 | P1.02 | WB_IO2 | INA228 ALERT (low-voltage interrupt) |
 | P0.17 | WB_IO1 | RV-3028 RTC interrupt |
 | P0.21 | WB_IO3 | BQ25798 INT (unused, polled; pulled up) |

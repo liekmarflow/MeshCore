@@ -64,7 +64,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 > via `tickPeriodic()` — no FreeRTOS tasks for I2C, no mutex needed.
 
 ### BQ CE Pin (Rev 1.1 — FET-inverted)
-- **DMN2004TK-7 N-FET**: Gate ← GPIO4 (ext. pull-down), Drain → CE, Source → GND
+- **CE N-FET**: Gate ← GPIO4 (ext. pull-down), Drain → CE, Source → GND
 - **GPIO HIGH** → FET ON → CE LOW → **charging ON** (BQ25798 CE active-low)
 - **GPIO LOW / High-Z** → ext. pull-down on gate → FET OFF → pull-up on CE → CE HIGH → **charging OFF**
 - **System Sleep**: GPIO4 latch preserved HIGH (excluded from `disconnectLeakyPullups()`) → FET ON → CE LOW → **solar charging active**
