@@ -126,7 +126,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     return true;
   } else if (strcmp(cmd, "fmax") == 0) {
     const auto* props = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    if (props && props->ts_ignore) {
+    if (props && !props->needs_jeita) {
       snprintf(reply, maxlen, "N/A");
     } else {
       snprintf(reply, maxlen, "%s",
@@ -255,7 +255,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
   } else if (strcmp(cmd, "conf") == 0) {
     const char* batType = BoardConfigContainer::getBatteryTypeCommandString(cfg.getBatteryType());
     const auto* confProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    const char* frostBehaviour = (confProps && confProps->ts_ignore)
+    const char* frostBehaviour = (confProps && !confProps->needs_jeita)
         ? "N/A"
         : BoardConfigContainer::getFrostChargeBehaviourCommandString(cfg.getFrostChargeBehaviour());
 
@@ -308,7 +308,7 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
     return ret;
   } else if (strncmp(setCommand, "fmax ", 5) == 0) {
     const auto* fmaxProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    if (fmaxProps && fmaxProps->ts_ignore) {
+    if (fmaxProps && !fmaxProps->needs_jeita) {
       snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for this chemistry (JEITA disabled)");
       return ret;
     }

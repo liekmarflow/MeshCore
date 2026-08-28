@@ -99,11 +99,12 @@ bq25798_charging_status BqDriver::getChargingStatus() {
 const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
   telemetryData = { 0 };
 
-  // Determine if TS channel can be enabled: chemistry must carry an NTC at all
-  // (ts_ignore chemistries don't — RT2-only reads decode to a bogus ≈-46°C),
-  // and VBAT must allow it (datasheet quote above: TS requires VBAT >= 3.2V
-  // battery-only).
-  bool ts_enabled = ntc_fitted;
+  // The TS channel runs whenever VBAT allows it (datasheet quote above: TS
+  // requires VBAT >= 3.2V battery-only) — regardless of chemistry. A missing
+  // NTC then decodes through the RT2-only pole to a bogus ≈-46°C that slips
+  // past the open-pin check; the BME280 plausibility filter in
+  // BoardConfigContainer::getTelemetryData() discards such readings.
+  bool ts_enabled = true;
   if (vbat_mv > 0 && vbat_mv < 3200) {
     ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
   }
@@ -142,8 +143,7 @@ const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
     if (ts_enabled) {
       telemetryData.battery.temperature = this->calculateBatteryTemp(getTS());
     } else {
-      // TS channel off — either the chemistry carries no NTC (ts_ignore)
-      // or VBAT is too low to run the channel. No reading either way.
+      // TS channel off — VBAT too low to run the channel. No reading.
       telemetryData.battery.temperature = -888.0f;
     }
   } else {

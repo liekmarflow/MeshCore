@@ -920,10 +920,22 @@ const Telemetry* BoardConfigContainer::getTelemetryData() {
   // Valid NTC range: approx -40..+85 °C. Anything outside -50..+90 is treated as unavailable.
   float bqTemp = bqData->battery.temperature;
   if (bqTemp >= -50.0f && bqTemp <= 90.0f) {
-    telemetry.battery.temperature = bqTemp + tcCalOffset;
-    // Cache for temperature derating in updateBatterySOC() (static context)
-    lastValidBatteryTemp = telemetry.battery.temperature;
-    lastTempUpdateMs = millis();
+    float ntcTemp = bqTemp + tcCalOffset;
+    // Plausibility against the BME280: an open/missing NTC decodes through the
+    // RT2-only pole to ≈-46°C regardless of ambient, which this window check
+    // cannot catch. A reading further than NTC_BME_MAX_DIFF_C from the board
+    // temperature is not the battery → discard. Without a BME reading the
+    // check stands down and the value passes as before.
+    float bmeTemp = readBmeTemperature();
+    if (bmeTemp > -100.0f && bmeTemp < 100.0f &&
+        fabsf(ntcTemp - bmeTemp) > NTC_BME_MAX_DIFF_C) {
+      telemetry.battery.temperature = -999.0f;  // implausible → N/A
+    } else {
+      telemetry.battery.temperature = ntcTemp;
+      // Cache for temperature derating in updateBatterySOC() (static context)
+      lastValidBatteryTemp = ntcTemp;
+      lastTempUpdateMs = millis();
+    }
   } else {
     // NTC unavailable (no solar / I2C error / ADC not ready) → propagate sentinel
     telemetry.battery.temperature = -999.0f;
@@ -1012,13 +1024,11 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
                      props->charge_enable);
 #endif
 
-  // Apply TS_IGNORE before potential early return — configureBaseBQ() resets it to false,
-  // so chemistries with ts_ignore=true (BAT_UNKNOWN, LTO, NAION) need it set here.
-  // Those chemistries carry no battery NTC: keep the TS ADC channel off too,
-  // otherwise the RT2-only divider decodes to a bogus ≈-46°C reading.
-  bq.setTsIgnore(props->ts_ignore);
-  bq.setNtcFitted(!props->ts_ignore);
-  if (props->ts_ignore) {
+  // Apply TS_IGNORE before the potential early return — configureBaseBQ()
+  // resets it to false, so chemistries that need no JEITA supervision
+  // (BAT_UNKNOWN, LTO, Na-ion) have to set it here.
+  bq.setTsIgnore(!props->needs_jeita);
+  if (!props->needs_jeita) {
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
     bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
   }
@@ -1080,6 +1090,7 @@ bool BoardConfigContainer::getMPPTEnabled() const {
   loadMpptEnabled(enabled);
   return enabled;
 }
+
 
 // Enables or disables MPPT
 bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {
@@ -1827,7 +1838,7 @@ void BoardConfigContainer::updateBatterySOC() {
   // separately in CLI output as "derated SOC%".
 
   // Temperature source priority: 1) NTC via BQ25798 TS ADC (cached),
-  // 2) BME280 fallback after >5min of no NTC (covers ts_ignore chemistries).
+  // 2) BME280 fallback after >5min of no NTC (no NTC fitted, or filtered out).
   refreshTempDerating();
 
   // Calculate SOC percentage — purely Coulomb-based, NO temperature derating

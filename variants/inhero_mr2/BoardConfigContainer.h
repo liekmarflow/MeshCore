@@ -97,7 +97,10 @@ public:
     uint16_t lowv_sleep_mv;     // INA228 ALERT → System Sleep
     uint16_t lowv_wake_mv;      // 0% SOC marker, RTC wake decision
     bool charge_enable;
-    bool ts_ignore;             // disables JEITA temperature monitoring
+    // Whether the chemistry needs JEITA temperature supervision. false (LTO,
+    // Na-ion) forces the JEITA override on; true (Li-ion, LiFePO4) leaves it
+    // off unless the user sets board.jeitaignore and passes the 0.02C gate.
+    bool needs_jeita;
     // Capacity derating at cold temps. Calibrated for ~0.01C avg / ~0.05C TX
     // peak loads on 2–8 Ah cells (much milder than datasheet 0.2C–0.5C values).
     //   f(T) = 1.0                                 for T >= temp_ref_c
@@ -108,12 +111,12 @@ public:
   } BatteryProperties;
 
   static inline constexpr BatteryProperties battery_properties[] = {
-    // Type         ChgV  NomV  SleepMv WakeMv  ChgEn  TsIgn   k       min   Tref
-    { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false, true,   0.000f, 1.00f, 25.0f },
-    { LTO_2S,       5.4f, 4.6f, 3900,  4100,   true,  true,   0.002f, 0.88f, 25.0f },
-    { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true,  false,  0.006f, 0.70f, 25.0f },
-    { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true,  false,  0.005f, 0.75f, 25.0f },
-    { NAION_1S,     3.9f, 3.1f, 2500,  2700,   true,  true,   0.003f, 0.85f, 25.0f }
+    // Type         ChgV  NomV  SleepMv WakeMv  ChgEn  NeedsJ  k       min   Tref
+    { BAT_UNKNOWN,  0.0f, 0.0f, 2000,  2200,   false, false,  0.000f, 1.00f, 25.0f },
+    { LTO_2S,       5.4f, 4.6f, 3900,  4100,   true,  false,  0.002f, 0.88f, 25.0f },
+    { LIFEPO4_1S,   3.5f, 3.2f, 2700,  2900,   true,  true,   0.006f, 0.70f, 25.0f },
+    { LIION_1S,     4.1f, 3.7f, 3100,  3300,   true,  true,   0.005f, 0.75f, 25.0f },
+    { NAION_1S,     3.9f, 3.1f, 2500,  2700,   true,  false,  0.003f, 0.85f, 25.0f }
   };
 
   static inline constexpr BatteryMapping bat_map[] = { { "lto2s", LTO_2S },
@@ -284,6 +287,11 @@ private:
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static bool usbInputActive; // True when USB VBUS detected — caps IINDPM to 500mA
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
+  // NTC plausibility: an open/missing NTC decodes through the RT2-only pole to
+  // ≈-46°C regardless of ambient — in DC indistinguishable from a real NTC at
+  // that temperature. The BME280 is the reference; readings further apart than
+  // this are discarded as "not the battery".
+  static constexpr float NTC_BME_MAX_DIFF_C = 15.0f;
   // Last valid battery temperature in °C, updated by getTelemetryData() or
   // BME280 fallback (default 25.0 = no derating)
   static float lastValidBatteryTemp;
