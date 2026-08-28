@@ -14,6 +14,7 @@
 - [3. Temperaturverhalten](#3-temperaturverhalten)
   - [Kälteperformance-Ranking](#kälteperformance-ranking)
   - [Laden bei Kälte](#laden-bei-kälte)
+  - [Akkutemperatur-Erfassung](#akkutemperatur-erfassung)
   - [Temperatur-Derating](#temperatur-derating)
 - [4. Zellauswahl & Bauformen](#4-zellauswahl--bauformen)
   - [Li-ion-Zellen](#li-ion-zellen)
@@ -67,6 +68,7 @@ Die verbreitetste Akkuchemie. NMC (Nickel-Mangan-Kobalt) und NCA (Nickel-Kobalt-
 - Ladeschlussspannung auf **4,1 V** gesetzt (konservativ, statt typisch 4,2 V) für bessere Zyklenlebensdauer
 - **JEITA aktiv** — NTC erforderlich; Ladung gesperrt unter −2 °C (T-Cold)
 - Frost-Ladestromreduzierung konfigurierbar über `set board.fmax`
+- `set board.jeitaignore 1` schaltet die Temperaturüberwachung des Ladereglers komplett ab, begrenzt durch ein 0,05C-Gate — auf eigenes Risiko des Betreibers, siehe [Laden bei Kälte](#laden-bei-kälte)
 
 ### LiFePO4 (LFP, 1S)
 
@@ -89,6 +91,7 @@ Eisenphosphat-Kathoden-Chemie. Beliebt in Solar- und Off-Grid-Anwendungen wegen 
 - Ladeschlussspannung: **3,5 V**
 - **JEITA aktiv** — NTC erforderlich; Ladung gesperrt unter −2 °C (T-Cold)
 - Frost-Ladestromreduzierung konfigurierbar über `set board.fmax`
+- `set board.jeitaignore 1` schaltet die Temperaturüberwachung des Ladereglers komplett ab, begrenzt durch ein 0,05C-Gate — auf eigenes Risiko des Betreibers, siehe [Laden bei Kälte](#laden-bei-kälte)
 - JEITA-WARM-Zone in Firmware neutralisiert zur Vermeidung von VBAT_OVP (siehe [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md#jeita-warm-zone--vbat_ovp-vermeidung))
 
 ### LTO (Lithium-Titanat, 2S)
@@ -114,9 +117,9 @@ Lithium-Titanat-Anoden-Chemie. Eingesetzt in Industrie und ÖPNV wegen extremer 
 
 **Inhero MR2 Besonderheiten:**
 - Ladeschlussspannung: **5,4 V** (2× 2,7 V pro Zelle)
-- **JEITA deaktiviert** (`ts_ignore = true`) — kein NTC zum Laden erforderlich
-- Temperatur für SOC-Derating kommt vom **BME280-Fallback** wenn kein NTC angeschlossen
-- `set board.fmax` hat keine Wirkung (zeigt „N/A")
+- **Keine JEITA-Überwachung nötig** (`needs_jeita = false`) — die Temperaturüberwachung des Ladereglers ist für diese Chemie abgeschaltet, ein NTC ist zum Laden nicht erforderlich
+- Ein NTC ist optional. Ein bestückter NTC wird wie bei jeder anderen Chemie ausgelesen und gemeldet; ohne NTC kommt die Temperatur für das SOC-Derating vom **BME280** auf dem Board
+- `set board.fmax` hat keine Wirkung (zeigt „N/A"), und `set board.jeitaignore` wird abgelehnt mit `Err: This chemistry runs without JEITA (always 1)`
 - Zellzahl im BQ25798 auf 2S konfiguriert
 
 ### Na-ion (Natrium-Ionen, 1S)
@@ -140,9 +143,9 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 
 **Inhero MR2 Besonderheiten:**
 - Ladeschlussspannung: **3,9 V**
-- **JEITA deaktiviert** (`ts_ignore = true`) — kein NTC zum Laden erforderlich
-- Temperatur für SOC-Derating kommt vom **BME280-Fallback** wenn kein NTC angeschlossen
-- `set board.fmax` hat keine Wirkung (zeigt „N/A")
+- **Keine JEITA-Überwachung nötig** (`needs_jeita = false`) — die Temperaturüberwachung des Ladereglers ist für diese Chemie abgeschaltet, ein NTC ist zum Laden nicht erforderlich
+- Ein NTC ist optional. Ein bestückter NTC wird wie bei jeder anderen Chemie ausgelesen und gemeldet; bei 3,1 V nominal liegen weite Teile der Entladung unter der 3200-mV-Grenze der Erfassung, im reinen Akkubetrieb meldet die Messung dort also `N/A` (siehe [Akkutemperatur-Erfassung](#akkutemperatur-erfassung)). Ohne NTC kommt die Temperatur für das SOC-Derating vom **BME280** auf dem Board
+- `set board.fmax` hat keine Wirkung (zeigt „N/A"), und `set board.jeitaignore` wird abgelehnt mit `Err: This chemistry runs without JEITA (always 1)`
 
 ---
 
@@ -157,9 +160,10 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 | **Entnehmbar bei −10 °C** | 65% | 58% | 86% | 83% |
 | **Entnehmbar bei 0 °C** | 75% | 70% | 90% | 88% |
 | **Therm. Durchgehen** | Ja (Risiko) | Nein | Nein | Nein |
-| **NTC erforderlich?** | Ja | Ja | Nein | Nein |
-| **JEITA** | Aktiv | Aktiv | Deaktiviert | Deaktiviert |
-| **Laden bei Frost?** | Nein (gesperrt <−2 °C) | Nein (gesperrt <−2 °C) | Ja | Ja |
+| **NTC erforderlich?** | Ja¹ | Ja¹ | Nein (optional) | Nein (optional) |
+| **Akkutemperatur gemeldet?** | Mit NTC | Mit NTC² | Mit NTC | Mit NTC² |
+| **JEITA** | Aktiv | Aktiv | Nicht nötig (`needs_jeita = false`) | Nicht nötig (`needs_jeita = false`) |
+| **Laden bei Frost?** | Nein (gesperrt <−2 °C)¹ | Nein (gesperrt <−2 °C)¹ | Ja | Ja |
 | **Ladeschlussspannung** | 4,1 V | 3,5 V | 5,4 V (2S) | 3,9 V |
 | **Low-V Sleep** | 3100 mV | 2700 mV | 3900 mV | 2500 mV |
 | **Low-V Wake** | 3300 mV | 2900 mV | 4100 mV | 2700 mV |
@@ -167,6 +171,10 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 | **Zellformate** | 18650, 21700, Pouch | 18650, 26650, prismat. | Schraubterminal, Alu | 18650, prismatisch |
 | **Verfügbarkeit** | Sehr gut | Gut | Eingeschränkt | Eingeschränkt |
 | **Relativer Preis (pro Wh)** | Niedrig | Niedrig–Mittel | Hoch | Mittel |
+
+¹ `set board.jeitaignore 1` hebt für Li-ion und LiFePO4 sowohl die Kältesperre als auch die NTC-Pflicht auf, solange das 0,05C-Gate hält. Damit entfällt auch die Ladeabschaltung auf der heißen Seite — siehe [Laden bei Kälte](#laden-bei-kälte).
+
+² Ein bestückter NTC wird bei jeder Chemie ausgelesen. Im reinen Akkubetrieb ist der TS-Kanal unter 3200 mV abgeschaltet, daher melden LiFePO4 und Na-ion über weite Teile ihrer Entladung `N/A` — siehe [Akkutemperatur-Erfassung](#akkutemperatur-erfassung).
 
 > **Hinweis zu den Entnehmbar-Werten:** Das sind typische Datenblattwerte bei 0,2C–0,5C-Entladelast. Die Last des MR2 liegt weit unter 0,05C und ist damit deutlich sanfter; das Derating-Modell der Firmware (Abschnitt 3) zeigt daher in `get board.telem` höhere entnehmbare Werte.
 
@@ -191,10 +199,10 @@ Von bester zu schlechtester Kälteperformance:
 
 | Chemie | Laden bei Frost? | Mechanismus |
 |---|---|---|
-| **Li-ion** | Nein — gesperrt unter −2 °C | JEITA T-Cold (Hardware, BQ25798) |
-| **LiFePO4** | Nein — gesperrt unter −2 °C | JEITA T-Cold (Hardware, BQ25798) |
-| **LTO** | Ja — lädt bei jeder Temperatur | JEITA deaktiviert (`ts_ignore = true`) |
-| **Na-ion** | Ja — lädt bei jeder Temperatur | JEITA deaktiviert (`ts_ignore = true`) |
+| **Li-ion** | Nein — gesperrt unter −2 °C, außer `board.jeitaignore` ist scharf | JEITA T-Cold (Hardware, BQ25798) |
+| **LiFePO4** | Nein — gesperrt unter −2 °C, außer `board.jeitaignore` ist scharf | JEITA T-Cold (Hardware, BQ25798) |
+| **LTO** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
+| **Na-ion** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
 
 Für Li-ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) standardmäßig gesperrt und kann über `set board.fmax` (20%, 40% oder 100%) auf eine reduzierte Rate gesetzt werden. Beachte: Die Auswahl von Li-ion oder LiFePO4 über `set board.bat` setzt `board.fmax` auf 0% zurück. Siehe [FAQ #6](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst).
 
@@ -202,14 +210,37 @@ Für Li-ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °
 
 LTO und Na-ion verwenden andere Anodenmaterialien (Lithium-Titanat bzw. Hard Carbon), die nicht vom Lithium-Plating betroffen sind, weshalb Frostladen sicher ist.
 
-> **Felderfahrung vs. Theorie:** Viele Repeater-Betreiber laden Li-ion-Zellen bei Frost erfolgreich mit geringen Solarströmen (<0,1C) und berichten über mehrere Winter hinweg von keiner messbaren Degradation. Die [YYCMesh-Community](https://yycmesh.com/blog/cold-weather-charging) dokumentierte zwei Jahre alpine Einsätze in den kanadischen Rockies (bis −40 °C) mit Standard-18650-Zellen — die Innenwiderstände lagen weiterhin im Werksspezifikationsbereich. Ihre Schlüsselfaktoren: sehr geringe Laderaten (<0,05C), passive Sonnenerwärmung der Gehäuse und Ladung während der wärmsten Tageszeit.
+> **Felderfahrung vs. Theorie:** Viele Repeater-Betreiber laden Li-ion-Zellen bei Frost mit geringen Solarströmen und berichten über mehrere Winter hinweg von keiner messbaren Degradation. Die [YYCMesh-Community](https://yycmesh.com/blog/cold-weather-charging) dokumentierte zwei Jahre alpine Einsätze in den kanadischen Rockies (bis −40 °C) mit gewöhnlichen, ungeschützten 18650-Zellen (3000–3500 mAh) — die Innenwiderstände lagen weiterhin im Werksspezifikationsbereich. Ihr eigenes Arbeitsfenster beschreiben sie mit „most of our systems charge at < 0.1 C, often well below 0.05 C", gespeist aus 1-W- bis 6-W-Panels mit durchschnittlichen Ladeströmen typisch unter 200 mA und gelegentlichen Spitzen um 300 mA. Dieses Fenster **schließt** 0,05C ein — 200 mA in eine 3,5-Ah-Zelle sind 0,057C. Weitere Faktoren dort: passive Sonnenerwärmung der Gehäuse und Ladung während der wärmsten Tageszeit.
 >
-> Das sind wertvolle Praxisdaten und der Ansatz funktioniert offensichtlich für viele Setups. Allerdings gelten diese Ergebnisse speziell für Konfigurationen mit **großen Akkukapazitäten und relativ geringer PV-Leistung** (Laderaten deutlich unter 0,05C). Sie sollten nicht als generelle Entwarnung beim Thema Lithium-Plating verstanden werden. *Es kommt darauf an* — auf Laderate, Zellqualität, Panelgröße und Temperatur. Die Degradation durch Lithium-Plating ist **kumulativ und subtil** — sie zeigt sich nicht als plötzlicher Ausfall, sondern als schleichender Kapazitätsverlust über Jahre. Zwei zusätzliche Risiken werden häufig unterschätzt:
+> Die Grenzen ihrer eigenen Belege benennen sie ebenfalls: Die theoretisch „sichere" Kälte-Laderate liegt bei etwa 0,02C, die gezeigte degradierte Zelle ist eine einzelne Vape-Zelle, gemessen gegen einen generischen Neuwert ohne Vormessung und ohne Kontrollzelle, und ein zuverlässiger Dendriten-Nachweis bräuchte NMR-Spektrometrie oder Bildgebung, „far outside the reach of the average hobbyist". Diese 0,02C sind die theoretische Zahl der Quelle selbst, während das Arbeitsfenster, das sie tatsächlich berichten, 0,05C einschließt. Einordnung: ehrliche Praxiserfahrung von Betreibern, die selbst sagen, dass sie den Mechanismus nicht messen können. Das ist weder ein Beweis, dass Frostladen harmlos ist, noch ein Grund, die Praxis abzutun. *Es kommt darauf an* — auf Laderate, Zellqualität, Panelgröße und Temperatur. Die Degradation durch Lithium-Plating ist **kumulativ und permanent** — sie zeigt sich als still verschwundene Kapazität über Jahre. Zwei zusätzliche Risiken werden häufig unterschätzt:
 >
 > 1. **PV-Panels liefern bei Kälte mehr Leistung** (Silizium-Temperaturkoeffizient ~−0,35%/°C). Ein 5-W-Panel bei −10 °C liefert deutlich mehr Strom als bei +25 °C. Schneereflexion kann die Leistung sogar über die Nennwerte hinaus steigern.
 > 2. **Zellqualität variiert.** Ergebnisse mit Premium-Zellen (niedriger Innenwiderstand, konsistente Chemie) lassen sich nicht unbedingt auf Budget-Zellen übertragen.
 >
-> Das Inhero MR2 verfolgt einen konservativen Ansatz: Der NTC-Akkutemperatursensor veranlasst den BQ25798, die Ladung zu blockieren, bis die Zelle sich über −2 °C erwärmt hat (JEITA T-Cold), und hält die Ladung standardmäßig auch in der T-Cool-Zone gesperrt (`board.fmax`-Standard 0%). Mit `set board.fmax` 20%, 40% oder 100% lädt das Board zwischen −2 °C und +3 °C stattdessen mit reduzierter Rate. An sonnigen Wintertagen läuft das Board über den Power-Path auf Solar, während der Akku geschützt bleibt. Sobald die direkte Sonneneinstrahlung das Gehäuse und die Akkutemperatur über den Schwellwert erwärmt — was bei durchdachtem Gehäusedesign erstaunlich schnell geht — wird die Ladung automatisch wieder freigegeben. Das bietet das Beste aus beiden Welten: kein Plating-Risiko bei gleichzeitig minimalem Verlust an Ladezeit.
+> Das Inhero MR2 wird konservativ ausgeliefert: Der NTC-Akkutemperatursensor veranlasst den BQ25798, die Ladung zu blockieren, bis die Zelle sich über −2 °C erwärmt hat (JEITA T-Cold), und hält die Ladung standardmäßig auch in der T-Cool-Zone gesperrt (`board.fmax`-Standard 0%). Mit `set board.fmax` 20%, 40% oder 100% lädt das Board zwischen −2 °C und +3 °C stattdessen mit reduzierter Rate. An sonnigen Wintertagen läuft das Board über den Power-Path auf Solar, während der Akku geschützt bleibt. Sobald die direkte Sonneneinstrahlung das Gehäuse und die Akkutemperatur über den Schwellwert erwärmt — was bei durchdachtem Gehäusedesign erstaunlich schnell geht — wird die Ladung automatisch wieder freigegeben.
+
+**Die Temperaturüberwachung übergehen: `set board.jeitaignore`**
+
+Für Betreiber, die die oben beschriebene Praxis fahren wollen, bietet die Firmware sie als ausdrückliche, begrenzte Option an, die **standardmäßig aus** ist. `set board.jeitaignore 1` setzt das TS_IGNORE-Bit im BQ25798; der Laderegler behandelt den TS-Pin dann als immer in Ordnung und lädt durch den Frost hindurch. Das Kommando wird nur für Li-ion und LiFePO4 angenommen — LTO und Na-ion laufen ohnehin ohne JEITA und antworten `Err: This chemistry runs without JEITA (always 1)`.
+
+**Das Gate.** Der Override wird nur wirksam, solange `board.batcap` ausdrücklich gesetzt wurde **und** `board.imax` bei höchstens **0,05C** dieser Kapazität liegt (9000 mAh → 450 mA). Außerhalb davon wird der Wunsch gespeichert, bleibt aber inaktiv, und die CLI benennt den Blocker: `jeitaignore set to 1, N/A, C>0.05` oder `jeitaignore set to 1, N/A, batcap not set`. Verworfen wird dabei nichts — `imax` wieder unter die Grenze zu senken oder `batcap` anzuheben schärft den Override von selbst wieder, und die Antwort sagt das mit `; jeitaignore 1`. Persistent ist der Wunsch; der wirksame Zustand wird bei jedem Boot und bei jedem Chemiewechsel neu abgeleitet, und vom Einschalten bis zum Anwenden der gespeicherten Konfiguration hat die Hardware-Überwachung das Sagen.
+
+**Was man aufgibt.** TS_IGNORE nimmt den TS-Pin aus jeder Ladeentscheidung heraus, die heiße eingeschlossen. Solange der Override an ist, unterbricht der Laderegler die Ladung auch auf der heißen Seite nicht mehr (T-Hot, rund +58 °C am Spannungsteiler des MR2), und alle vier TS-Statusbits melden „kein Fehler". Für keine der beiden Grenzen gibt es einen Software-Ersatz: Das Board schläft im SYSTEMOFF mit aktivem Laderegler, dort läuft keine Regelschleife — die 0,05C-Schranke ist das gesamte Sicherheitsargument. Auf der heißen Seite hält genau diese Schranke das Restrisiko klein, weil 0,05C thermisch uninteressant ist. Auf der kalten Seite bleibt der Plating-Mechanismus unverändert; das Gate begrenzt die Rate, es beseitigt den Mechanismus nicht. Wer das Flag setzt, akzeptiert beschleunigte Zellalterung als Preis für Ladezeit im Winter.
+
+**Wofür es ausgelegt ist.** Das Gate ist eine einzige Zahl für alle Temperaturen, während die vertretbare Laderate mit sinkender Zelltemperatur fällt — etwa um die Hälfte je 10 K. Knapp unter dem Gefrierpunkt ist der Abstand bei 0,05C komfortabel; er schrumpft mit jedem Grad, das der Standort tiefer liegt. Der Override ist auf mitteleuropäischen Frost ausgelegt, die Bedingungen, für die das [Datenblatt](DATASHEET.md) Modul- und Akkugröße bemisst. Für Standorte regelmäßig unter etwa −20 °C wählt man besser die passende Chemie: LTO und Na-ion sind von ihren Herstellern für das Laden bei −20 °C freigegeben, und das MR2 unterstützt beide.
+
+**Solange er an ist.** `get board.fmax` antwortet `N/A`, `set board.fmax` wird mit `Err: Fmax N/A while jeitaignore is on` abgelehnt, und `get board.conf` hängt ` J:1` an. `set board.jeitaignore 0` schaltet den Override ab und stellt das gespeicherte `fmax`-Verhalten wieder her.
+
+### Akkutemperatur-Erfassung
+
+Die Akkutemperatur kommt von einem NTC am TS-Pin des BQ25798. Die Firmware liest diesen Kanal bei **jeder Chemie**; ob ein NTC bestückt ist, ist eine Frage der Verdrahtung und hängt nicht mehr an der eingestellten Chemie. Zwei Bedingungen entscheiden, ob überhaupt ein Wert verfügbar ist:
+
+- **Akkuspannung.** Im reinen Akkubetrieb wird der TS-Kanal abgeschaltet, solange die Akkuspannung zwischen 0 und 3200 mV liegt, damit die Solarmessung weiter funktioniert. Liegt eine Eingangsquelle an — das Panel liefert Leistung —, bleibt der Kanal eingeschaltet, sodass eine kalte, fast leere Zelle beim Laden ihre Temperatur meldet. LTO 2S (4,6–5,4 V) liegt immer darüber und Li-ion 1S über den größten Teil seiner Kurve, während LiFePO4 (3,2 V nominal) und Na-ion (3,1 V nominal) weite Teile ihrer Entladung darunter verbringen — im reinen Akkubetrieb meldet die Akkutemperatur dort `N/A`, auch mit bestücktem NTC.
+- **Plausibilität.** Ein dekodierter Wert wird gegen eine frische BME280-Messung geprüft; liegt er mehr als 15,0 °C daneben, wird er verworfen und als `N/A` gemeldet. Diese Prüfung gibt es, weil ein fehlender oder offener NTC keinen offensichtlich falschen Wert liefert — der Spannungsteiler dekodiert dann zu etwa −46 °C, was die reine Bereichsprüfung unbemerkt passiert.
+
+Wurde 5 Minuten lang keine NTC-Messung akzeptiert, greift für das SOC-Derating die Temperatur des BME280 auf dem Board. Dieser Fallback gilt für jede Chemie — ob der NTC fehlt, die Akkuspannung zu niedrig ist oder die Messung verworfen wurde.
+
+**Erforderlich zum Laden** ist ein NTC nur bei Li-ion und LiFePO4: Dort liest der BQ25798 einen offenen TS-Pin als Frost und sperrt die Ladung. Einen NTC zu bestücken (Lötbrücke oder externer Sensor) ist dafür die richtige Lösung. Für eine Installation ohne NTC bei diesen beiden Chemien ist `set board.jeitaignore 1` innerhalb des 0,05C-Gates die Alternative — damit fällt der TS-Pin ganz aus der Ladeentscheidung heraus, mit dem oben beschriebenen Preis.
 
 ### Temperatur-Derating
 
@@ -395,7 +426,7 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 - Im Sommer produzieren vertikale Panels weniger als optimal geneigte — aber der Sommerertrag ist nie der Engpass für Autarkie
 
 **Chemiespezifische Aspekte:**
-- **Li-ion / LiFePO4:** Solarladung ist bei Frost (<−2 °C) gesperrt. An kalten Wintertagen kann das Panel Strom liefern, aber der Akku nimmt keine Ladung an, bis er sich über −2 °C erwärmt. Das Board läuft derweil direkt auf Solar, wenn die Leistung ausreicht. Beachte: PV-Panels liefern **bei Kälte mehr Leistung** (Silizium-Temperaturkoeffizient ~−0,35%/°C) — tatsächliche Ladeströme können die Nennwerte überschreiten. Ein weiterer Grund, warum hardwareseitige Ladungsblockierung via JEITA essenziell ist, statt sich auf „geringe Ströme“ zu verlassen.
+- **Li-ion / LiFePO4:** Solarladung ist bei Frost (<−2 °C) gesperrt, sofern nicht `set board.jeitaignore 1` scharf ist — auf eigenes Risiko des Betreibers. An kalten Wintertagen kann das Panel Strom liefern, aber der Akku nimmt keine Ladung an, bis er sich über −2 °C erwärmt. Das Board läuft derweil direkt auf Solar, wenn die Leistung ausreicht. Beachte: PV-Panels liefern **bei Kälte mehr Leistung** (Silizium-Temperaturkoeffizient ~−0,35%/°C) — tatsächliche Ladeströme können die Nennwerte überschreiten. Deshalb sitzt die Sperre in der Hardware, und deshalb hängt das Gate des `jeitaignore`-Overrides am eingestellten Ladestrom — siehe [Laden bei Kälte](#laden-bei-kälte).
 - **LTO / Na-ion:** Solarladung funktioniert auch bei tiefem Frost — ein erheblicher Vorteil für alpine Einsätze, wo Frost tage- oder wochenlang anhalten kann.
 
 ---
@@ -414,7 +445,7 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 - **Ladespannungslimit** — BQ25798 pro Chemie konfiguriert, gegen Überladung
 - **VBAT_OVP** — Hardware-Überspannungsschutz im BQ25798
 - **200 mV Hysterese** — Verhindert Motorboating (schnelles Ein/Aus-Toggeln) nahe leer
-- **JEITA-Temperaturschutz** (nur Li-ion/LiFePO4) — Hardware-Ladekontrolle über NTC
+- **JEITA-Temperaturschutz** (nur Li-ion/LiFePO4) — Hardware-Ladekontrolle über NTC; `set board.jeitaignore 1` schaltet ihn innerhalb des 0,05C-Gates ab, auf eigenes Risiko des Betreibers ([Details](#laden-bei-kälte))
 
 **Nutzerverantwortung:**
 - Li-ion: Zellen mit Schutzschaltung (PCM) oder ordentlichem BMS verwenden

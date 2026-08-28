@@ -8,6 +8,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - Either use the 3-pin battery connector with TS/NTC, or close the onboard NTC solder bridge on the back side.
 - Firmware NTC type: NCP15XH103F03RC (10k @ 25C, Beta 3380).
 - Purpose: The charger uses the TS pin for JEITA/frost logic.
+- Without an NTC the open TS pin reads as frost, and the charger blocks charging for Li-ion and LiFePO4. Fitting one is the correct fix; for an installation that has none, the override in step 10 takes the TS pin out of the decision.
 - → [FAQ #2 — Battery packs without NTC](FAQ.md#2-can-i-use-battery-packs-without-a-built-in-ntc)
 
 ## 2) Connect Antennas
@@ -44,7 +45,7 @@ This guide walks you through commissioning and the most important CLI commands.
 ## 7) Set Battery Capacity
 - Command: set board.batcap <mAh>
 - Example: set board.batcap 10000
-- Important for accurate SOC calculation.
+- Important for accurate SOC calculation, and the precondition for the frost charging override in step 10.
 - → [FAQ #4 — What mAh value?](FAQ.md#4-what-mah-value-should-i-enter-for-set-boardbatcap)
 
 ## 8) Set Maximum Charge Current
@@ -61,22 +62,32 @@ This guide walks you through commissioning and the most important CLI commands.
 - 20% = max. 20% of imax (e.g. 500mA → 100mA at approx. -2 °C to +3 °C).
 - 40% = max. 40% of imax (e.g. 500mA → 200mA at approx. -2 °C to +3 °C).
 - 100% = no reduction, full charge current even in cold conditions.
-- Below approx. -2 °C (T-Cold): Charging always completely blocked by JEITA.
+- Below approx. -2 °C (T-Cold): Charging completely blocked by JEITA, unless the override from step 10 is armed.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
 - Note: For LTO and Na-ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
 - → [FAQ #6 — What does fmax control?](FAQ.md#6-what-does-set-boardfmax-control)
 
-## 10) Enable MPPT
+## 10) Frost Charging Override (optional)
+- Command: set board.jeitaignore <1|0> — default 0.
+- Only for Li-ion and LiFePO4. LTO and Na-ion charge in frost anyway and reject the command with `Err: This chemistry runs without JEITA (always 1)`.
+- With 1 the charger ignores the TS pin: charging continues below -2 °C, and the charger's upper cut-off at approx. +58 °C is dropped as well.
+- Precondition: `board.batcap` must be set (step 7) and `board.imax` must be at or below 0.05C of that capacity (10000 mAh → 500 mA). Otherwise the reply names the blocker — `jeitaignore set to 1, N/A, batcap not set` or `jeitaignore set to 1, N/A, C>0.05`. The setting stays stored either way and takes effect on its own once imax or batcap pass.
+- The 0.05C ceiling holds for as long as the override is on, and it can sit well below what the panel delivers: a 4000 mAh pack allows 200 mA; the 2 W panel from step 8 gives about 480 mA.
+- Charging Li-ion or LiFePO4 in frost plates metallic lithium on the anode, cumulatively and permanently; it shows up later as lost capacity.
+- While the override is on, `get board.fmax` reads N/A and `set board.fmax` is rejected with `Err: Fmax N/A while jeitaignore is on`.
+- → [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — cold charging, field evidence and the full trade
+
+## 11) Enable MPPT
 - Command: set board.mppt <0|1>
 - 1 = MPPT on, 0 = MPPT off.
 - Typically enable for solar input.
 
-## 11) Enable/Disable LEDs
+## 12) Enable/Disable LEDs
 - Command: set board.leds <on|off> or set board.leds <1|0>
 - Controls heartbeat LED and BQ status LED (bootloader LED patterns are unaffected).
 - → [FAQ #17 — What do the LEDs mean?](FAQ.md#17-what-do-the-leds-mean)
 
-## 12) Fully Charge Battery (SOC Sync)
+## 13) Fully Charge Battery (SOC Sync)
 - Fully charge the battery once via USB so the SOC synchronizes cleanly.
 - → [FAQ #11 — SOC shows 0% or N/A?](FAQ.md#11-why-does-the-soc-show-0-or-na)
 
@@ -96,6 +107,7 @@ The `imax` values below are derived from the rule of thumb from section 8:
 ### Li-ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # chemistry: 1S Li-ion (sets charge profile + low-V thresholds)
+set board.batcap 10000   # pack capacity — SOC, and the 0.05C ceiling for step 10 (→ 500 mA)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
 set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA = 100 mA
 ```
@@ -103,6 +115,7 @@ set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA =
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # chemistry: 1S LiFePO4 (sets charge profile + low-V thresholds)
+set board.batcap 9000    # pack capacity — SOC, and the 0.05C ceiling for step 10 (→ 450 mA)
 set board.imax 300       # max charge current — ≈ 1 W panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, rounded up for headroom)
 set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 300 mA = 120 mA
 ```
@@ -110,6 +123,7 @@ set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 300 mA =
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s      # chemistry: 2S LTO (sets charge profile + low-V thresholds)
+set board.batcap 10000   # pack capacity — for the SOC calculation
 set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
                          # fmax is omitted: rejected for LTO (JEITA disabled — LTO charges even at frost)
 ```
@@ -117,11 +131,12 @@ set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 
 ### Na-ion 1S (3.1V nominal)
 ```bash
 set board.bat naion1s    # chemistry: 1S Na-ion (sets charge profile + low-V thresholds)
+set board.batcap 10000   # pack capacity — for the SOC calculation
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
                          # fmax is omitted: rejected for Na-ion (JEITA disabled)
 ```
 
-Note: `set board.fmax` is rejected with an error for LTO and Na-ion (JEITA disabled); `get board.fmax` shows N/A.
+Note: `set board.fmax` is rejected with an error for LTO and Na-ion (JEITA disabled); `get board.fmax` shows N/A. The same applies to Li-ion and LiFePO4 while the frost charging override from step 10 is on.
 
 ## Solar Panel Notes
 - Maximum open-circuit voltage (Voc) for the input: 25V.
@@ -177,6 +192,7 @@ get board.fmax
 get board.mppt
 get board.leds
 get board.batcap
+get board.jeitaignore
 get board.telem
 get board.stats
 get board.cinfo
@@ -186,16 +202,17 @@ get board.conf
 
 ## Getter Quick Reference (all relevant board getters)
 - `get board.bat` - Current battery type (liion1s, lifepo1s, lto2s, naion1s, none).
-- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A for LTO/Na-ion).
+- `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A whenever the JEITA override is active).
 - `get board.imax` - Maximum charge current in mA.
 - `get board.mppt` - MPPT status (0/1).
 - `get board.leds` - LED status (Heartbeat + BQ Stat).
 - `get board.batcap` - Battery capacity in mAh (set/default).
+- `get board.jeitaignore` - Frost charging override: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` for LTO/Na-ion, or the stored setting with its blocker (`jeitaignore 1, N/A, batcap not set` / `jeitaignore 1, N/A, C>0.05`).
 - `get board.telem` - Real-time telemetry (Battery/Solar incl. SOC, V/I/T). See [TELEMETRY.md](TELEMETRY.md) for what the app displays.
 - `get board.stats` - Energy balance (24h/3d/7d), charge/discharge breakdown and MPPT ratio.
 - `get board.cinfo` - Charger status (Charger State + Flags).
 - `get board.selftest` - I²C hardware probe (`INA:OK BQ:OK RTC:OK BME:OK`). RTC includes a write/readback verify (state `WR_FAIL` on mismatch).
-- `get board.conf` - Summary of all configs (B, F, M, I, Vco, V0).
+- `get board.conf` - Summary of all configs (B, F, M, I, Vco, V0; plus `J:1` while the frost charging override is on for Li-ion/LiFePO4).
 - `get board.tccal` - NTC temperature calibration offset in °C (0.00 = default).
   - → [FAQ #12 — When should I run tccal?](FAQ.md#12-when-should-i-run-set-boardtccal)
 

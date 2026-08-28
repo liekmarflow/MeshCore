@@ -44,6 +44,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 | SOC→Li-ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
 | MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
 | PFM Forward Mode | Active (chip default) | Enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low solar currents |
+| JEITA override (`set board.jeitaignore`) | Available, off by default | Li-ion 1S / LiFePO4 1S only; becomes active while `board.batcap` is set and `board.imax` is at or below 0.05C |
 
 ## Power Management Features
 
@@ -142,10 +143,12 @@ The BQ25798 uses the TS pin (NTC thermistor) for JEITA-compliant temperature-dep
 
 | JEITA Zone | BQ25798 Threshold | TI Reference | Inhero MR2 (actual) | Shift | Firmware Config |
 |------------|-------------------|--------------|----------------------|-------|-----------------|
-| T-Cold (charge suspend) | VT1 = 72.0% REGN | +3.7 °C | −2.0 °C | −5.7 °C | — (not configurable) |
+| T-Cold (charge suspend) | VT1 = 72.0% REGN | +3.7 °C | −2.0 °C | −5.7 °C | threshold fixed |
 | T-Cool (reduced current) | VT2 = 69.8% REGN | +7.9 °C | +2.8 °C | −5.1 °C | `set board.fmax` |
 | T-Warm start | VT3 = 37.7% REGN | +54.5 °C | +52.2 °C | −2.3 °C | `TS_WARM = 55°C` register setting |
-| T-Hot (charge suspend) | VT5 = 34.2% REGN | +59.9 °C | +57.7 °C | −2.2 °C | — (not configurable) |
+| T-Hot (charge suspend) | VT5 = 34.2% REGN | +59.9 °C | +57.7 °C | −2.2 °C | threshold fixed |
+
+> While the JEITA override is active, TS_IGNORE = 1 forces all four TS status bits to 000: every zone in this table is bypassed, and the `board.fmax` reduction is inert.
 
 > Calculation based on: NTC 103AT (B25/50=3435) for TI reference, NCP15XH103F03RC (B25/85=3380) for Inhero. Typical %REGN values from BQ25798 datasheet.
 
@@ -157,6 +160,16 @@ The BQ25798 uses the TS pin (NTC thermistor) for JEITA-compliant temperature-dep
 - **`AUTO_IBATDIS = disabled`**: Disables the BQ25798's automatic 30 mA battery discharge during VBAT_OVP. The POR default actively drains the battery at ~30 mA (IBAT_LOAD) when OVP is triggered, which is counterproductive for solar-powered systems.
 
 > **Background:** With default BQ25798 settings, the combination of the Inhero divider offset and LiFePO4 chemistry caused a failure chain at ~42 °C: WARM zone entry → VREG reduced to 3.1 V → VBAT_OVP (battery at 3.47 V > 104% × 3.1 V) → active 30 mA discharge → net −45 mA drain despite solar input. The settings above prevent this entirely. The WARM zone (52–58 °C with Inhero divider) now has no effect on charging behavior.
+
+**JEITA override (`set board.jeitaignore`)**
+
+`set board.jeitaignore 1` sets the BQ25798 TS_IGNORE bit (NTC Control 1, register 0x18, bit 0). The charger then treats the TS pin as always good for charging, so charging continues below the T-Cold threshold. Off by default.
+
+- **Chemistry:** accepted for Li-ion 1S and LiFePO4 1S. LTO 2S and Na-ion 1S need no JEITA supervision (`needs_jeita = false` in the chemistry table) and run with TS_IGNORE set anyway; for them the verb answers `Err: This chemistry runs without JEITA (always 1)`.
+- **Gate:** the override becomes active only while `board.batcap` has been written explicitly and `board.imax` is at or below 0.05C of that capacity. Writes to `imax` or `batcap` re-derive the state, and the reply names the change.
+- **Stored as a wish:** the flag is kept in NVS, the effective state is derived on every chemistry apply and is never persisted. A failing gate does not discard the flag — the override re-arms on its own once `imax`/`batcap` pass again. From power-on until the stored configuration is applied, TS_IGNORE is cleared and the hardware temperature guard is in charge.
+- **Scope of the switch:** with TS_IGNORE set, all four TS status bits report 000, so the charge suspend at T-Hot (~+57.7 °C with the Inhero divider) is disabled as well. The firmware offers no replacement for either limit — the board sleeps in SYSTEMOFF with the charger enabled and no control loop runs there, so the 0.05C bound is the whole safety argument.
+- **Risk:** charging Li-ion or LiFePO4 in frost is at the operator's own risk. The 0.05C bound limits the rate; lithium plating on the graphite anode stays cumulative and permanent, and it shows up as capacity quietly gone. See [BATTERY_GUIDE.md](BATTERY_GUIDE.md) for the field evidence, the temperature scope and the full trade.
 
 ## Firmware Build
 
@@ -186,11 +199,15 @@ get board.fmax      # Query frost charge behavior
                     # 40% at imax=500mA → max. 200mA charge current in T-Cool range
                     # 0% = charging blocked in T-Cool range
                     # 100% = no reduction (full current even in cold)
-                    # Below approx. -2 °C (T-Cold): charging always completely blocked (JEITA)
+                    # Below approx. -2 °C (T-Cold): charging blocked (JEITA),
+                    # unless the JEITA override is active — see
+                    # set board.jeitaignore
                     # Note: Only charging is restricted. With sufficient
                     # solar, the board continues to run on solar power —
                     # the battery is neither charged nor discharged.
-                    # LTO / Na-ion batteries: N/A (JEITA disabled, charges even in frost)
+                    # Output is N/A while the JEITA override is active:
+                    # chemistries that run without JEITA (LTO / Na-ion /
+                    # none), or an armed set board.jeitaignore
 
 get board.imax      # Query maximum charge current
                     # Output: <current>mA (e.g. 200mA)
@@ -240,6 +257,9 @@ get board.selftest  # I²C hardware probe (all on-board devices)
 
 get board.conf      # Query all configuration values
                     # Output: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<voltage> V0:<0%SOC>
+                    # F: reads N/A while the JEITA override is active
+                    # A trailing J:1 is appended while the user override is
+                    # armed (Li-ion / LiFePO4 only)
 
 get board.batcap    # Query battery capacity
                     # Output: <capacity> mAh (set) or <capacity> mAh (default)
@@ -251,6 +271,18 @@ get board.tccal     # Query NTC temperature calibration offset
 get board.leds      # Query LED enable status
                     # Output: "LEDs: ON (Heartbeat + BQ Stat)" or "LEDs: OFF (Heartbeat + BQ Stat)"
                     # Shows whether heartbeat LED and BQ25798 stat LED are enabled
+
+get board.jeitaignore  # Query JEITA override state
+                       # Output: jeitaignore 0
+                       #   → override off
+                       # Output: jeitaignore 1
+                       #   → override active
+                       # Output: jeitaignore 1 (chemistry)
+                       #   → LTO / Na-ion run without JEITA
+                       # Output: jeitaignore 1, N/A, C>0.05
+                       #   → flag stored, imax above 0.05C of batcap
+                       # Output: jeitaignore 1, N/A, batcap not set
+                       #   → flag stored, batcap never written
 ```
 
 ### Set Commands
@@ -268,14 +300,23 @@ set board.fmax <behavior>      # Set frost charge behavior
                                # 20% = max. 20% of imax in T-Cool range
                                # 40% = max. 40% of imax in T-Cool range
                                # 100% = no reduction
-                               # Below approx. -2 °C (T-Cold): charging always blocked (JEITA)
+                               # Below approx. -2 °C (T-Cold): charging blocked
+                               # (JEITA), unless the JEITA override is active —
+                               # see set board.jeitaignore
                                # Note: Only charging is restricted. With sufficient
                                # solar, the board continues to run on solar power —
                                # the battery is neither charged nor discharged.
-                               # N/A for LTO / Na-ion batteries (JEITA disabled)
+                               # Refused for chemistries that run without JEITA
+                               # (LTO / Na-ion):
+                               #   Err: Fmax setting N/A for this chemistry (JEITA disabled)
+                               # Refused while the override is active:
+                               #   Err: Fmax N/A while jeitaignore is on
 
 set board.imax <current>       # Set maximum charge current in mA
                                # Range: 50-1500mA (BQ25798 minimum: 50mA)
+                               # imax is part of the jeitaignore gate: when the
+                               # write changes the override state, the reply gains
+                               # "; jeitaignore 1" or "; jeitaignore N/A, C>0.05"
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
@@ -283,6 +324,9 @@ set board.mppt <1|0>           # Enable/disable MPPT
 set board.batcap <capacity>    # Set battery capacity in mAh
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
+                               # batcap is part of the jeitaignore gate: when the
+                               # write changes the override state, the reply gains
+                               # "; jeitaignore 1" or "; jeitaignore N/A, C>0.05"
 
 set board.tccal                # Calibrate NTC temperature
                                # Two modes:
@@ -300,6 +344,24 @@ set board.leds <on|off>        # Enable/disable heartbeat + BQ stat LED
 set board.soc <percent>        # Manually set SOC
                                # Range: 0-100
                                # Note: INA228 must be initialized
+
+set board.jeitaignore <1|0>    # Allow charging below the JEITA T-Cold threshold
+                               # 1 = charger ignores the TS pin (TS_IGNORE)
+                               # 0 = JEITA temperature control active (default)
+                               # Li-ion 1S / LiFePO4 1S only. LTO / Na-ion:
+                               #   Err: This chemistry runs without JEITA (always 1)
+                               # Gate: board.batcap must be set explicitly and
+                               # board.imax must be at or below 0.05C of it
+                               # Replies: jeitaignore set to 1
+                               #          jeitaignore set to 1, N/A, C>0.05
+                               #          jeitaignore set to 1, N/A, batcap not set
+                               #          jeitaignore set to 0
+                               # The flag stays stored when the gate fails and
+                               # re-arms once imax/batcap pass again
+                               # The override also drops the hot-side charge
+                               # suspend (~ +57.7 °C). Charging Li-ion or LiFePO4
+                               # in frost is at the operator's own risk —
+                               # see BATTERY_GUIDE.md
 ```
 
 ## Diagnostics & Troubleshooting

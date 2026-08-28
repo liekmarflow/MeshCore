@@ -14,6 +14,7 @@
 - [3. Temperature Behavior](#3-temperature-behavior)
   - [Cold Performance Ranking](#cold-performance-ranking)
   - [Charging in Cold Conditions](#charging-in-cold-conditions)
+  - [Battery Temperature Sensing](#battery-temperature-sensing)
   - [Temperature Derating](#temperature-derating)
 - [4. Cell Selection & Form Factors](#4-cell-selection--form-factors)
   - [Li-ion Cells](#li-ion-cells)
@@ -67,6 +68,7 @@ The most common rechargeable chemistry. NMC (Nickel-Manganese-Cobalt) and NCA (N
 - Charge voltage set to **4.1 V** (conservative, vs. typical 4.2 V) for improved cycle life
 - **JEITA active** — NTC required; charging blocked below −2 °C (T-Cold)
 - Frost charge reduction configurable via `set board.fmax`
+- `set board.jeitaignore 1` switches the charger's temperature guard off entirely, within a 0.05C rate gate — at the operator's own risk, see [Charging in Cold Conditions](#charging-in-cold-conditions)
 
 ### LiFePO4 (LFP, 1S)
 
@@ -89,6 +91,7 @@ Iron-phosphate cathode chemistry. Popular in solar and off-grid applications for
 - Charge voltage: **3.5 V**
 - **JEITA active** — NTC required; charging blocked below −2 °C (T-Cold)
 - Frost charge reduction configurable via `set board.fmax`
+- `set board.jeitaignore 1` switches the charger's temperature guard off entirely, within a 0.05C rate gate — at the operator's own risk, see [Charging in Cold Conditions](#charging-in-cold-conditions)
 - JEITA WARM zone neutralized in firmware to prevent VBAT_OVP (see [POWER_MANAGEMENT.md](POWER_MANAGEMENT.md#jeita-warm-zone--vbat_ovp-prevention))
 
 ### LTO (Lithium Titanate, 2S)
@@ -114,9 +117,9 @@ Lithium titanate anode chemistry. Used in industrial and transit applications fo
 
 **Inhero MR2 specifics:**
 - Charge voltage: **5.4 V** (2× 2.7 V per cell)
-- **JEITA disabled** (`ts_ignore = true`) — no NTC required for charging
-- Temperature for SOC derating comes from **BME280 fallback** if no NTC connected
-- `set board.fmax` has no effect (shown as "N/A")
+- **No JEITA supervision needed** (`needs_jeita = false`) — the charger's temperature guard is switched off for this chemistry, so no NTC is required for charging
+- An NTC is optional. A fitted one is read and reported like on any other chemistry; without one, the temperature for SOC derating comes from the **BME280** on the board
+- `set board.fmax` has no effect (shown as "N/A"), and `set board.jeitaignore` is refused with `Err: This chemistry runs without JEITA (always 1)`
 - Cell count set to 2S in BQ25798 configuration
 
 ### Na-ion (Sodium Ion, 1S)
@@ -140,9 +143,9 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 
 **Inhero MR2 specifics:**
 - Charge voltage: **3.9 V**
-- **JEITA disabled** (`ts_ignore = true`) — no NTC required for charging
-- Temperature for SOC derating comes from **BME280 fallback** if no NTC connected
-- `set board.fmax` has no effect (shown as "N/A")
+- **No JEITA supervision needed** (`needs_jeita = false`) — the charger's temperature guard is switched off for this chemistry, so no NTC is required for charging
+- An NTC is optional. A fitted one is read and reported like on any other chemistry; at 3.1 V nominal much of the discharge sits below the 3200 mV sensing bar, so on battery alone the reading is often `N/A` (see [Battery Temperature Sensing](#battery-temperature-sensing)). Without one, the temperature for SOC derating comes from the **BME280** on the board
+- `set board.fmax` has no effect (shown as "N/A"), and `set board.jeitaignore` is refused with `Err: This chemistry runs without JEITA (always 1)`
 
 ---
 
@@ -157,9 +160,10 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 | **Extractable at −10 °C** | 65% | 58% | 86% | 83% |
 | **Extractable at 0 °C** | 75% | 70% | 90% | 88% |
 | **Thermal runaway risk** | Yes | No | No | No |
-| **NTC required?** | Yes | Yes | No | No |
-| **JEITA** | Active | Active | Disabled | Disabled |
-| **Charge in frost?** | No (blocked <−2 °C) | No (blocked <−2 °C) | Yes | Yes |
+| **NTC required?** | Yes¹ | Yes¹ | No (optional) | No (optional) |
+| **Battery temperature reported?** | With NTC | With NTC² | With NTC | With NTC² |
+| **JEITA** | Active | Active | Not needed (`needs_jeita = false`) | Not needed (`needs_jeita = false`) |
+| **Charge in frost?** | No (blocked <−2 °C)¹ | No (blocked <−2 °C)¹ | Yes | Yes |
 | **Charge voltage** | 4.1 V | 3.5 V | 5.4 V (2S) | 3.9 V |
 | **Low-V sleep** | 3100 mV | 2700 mV | 3900 mV | 2500 mV |
 | **Low-V wake** | 3300 mV | 2900 mV | 4100 mV | 2700 mV |
@@ -167,6 +171,10 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 | **Cell formats** | 18650, 21700, pouch | 18650, 26650, prismatic | Screw-terminal, aluminum | 18650, prismatic |
 | **Availability** | Excellent | Good | Limited | Limited |
 | **Relative cost (per Wh)** | Low | Low–Medium | High | Medium |
+
+¹ `set board.jeitaignore 1` lifts both the cold block and the NTC requirement for Li-ion and LiFePO4, as long as the 0.05C gate passes. It also removes the hot-side charge suspend — see [Charging in Cold Conditions](#charging-in-cold-conditions).
+
+² A fitted NTC is read on every chemistry. On battery alone the TS channel is off below 3200 mV, so LiFePO4 and Na-ion read `N/A` over much of their discharge — see [Battery Temperature Sensing](#battery-temperature-sensing).
 
 > **Note on the extractable-capacity figures:** These are typical datasheet values at 0.2C–0.5C discharge loads. The MR2's sub-0.05C load is much gentler; the firmware's derating model (section 3) therefore shows higher extractable values in `get board.telem`.
 
@@ -191,10 +199,10 @@ From best to worst cold-weather performance:
 
 | Chemistry | Charging in frost? | Mechanism |
 |---|---|---|
-| **Li-ion** | No — blocked below −2 °C | JEITA T-Cold (hardware, BQ25798) |
-| **LiFePO4** | No — blocked below −2 °C | JEITA T-Cold (hardware, BQ25798) |
-| **LTO** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
-| **Na-ion** | Yes — charges at any temperature | JEITA disabled (`ts_ignore = true`) |
+| **Li-ion** | No — blocked below −2 °C, unless `board.jeitaignore` is armed | JEITA T-Cold (hardware, BQ25798) |
+| **LiFePO4** | No — blocked below −2 °C, unless `board.jeitaignore` is armed | JEITA T-Cold (hardware, BQ25798) |
+| **LTO** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
+| **Na-ion** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
 
 For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). Note that selecting Li-ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
 
@@ -202,14 +210,37 @@ For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C wit
 
 LTO and Na-ion use different anode materials (lithium titanate and hard carbon respectively) that do not suffer from lithium plating, making frost charging safe.
 
-> **Field experience vs. theory:** Many repeater operators successfully charge Li-ion cells in frost with low solar currents (<0.1C) and report no measurable degradation over multiple winters. The [YYCMesh community](https://yycmesh.com/blog/cold-weather-charging) documented two years of alpine deployments in the Canadian Rockies (down to −40 °C) with standard 18650 cells and found internal resistance still within factory spec. Their key factors: very low charge rates (<0.05C), passive solar heating of enclosures, and charging coinciding with the warmest part of the day.
+> **Field experience vs. theory:** Many repeater operators charge Li-ion cells in frost with low solar currents and report no measurable degradation over multiple winters. The [YYCMesh community](https://yycmesh.com/blog/cold-weather-charging) documented two years of alpine deployments in the Canadian Rockies (down to −40 °C) with standard unprotected 18650 cells (3000–3500 mAh) and found internal resistance still within factory spec. They describe their own operating window as "most of our systems charge at < 0.1 C, often well below 0.05 C", fed by 1 W to 6 W panels with average charging currents typically below 200 mA and occasional peaks around 300 mA. That window **encloses** 0.05C — 200 mA into a 3.5 Ah cell is 0.057C. Their other factors: passive solar heating of enclosures, and charging coinciding with the warmest part of the day.
 >
-> This is valuable real-world data and the practice clearly works for many setups. However, these results apply specifically to configurations with **large battery capacities and relatively low PV power** (keeping charge rates well below 0.05C). They should not be taken as a general dismissal of lithium plating risks. *It depends* — on charge rate, cell quality, panel size, and temperature. The degradation from lithium plating is **cumulative and subtle** — it may not manifest as sudden failure but as gradual capacity loss over years. Two additional risks are often underestimated:
+> They also name the limits of their own evidence: the theoretical "safe" cold charge rate is around 0.02C, the degraded cell they show is a single vape cell measured against a generic new value with no before-measurement and no control cell, and reliably detecting dendrites would need NMR spectrometry or imaging, "far outside the reach of the average hobbyist". That 0.02C is the source's own theoretical figure, while the operating window they actually report encloses 0.05C. Read it as what it is — honest field experience from operators who state themselves that they cannot measure the mechanism. It is neither proof that frost charging is harmless nor a reason to dismiss the practice. *It depends* — on charge rate, cell quality, panel size, and temperature. The degradation from lithium plating is **cumulative and permanent** — it shows up as capacity quietly gone over years. Two additional risks are often underestimated:
 >
 > 1. **PV panels produce more power in cold weather** (silicon temperature coefficient ~−0.35%/°C). A 5 W panel at −10 °C delivers significantly more current than at +25 °C. Snow reflection can push output even beyond rated wattage.
 > 2. **Cell quality varies.** Results with premium cells (low internal resistance, consistent chemistry) may not transfer to budget cells.
 >
-> The Inhero MR2 takes a conservative approach: the NTC battery temperature sensor causes the BQ25798 to block charging until the cell warms above −2 °C (JEITA T-Cold) and, by default, keeps charging suspended through the T-Cool zone as well (`board.fmax` default 0%). Setting `set board.fmax` to 20%, 40% or 100% instead allows reduced-rate charging between −2 °C and +3 °C. On sunny winter days, the board runs from solar via the power path while the battery stays protected. Once direct sunlight heats up the enclosure and the battery temperature rises above the threshold — which happens surprisingly fast with proper enclosure design — charging resumes automatically. This gives the best of both worlds: no plating risk, yet minimal lost charge time.
+> The Inhero MR2 ships conservatively: the NTC battery temperature sensor causes the BQ25798 to block charging until the cell warms above −2 °C (JEITA T-Cold) and, by default, keeps charging suspended through the T-Cool zone as well (`board.fmax` default 0%). Setting `set board.fmax` to 20%, 40% or 100% instead allows reduced-rate charging between −2 °C and +3 °C. On sunny winter days, the board runs from solar via the power path while the battery stays protected. Once direct sunlight heats up the enclosure and the battery temperature rises above the threshold — which happens surprisingly fast with proper enclosure design — charging resumes automatically.
+
+**Overriding the temperature guard: `set board.jeitaignore`**
+
+For operators who want the field practice described above, the firmware offers it as an explicit, bounded option that is **off by default**. `set board.jeitaignore 1` sets the BQ25798's TS_IGNORE bit; the charger then treats the TS pin as always good and keeps charging through frost. The command is accepted for Li-ion and LiFePO4 only — LTO and Na-ion already run without JEITA and answer `Err: This chemistry runs without JEITA (always 1)`.
+
+**The gate.** The override only becomes effective while `board.batcap` has been set explicitly **and** `board.imax` is at or below **0.05C** of that capacity (9000 mAh → 450 mA). Outside that, the wish is stored but stays inactive and the CLI names the blocker: `jeitaignore set to 1, N/A, C>0.05`, or `jeitaignore set to 1, N/A, batcap not set`. Nothing is discarded — lowering `imax` back under the limit or raising `batcap` re-arms the override on its own, and the reply says so with `; jeitaignore 1`. The wish is what persists; the effective state is re-derived on every boot and on every chemistry change, and from power-on until the stored configuration is applied the hardware guard is in charge.
+
+**What you give up.** TS_IGNORE removes the TS pin from every charge decision, the hot one included. While the override is on, the charger also stops suspending charge on the hot side (T-Hot, roughly +58 °C on the MR2 divider), and all four TS status bits report "no fault". The firmware offers no software replacement for either limit: the board sleeps in SYSTEMOFF with the charger enabled and no control loop runs there, so the 0.05C bound is the entire safety argument. On the hot side that bound is what keeps the residual risk small — 0.05C is thermally uninteresting. On the cold side the plating mechanism is unchanged; the gate bounds the rate, it does not remove the mechanism. Setting the flag is accepting accelerated cell ageing as the price for winter charge time.
+
+**What it is scoped for.** The gate is a single number for every temperature, while the tolerable charge rate falls as the cell gets colder — roughly by half per 10 K. Just below the freezing point the margin at 0.05C is comfortable; it shrinks with every degree the site drops further. The override is dimensioned for central European frost, the conditions the [datasheet](DATASHEET.md) sizes panel and bank for. For sites regularly below about −20 °C, choose the chemistry accordingly: LTO and Na-ion are rated by their manufacturers for charging at −20 °C, and the MR2 supports both.
+
+**While it is on.** `get board.fmax` answers `N/A`, `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`, and `get board.conf` appends ` J:1`. `set board.jeitaignore 0` switches the override off and restores the stored `fmax` behaviour.
+
+### Battery Temperature Sensing
+
+The battery temperature comes from an NTC on the BQ25798 TS pin. The firmware reads that channel on **every chemistry**; whether an NTC is fitted is a wiring question and no longer depends on the configured chemistry. Two conditions decide whether a value is actually available:
+
+- **Battery voltage.** Running on battery only, the TS channel is switched off while the battery voltage is between 0 and 3200 mV, so that solar readings keep working. With an input source qualified — the panel supplying power — the channel stays on, so a cold, nearly empty cell being charged does report its temperature. LTO 2S (4.6–5.4 V) is always above that bar and Li-ion 1S is above it for most of its curve, while LiFePO4 (3.2 V nominal) and Na-ion (3.1 V nominal) spend much of their discharge below it — on battery alone the temperature reads `N/A` there even with an NTC fitted.
+- **Plausibility.** A decoded value is compared against a fresh BME280 reading; more than 15.0 °C apart, it is discarded and reported as `N/A`. This check exists because a missing or open NTC does not produce an obviously wrong number — the divider decodes to roughly −46 °C, which passes the plain range check unnoticed.
+
+If no NTC reading has been accepted for 5 minutes, the temperature used for SOC derating falls back to the BME280 on the board. That fallback applies to every chemistry, whether the NTC is absent, the battery voltage is too low, or the reading was discarded.
+
+An NTC is **required for charging** only on Li-ion and LiFePO4, where the BQ25798 reads an open TS pin as a frost condition and blocks charging. Fitting one (solder bridge or external sensor) is the correct fix for that. For an NTC-less installation of those two chemistries, `set board.jeitaignore 1` within the 0.05C gate is the alternative — it takes the TS pin out of the charge decision altogether, with the trade described above.
 
 ### Temperature Derating
 
@@ -395,7 +426,7 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 - In summer, vertical panels produce less than optimally tilted ones — but summer yield is never the bottleneck for autonomy
 
 **Chemistry-specific considerations:**
-- **Li-ion / LiFePO4:** Solar charging is blocked in frost (<−2 °C). On cold winter days, the panel may produce power but the battery won't accept charge until it warms above −2 °C. Meanwhile, the board runs directly on solar if power is sufficient. Note that PV panels produce **more power in cold weather** (silicon temperature coefficient ~−0.35%/°C), so actual charge currents can exceed nominal ratings — another reason why hardware-level charge blocking via JEITA is essential rather than relying on "low current" assumptions.
+- **Li-ion / LiFePO4:** Solar charging is blocked in frost (<−2 °C) unless `set board.jeitaignore 1` is armed, at the operator's own risk. On cold winter days, the panel may produce power but the battery won't accept charge until it warms above −2 °C. Meanwhile, the board runs directly on solar if power is sufficient. Note that PV panels produce **more power in cold weather** (silicon temperature coefficient ~−0.35%/°C), so actual charge currents can exceed nominal ratings. This is why the block sits in hardware, and why the `jeitaignore` override is gated on the configured charge current — see [Charging in Cold Conditions](#charging-in-cold-conditions).
 - **LTO / Na-ion:** Solar charging works even in deep frost — a significant advantage for alpine deployments where frost can persist for days or weeks.
 
 ---
@@ -414,7 +445,7 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 - **Charge voltage limit** — BQ25798 configured per chemistry to prevent overcharge
 - **VBAT_OVP** — Hardware overvoltage protection in BQ25798
 - **200 mV hysteresis** — Prevents motorboating (rapid on/off cycling) near empty
-- **JEITA temperature protection** (Li-ion/LiFePO4 only) — Hardware charge control via NTC
+- **JEITA temperature protection** (Li-ion/LiFePO4 only) — Hardware charge control via NTC; `set board.jeitaignore 1` switches it off within the 0.05C gate, at the operator's own risk ([details](#charging-in-cold-conditions))
 
 **User responsibilities:**
 - Li-ion: Use cells with protection circuit (PCM) or a proper BMS

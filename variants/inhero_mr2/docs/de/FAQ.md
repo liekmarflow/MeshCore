@@ -62,11 +62,13 @@ Kurzempfehlung: **LiFePO4** für die meisten Indoor-/gemäßigten Setups, **LTO*
 
 ### 2. Kann ich auch Akkupacks ohne eingebauten NTC nutzen?
 
-**Ja, aber nur mit dem Onboard-NTC.** Schließe die Solder-Bridge auf der Rückseite des Boards – damit wird der Onboard-NTC (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380) aktiviert. Der TS-Pin am Akkustecker bleibt dann unbenutzt.
+**Ja — dafür gibt es den Onboard-NTC.** Schließe die Solder-Bridge auf der Rückseite des Boards – damit wird der Onboard-NTC (NCP15XH103F03RC, 10 kΩ @ 25 °C, Beta 3380) aktiviert. Der TS-Pin am Akkustecker bleibt dann unbenutzt.
 
 Falls dein Akkupack einen eingebauten NTC hat, muss dieser zwischen **TS (Pin 3)** und **GND (Pin 2)** verdrahtet sein (siehe [DATASHEET.md — Akku-Stecker](DATASHEET.md#steckerbelegung--akku-stecker-jst-ph20-3p-von-links-nach-rechts)). Ein kompatibler 10k-NTC (Beta ~3380) reicht für grundlegende Frostschutzfunktion – die Temperaturgenauigkeit sinkt jedoch etwas.
 
-**Wichtig:** Ohne NTC (Solder-Bridge offen und kein externer NTC angeschlossen) interpretiert der BQ25798 den TS-Pin bei Li-ion und LiFePO4 als Frostbedingung – das Laden wird blockiert und die BQ-Status-LED blinkt. Bei LTO und Na-ion tritt dieses Problem nicht auf, da JEITA dort deaktiviert ist.
+**Wichtig:** Ohne NTC (Solder-Bridge offen und kein externer NTC angeschlossen) interpretiert der BQ25798 den TS-Pin bei Li-ion und LiFePO4 als Frostbedingung – das Laden wird blockiert und die BQ-Status-LED blinkt. LTO und Na-ion sind davon nicht betroffen: Diese Chemien brauchen keine JEITA-Überwachung, deshalb fährt die Firmware sie mit dauerhaft aktivem JEITA-Override. Für eine Li-ion- oder LiFePO4-Installation ohne NTC nimmt `set board.jeitaignore 1` den TS-Pin vollständig aus der Entscheidung des Chargers heraus – siehe [FAQ #6](#6-was-wird-durch-set-boardfmax-beeinflusst) für das Gate und den Preis. Einen NTC nachzurüsten bleibt die bessere Lösung.
+
+**Anzeige der Akkutemperatur:** Mit bestücktem NTC melden alle vier Chemien eine Akkutemperatur – die Anzeige hängt nicht von der Chemie ab. Zwei Bedingungen gelten: Der BQ25798 misst am TS-Pin bei jeder Akkuspannung, solange eine Eingangsquelle qualifiziert ist (das Modul oder USB also tatsächlich Leistung liefert), im reinen Akkubetrieb erst ab etwa 3,2 V (LiFePO4 und Na-ion liegen über weite Teile ihrer Entladekurve darunter, `get board.telem` zeigt dann `N/A`), und ein Messwert, der um mehr als 15 °C vom Onboard-BME280 abweicht, wird als unplausibel verworfen und ebenfalls als `N/A` angezeigt. Diese zweite Prüfung gibt es, weil ein fehlender oder offener NTC keinen offensichtlich falschen Wert liefert – der Spannungsteiler decodiert ihn zu einem plausibel aussehenden Tiefkälte-Wert.
 
 ---
 
@@ -111,6 +113,8 @@ Warum `imax` korrekt einstellen?
 
 3. **Panel-Kompatibilität:** Ist `imax` zu hoch gesetzt, versucht das Board kurzzeitig mehr Strom vom Panel zu ziehen als es liefern kann — der Laderegler erkennt den Spannungseinbruch und stoppt das Laden.
 
+4. **Obergrenze für den JEITA-Override:** `set board.jeitaignore 1` wird nur wirksam, solange `imax` höchstens 0,05C von `board.batcap` beträgt — 9.000 mAh erlauben bis zu `imax 450`. An einem Standort, an dem der Override gewünscht ist, kann diese Obergrenze deutlich unter dem liegen, was das Panel liefern könnte (siehe [FAQ #6](#6-was-wird-durch-set-boardfmax-beeinflusst)).
+
 **Berechnung:** Panelleistung ÷ Akkuspannung = imax.
 Beispiel: 2-W-Panel, Li-ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.imax 540`.
 
@@ -127,11 +131,23 @@ Beispiel: 2-W-Panel, Li-ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.ima
 | `40%` | Max. 40 % von imax (z. B. 500 mA → 200 mA) |
 | `100%` | Keine Reduzierung, voller Ladestrom |
 
-**Unterhalb von ca. –2 °C (T-Cold)** wird das Laden für **Li-ion und LiFePO4** per JEITA immer komplett blockiert – unabhängig von `fmax`.
+**Unterhalb von ca. –2 °C (T-Cold)** wird das Laden für **Li-ion und LiFePO4** per JEITA komplett blockiert – unabhängig von `fmax`. `set board.jeitaignore 1` hebt diese Sperre innerhalb des Gates auf, siehe unten.
 
 **Wichtig:** Nur das Laden wird eingeschränkt. Bei ausreichend Solarleistung läuft das Board weiterhin auf Solarstrom – der Akku wird weder geladen noch entladen.
 
-**LTO / Na-ion:** `fmax` hat keine Wirkung, da JEITA für diese Chemien deaktiviert ist.
+**LTO / Na-ion:** `fmax` hat keine Wirkung. Diese Chemien brauchen keine JEITA-Überwachung, deshalb fährt die Firmware sie mit dauerhaft aktivem JEITA-Override: `get board.fmax` antwortet `N/A`, und `set board.fmax` wird mit `Err: Fmax setting N/A for this chemistry (JEITA disabled)` abgelehnt.
+
+**Trotzdem unter –2 °C laden: `set board.jeitaignore 1`**
+
+Der Befehl setzt im BQ25798 das TS_IGNORE-Bit, wodurch der Charger den TS-Pin dauerhaft als in Ordnung bewertet: Die Kältesperre unterhalb von –2 °C und die Abschaltung auf der heißen Seite oberhalb von ca. 58 °C wirken dann beide nicht mehr, und die Firmware hat für keine der beiden einen Software-Ersatz. Das Laden läuft auch bei Frost mit dem eingestellten `imax` weiter. Der Override ist ab Werk aus und wird nur für Li-ion und LiFePO4 angenommen; bei LTO und Na-ion kommt `Err: This chemistry runs without JEITA (always 1)`.
+
+Der Override ist durch ein Gate begrenzt: `set board.batcap` muss gesetzt sein, und `imax` muss bei höchstens **0,05C** dieser Kapazität liegen – 5.000 mAh erlauben also bis zu `imax 250`. (Wegen der Untergrenze von 50 mA bei `imax` kann das Gate erst ab etwa 1.000 mAh überhaupt aufgehen.) Innerhalb des Gates lautet die Antwort `jeitaignore set to 1`. Außerhalb wird die Einstellung gespeichert, bleibt aber unwirksam, und die Antwort nennt den Grund: `jeitaignore set to 1, N/A, C>0.05` oder `jeitaignore set to 1, N/A, batcap not set`. Verworfen wird dabei nichts – ein späteres `set board.imax` oder `set board.batcap`, das dem Gate genügt, aktiviert den Override von allein und meldet das mit `; jeitaignore 1`. `get board.jeitaignore` zeigt den aktuellen Zustand.
+
+**Was es kostet:** Das Laden einer kalten Li-ion- oder LiFePO4-Zelle erfolgt auf eigene Verantwortung. Das 0,05C-Gate begrenzt die Rate; das Lithium-Plating an der Graphitanode bleibt kumulativ und dauerhaft und zeigt sich als still verschwundene Kapazität.
+
+→ **Felderfahrung, der Temperaturbereich und die vollständige Abwägung:** [BATTERY_GUIDE.md — Laden bei Kälte](BATTERY_GUIDE.md#laden-bei-kälte)
+
+Bei Li-ion und LiFePO4 mit gesetztem Override wird `set board.fmax` mit `Err: Fmax N/A while jeitaignore is on` abgelehnt, und `get board.conf` hängt ` J:1` an. `get board.fmax` antwortet `N/A`, solange der Override aktiv ist – bei jeder Chemie. `set board.jeitaignore 0` schaltet ihn wieder ab, danach gilt wieder die gespeicherte `fmax`-Einstellung.
 
 ---
 
@@ -168,9 +184,9 @@ Es ist jeweils die Quelle aktiv, die die höhere Spannung am VBUS-Eingang liefer
 
 Langsames Blinken der BQ-Status-LED signalisiert einen **Charger-Fehler**. Häufigste Ursachen:
 
-1. **Kein NTC angeschlossen (häufigste Ursache):** Weder externer NTC am TS-Pin noch Solder-Bridge für den Onboard-NTC geschlossen. Der BQ25798 interpretiert den offenen TS-Pin als Frostbedingung und blockiert das Laden. → **Lösung:** Solder-Bridge schließen oder kompatiblen NTC (10 kΩ @ 25 °C, Beta ~3380) zwischen TS (Pin 3) und GND (Pin 2) anschließen.
+1. **Kein NTC angeschlossen (häufigste Ursache):** Weder externer NTC am TS-Pin noch Solder-Bridge für den Onboard-NTC geschlossen. Der BQ25798 interpretiert den offenen TS-Pin als Frostbedingung und blockiert das Laden. → **Lösung:** Solder-Bridge schließen oder kompatiblen NTC (10 kΩ @ 25 °C, Beta ~3380) zwischen TS (Pin 3) und GND (Pin 2) anschließen. Lässt sich kein NTC nachrüsten, beschreibt [FAQ #6](#6-was-wird-durch-set-boardfmax-beeinflusst) `set board.jeitaignore` als Alternative und was sie kostet.
 
-2. **Tatsächlich zu kalt / zu warm:** Unterhalb von ca. –2 °C (T-Cold-Schwelle mit Inhero-Spannungsteiler) wird das Laden für Li-ion und LiFePO4 per JEITA komplett blockiert. Oberhalb von ca. 58 °C (T-Hot-Schwelle) wird das Laden ebenfalls ausgesetzt. → Bei LTO und Na-ion tritt dies nicht auf (JEITA deaktiviert).
+2. **Tatsächlich zu kalt / zu warm:** Unterhalb von ca. –2 °C (T-Cold-Schwelle mit Inhero-Spannungsteiler) wird das Laden für Li-ion und LiFePO4 per JEITA komplett blockiert. Oberhalb von ca. 58 °C (T-Hot-Schwelle) wird das Laden ebenfalls ausgesetzt. → Bei LTO und Na-ion tritt dies nicht auf, da sie mit dauerhaft aktivem JEITA-Override laufen; ebenso wenig auf einem Board, auf dem `set board.jeitaignore 1` aktiv ist – dieser Override hebt sowohl die Kältesperre als auch die Abschaltung auf der heißen Seite auf (siehe [FAQ #6](#6-was-wird-durch-set-boardfmax-beeinflusst)).
 
 3. **Anderer Charger-Fehler:** Der BQ25798 kann auch Fehler wie VBAT-Überspannung (VBAT_OVP), Eingangsüberspannung (VBUS_OVP) oder Watchdog-Timeout signalisieren. Diese treten im Normalbetrieb selten auf.
 
@@ -214,6 +230,8 @@ Dadurch wird sichergestellt, dass der Akku nicht überladen werden kann, wenn di
 - **1-Punkt-Kalibrierung.** Der Offset wird bei einer Temperatur ermittelt. Abseits der Kalibriertemperatur driftet die Korrektur, da NTC-Nichtlinearität und Teilerfehler temperaturabhängig sind.
 
 **Befehl:** `set board.tccal` — kalibriert den NTC-Offset automatisch mit dem BME280 als Referenz. Mit `set board.tccal reset` den Offset auf 0.00 zurücksetzen. Aktuellen Offset prüfen: [`get board.tccal`](CLI_CHEAT_SHEET.md#getter-kurzinfos).
+
+**Hinweis:** Die Kalibrierung liest den rohen NTC-Wert direkt und braucht 3 von 5 gültigen Messungen. Sie ist damit unabhängig von der BME280-Plausibilitätsprüfung, die die angezeigte Akkutemperatur filtert (siehe [FAQ #2](#2-kann-ich-auch-akkupacks-ohne-eingebauten-ntc-nutzen)), und läuft auch auf einem Board, dessen Anzeige gerade verworfen wird.
 
 ---
 
@@ -360,8 +378,11 @@ Die Castellated Pads können direkt auf eine Trägerplatine gelötet werden. Sie
 - Akkukapazität (`set board.batcap`)
 - Ladestrom (`set board.imax`)
 - Frostschutz (`set board.fmax`)
+- JEITA-Override (`set board.jeitaignore`)
 - MPPT, LED-Einstellungen
 - NTC-Kalibrierungsoffset
+
+**JEITA-Override:** Bei `board.jeitaignore` wird die Einstellung selbst gespeichert; der daraus folgende Zustand wird abgeleitet. Bei jedem Boot startet der Charger mit aktivem Temperaturschutz, und die Firmware leitet den Override aus der gespeicherten Einstellung und dem 0,05C-Gate ab, sobald die Konfiguration angewendet ist. Ein Override, dessen Gate nicht mehr aufgeht, bleibt aus, die Einstellung bleibt erhalten.
 
 **Hinweis:** Energiestatistiken (168h-Ringpuffer für Batt-TTL) liegen nur im RAM und beginnen nach jedem Reboot oder Update neu.
 

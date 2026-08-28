@@ -31,7 +31,14 @@ set board.fmax 0%              # Charging blocked
 set board.fmax 20%             # max. 20% of imax
 set board.fmax 40%             # max. 40% of imax
 set board.fmax 100%            # no reduction
-# Note: No effect on LTO / Na-ion (JEITA disabled)
+# Refused on LTO / Na-ion:  "Err: Fmax setting N/A for this chemistry (JEITA disabled)"
+# Refused while the JEITA override is on:  "Err: Fmax N/A while jeitaignore is on"
+# Refused before a chemistry is set:  "Err: Set board.bat first"
+
+# JEITA override — keep charging below the T-Cold threshold (approx. -2 °C)
+# Li-ion / LiFePO4 only; off by default; at the operator's own risk (see section below)
+set board.jeitaignore 1        # Ignore the TS pin (1/true)
+set board.jeitaignore 0        # Back to hardware JEITA (0/false)
 
 # MPPT on/off
 set board.mppt 1               # Enable MPPT
@@ -43,6 +50,8 @@ set board.leds off             # Disable LEDs (off/0)
 
 # Manually set SOC (0–100%)
 set board.soc 85.0
+
+# Unknown setter:  "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore"
 ```
 
 ### Calibration
@@ -64,10 +73,14 @@ set board.tccal reset          # Reset offset to 0.00
 get board.bat                  # Current battery type
 get board.batcap               # Battery capacity in mAh (set/default)
 get board.imax                 # Maximum charge current in mA
-get board.fmax                 # Frost charge behavior (0%/20%/40%/100% or N/A)
+get board.fmax                 # Frost charge behavior (0%/20%/40%/100%, or N/A while
+                               #   the JEITA override is active)
+get board.jeitaignore          # JEITA override state (see section below)
 get board.mppt                 # MPPT status (0/1)
 get board.leds                 # LED status (ON/OFF)
 get board.conf                 # Summary of all configs (B, F, M, I, Vco, V0)
+                               #   plus " J:1" while the JEITA override is active
+                               #   on a chemistry that uses JEITA
 
 # Real-time telemetry
 get board.telem                # Battery+Solar: V, I, T, SOC
@@ -104,6 +117,10 @@ get board.socdebug             # Diagnostic/debug: SOC tracking internals
 
 # Calibration
 get board.tccal                # NTC temperature offset in °C (0.00 = default)
+
+# Unknown getter:
+#   "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore"
+#   bqdiag, selftest and socdebug work but are not part of that list
 ```
 
 ---
@@ -115,10 +132,11 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `get board.bat` | Battery type (`liion1s`, `lifepo1s`, `lto2s`, `naion1s`, `none`) |
 | `get board.batcap` | Battery capacity in mAh (set/default) |
 | `get board.imax` | Maximum charge current in mA |
-| `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`, LTO/Na-ion: `N/A`) |
+| `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`; `N/A` while the JEITA override is active) |
+| `get board.jeitaignore` | JEITA override state — `jeitaignore 1`, `jeitaignore 0`, `jeitaignore 1 (chemistry)`, a blocked variant, or `N/A` before a chemistry is set |
 | `get board.mppt` | MPPT status (`0`/`1`) |
 | `get board.leds` | LED status Heartbeat + BQ Stat (`ON`/`OFF`) |
-| `get board.conf` | Summary: B(at) F(max) M(ppt) I(max) Vco V0 |
+| `get board.conf` | Summary: B(at) F(max) M(ppt) I(max) Vco V0, plus `J:1` on Li-ion / LiFePO4 while the JEITA override is active; with `none` the whole reply is `B:none (no battery, charging disabled)` |
 | `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC — see [TELEMETRY.md](TELEMETRY.md) |
 | `get board.stats` | Energy balance (24h/3d/7d), C/D, MPPT%, Batt-TTL (7d-avg-based) |
 | `get board.cinfo` | Charger status + PG-stuck HIZ toggle (e.g. "PG / CC HIZ:3m ago") |
@@ -133,14 +151,73 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 
 | Command | Range | Description |
 |---|---|---|
-| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Set battery chemistry |
-| `set board.batcap` | `100`–`100000` (mAh) | Set battery capacity |
-| `set board.imax` | `50`–`1500` (mA) | Set max charge current |
-| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (not for LTO/Na-ion) |
+| `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Set battery chemistry — re-derives the JEITA override and resets `fmax` to `0%` on Li-ion / LiFePO4 |
+| `set board.batcap` | `100`–`100000` (mAh) | Set battery capacity — also the reference for the `jeitaignore` gate |
+| `set board.imax` | `50`–`1500` (mA) | Set max charge current — also the `jeitaignore` gate quantity |
+| `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (refused on LTO/Na-ion and while `jeitaignore` is on) |
+| `set board.jeitaignore` | `1`/`0` · `true`/`false` | JEITA override, Li-ion/LiFePO4 only — gate: `batcap` set and `imax` ≤ 0.05C |
 | `set board.mppt` | `0`/`1` · `true`/`false` | Enable/disable MPPT |
 | `set board.leds` | `on`/`off` · `1`/`0` | Enable/disable LEDs |
 | `set board.soc` | `0`–`100` (%) | Manually set SOC |
 | `set board.tccal` | `reset` · *(empty = auto)* | Calibrate or reset NTC temperature |
+
+---
+
+## JEITA Override (`board.jeitaignore`)
+
+`set board.jeitaignore 1` sets the BQ25798 TS_IGNORE bit, so the charger treats the TS pin as
+always good and keeps charging below the T-Cold threshold of about -2 °C. Two conditions must
+hold for the override to take effect:
+
+- `set board.batcap` has been written explicitly, and
+- `imax` is at or below 0.05C of that capacity (300 mA on 6000 mAh, 500 mA on 10000 mAh).
+
+The setting is stored even when the gate fails; lowering `imax` or raising `batcap` re-arms it
+on its own, and the reply of those commands says so. LTO 2S and Na-ion 1S run without JEITA
+anyway and refuse the command.
+
+TS_IGNORE bypasses all four TS regions, so the hot-side charge suspend at roughly +58 °C is gone
+as well and `fmax` has no effect while the override is on. Below freezing, charging Li-ion or
+LiFePO4 causes cumulative, permanent lithium plating on the anode. The 0.05C gate bounds the rate;
+it does not remove the mechanism, so the override runs at the operator's own risk. The full
+treatment — field experience, counter-arguments and sources — is in
+[BATTERY_GUIDE.md](BATTERY_GUIDE.md).
+
+```bash
+set board.jeitaignore 1
+#  "jeitaignore set to 1"                              — gate passes, override active
+#  "jeitaignore set to 1, N/A, C>0.05"                 — imax above 0.05C; stored, re-arms later
+#  "jeitaignore set to 1, N/A, batcap not set"         — no batcap; stored, re-arms later
+#  "Err: This chemistry runs without JEITA (always 1)" — lto2s / naion1s
+#  "Err: Set board.bat first"                          — no chemistry set yet
+#  "Err: Use 1|0"                                      — argument is not 1|0|true|false
+#  "Err: Failed to store setting"                      — the write to flash failed
+
+set board.jeitaignore 0
+#  "jeitaignore set to 0"                              — stored fmax behavior applies again
+
+get board.jeitaignore
+#  "jeitaignore 1 (chemistry)"                         — lto2s / naion1s
+#  "N/A"                                               — no chemistry set yet
+#  "jeitaignore 1"                                     — override active
+#  "jeitaignore 1, N/A, C>0.05"                        — set, blocked by imax
+#  "jeitaignore 1, N/A, batcap not set"                — set, blocked by missing batcap
+#  "jeitaignore 0"                                     — not set
+
+# imax and batcap are gate quantities — their reply names a state change:
+set board.imax 500
+#  "Max charge current set to 500mA"                          — no change
+#  "Max charge current set to 500mA; jeitaignore 1"           — override re-armed
+#  "Max charge current set to 500mA; jeitaignore N/A, C>0.05" — override lost
+
+set board.batcap 10000
+#  "Battery capacity set to 10000 mAh"                          — no change
+#  "Battery capacity set to 10000 mAh; jeitaignore 1"           — override re-armed
+#  "Battery capacity set to 10000 mAh; jeitaignore N/A, C>0.05" — override lost
+```
+
+The effective bit can be read back with `get board.bqdiag`: the reply ends with `N:<hex>`, the
+raw NTC_CONTROL_1 register — an odd value means TS_IGNORE is programmed.
 
 ---
 
@@ -182,6 +259,17 @@ set board.batcap 10000
 set board.imax 500
 set board.mppt 1
 set board.leds off
+```
+
+### Li-ion 1S with 10Ah, Solar and JEITA Override
+```bash
+set board.bat liion1s
+set board.batcap 10000         # gate reference — set this before jeitaignore
+set board.imax 500             # 0.05C of 10000 mAh — at the gate limit
+set board.jeitaignore 1        # "jeitaignore set to 1"
+set board.mppt 1
+set board.leds off
+# set board.fmax is refused while the override is on; get board.fmax reads N/A
 ```
 
 ### Status Check (everything at a glance)

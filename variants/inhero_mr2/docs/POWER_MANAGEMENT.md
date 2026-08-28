@@ -11,7 +11,9 @@
 - [3. Daily Energy Balance](#3-daily-energy-balance)
 - [4. Solar Power Management](#4-solar-power-management)
   - [BQ25798 ADC at Low Battery Voltages](#bq25798-adc-at-low-battery-voltages)
+  - [NTC Plausibility Check (BME280)](#ntc-plausibility-check-bme280)
   - [JEITA WARM Zone & VBAT_OVP Prevention](#jeita-warm-zone--vbat_ovp-prevention)
+  - [JEITA Override (set board.jeitaignore)](#jeita-override-set-boardjeitaignore)
 - [5. Batt-TTL Prediction](#5-batt-ttl-prediction)
 - [6. RTC Wakeup Management](#6-rtc-wakeup-management)
 - [7. Power Management Flow](#7-power-management-flow)
@@ -296,14 +298,29 @@ The 15-bit ADC in the BQ25798 has **voltage-dependent operating thresholds** tha
 | Battery operation, low | — | 2.9–3.2V | **disabled** | ✅ runs | ❌ not available |
 | Battery operation, critical | — | < 2.9V | disabled | ❌ timeout | ❌ not available |
 
-#### Firmware Solution: VBAT-dependent TS Channel Control
+#### Firmware Solution: TS Channel Control
 
-The firmware reads the current battery voltage from the INA228 and passes it to `BqDriver::getTelemetryData(vbat_mv)`:
+The firmware reads the current battery voltage from the INA228, passes it to
+`BqDriver::getTelemetryData(vbat_mv)` and additionally checks the charger's Power-Good bit:
 
 - **VBAT ≥ 3.2V** (or unknown): TS channel enabled → ADC threshold 3.2V, temperature available
-- **VBAT < 3.2V**: TS channel disabled → ADC threshold drops to 2.9V, temperature shown as "N/A"
+- **VBAT < 3.2V with an input source qualified (PG = 1)**: TS channel stays enabled — the ADC runs off VBUS, so the temperature remains available
+- **VBAT < 3.2V on battery alone**: TS channel disabled → ADC threshold drops to 2.9V, temperature shown as "N/A"
 
 This allows the ADC to continue working in the 2.9–3.2V range for solar measurements (VBUS, IBUS), even when battery temperature cannot be read.
+
+The 3.2V requirement applies to battery-only operation (datasheet 9.3.16); with the panel supplying the system the channel costs nothing. That case matters: a cold, nearly empty cell being charged is exactly when the cell temperature is worth seeing, especially with the JEITA override armed.
+
+**The battery type never enters the decision.** `getTelemetryData()` starts with `ts_enabled = true` for every chemistry; the driver has no notion of which chemistry is configured and no "NTC fitted" flag. Availability of a battery temperature depends on VBAT, on the input source, and on the plausibility check below.
+
+Practical consequence per chemistry, because the 3.2V bar sits at different points of each discharge curve — all of this applies to battery-only operation, while charging from the panel the temperature is available throughout:
+
+| Chemistry | Nominal | TS channel over the discharge curve (battery only) |
+|-----------|---------|-------------------------------------|
+| **LTO 2S** | 4.6V | always above 3.2V → temperature available throughout |
+| **Li-ion 1S** | 3.7V | above 3.2V for most of the curve (sleep threshold 3100mV) |
+| **LiFePO4 1S** | 3.2V | large part of the flat plateau sits at or below 3.2V → often N/A |
+| **Na-ion 1S** | 3.1V | large part of the curve below 3.2V → often N/A |
 
 #### ADC Channel Configuration (only required channels)
 
@@ -311,8 +328,10 @@ On the MR2, D+, D−, VAC1, VAC2 are not connected. The firmware enables only th
 
 | Register | Value (TS on) | Value (TS off) | Active Channels |
 |----------|---------------|----------------|-----------------|
-| 0x2F (ADC_FUNCTION_DISABLE_0) | `0x5A` | `0x5E` | IBUS, VBUS, (TS) |
+| 0x2F (ADC_FUNCTION_DISABLE_0) | `0x58` | `0x5C` | IBUS, VBUS, TDIE, (TS) |
 | 0x30 (ADC_FUNCTION_DISABLE_1) | `0xF0` | `0xF0` | none (D+/D−/VAC disabled) |
+
+TDIE (bit 1) is cleared in both values, i.e. the charger's own silicon die temperature is converted in every one-shot. That is where the `TDIE:` field of `board.cinfo` comes from — it is the BQ25798 junction temperature, not the battery, not the board, not the MCU. (The channel-map comment above `startADCOneShot()` still lists TDIE as disabled; the written value is what counts.)
 
 **Important:** In one-shot mode, `ADC_EN` is only cleared when **all enabled channels** have completed conversion. Unconnected channels can block this → therefore only required channels are enabled.
 
@@ -322,18 +341,51 @@ The firmware uses special return values for invalid temperatures:
 
 | Value | Meaning | Display |
 |-------|---------|---------|
-| −999.0 | I2C communication error | N/A |
-| −888.0 | ADC not ready / TS disabled (low VBAT) | N/A |
-| −99.0 | NTC open/not connected | N/A |
-| +99.0 | NTC short circuit | N/A |
+| −999.0 | I2C communication error, **or** a reading rejected by the BME280 plausibility check | N/A |
+| −888.0 | ADC not ready, one-shot did not complete, or TS channel off (VBAT between 0 and 3200mV) | N/A |
+| −99.0 | NTC open/not connected (k > 0.99, or the RT2-only pole guard) | N/A |
+| +99.0 | NTC short circuit (k < 0.01) | N/A |
 | −50…+90°C | Valid measurement | XX°C |
+
+−999.0 now has two producers: `BqDriver::calculateBatteryTemp()` on an I2C read error, and `BoardConfigContainer::getTelemetryData()` on an implausible reading (see next section). The two cases are not distinguishable at the CLI or telemetry surface — both simply read "N/A".
 
 **Display rule:** Values ≤ −100°C are shown as "N/A" in CLI and omitted from CayenneLPP packets.
 
 #### Code References
 - `BqDriver::getTelemetryData(vbat_mv)` — Main function with VBAT-dependent TS control
 - `BqDriver::startADCOneShot(ts_enabled)` — Configures ADC channels and starts conversion
-- `BoardConfigContainer::getTelemetryData()` — Passes INA228 VBAT to BqDriver
+- `BoardConfigContainer::getTelemetryData()` — Passes INA228 VBAT to BqDriver, applies calibration and plausibility check
+
+### NTC Plausibility Check (BME280)
+
+#### Why the range check is not enough
+
+A missing or open NTC does not produce an out-of-range value. With the Inhero divider (RT1 = 5.6 kΩ pullup to REGN, RT2 = 27 kΩ to GND) an absent NTC puts the divider exactly on the RT2-only pole of `calculateBatteryTemp()`. The extraction `1 / (g_total − g_rt2)` then either trips the `g_total <= g_rt2` guard (−99.0) or yields a huge NTC resistance that decodes to a bogus deep-cold value near −46 °C — inside the −50…+90 °C window, so the range check passes it through. One TS ADC LSB is 0.09765625 % of REGN, which at that operating point moves the decoded temperature by tens of degrees, so the bogus value is not even stable.
+
+#### The check
+
+After the −50…+90 °C window has passed and the `tccal` offset has been added, `BoardConfigContainer::getTelemetryData()` takes a fresh BME280 reading and compares:
+
+```
+ntcTemp = bqTemp + tcCalOffset                       // calibrated, not raw
+bmeTemp = readBmeTemperature()
+
+if (bmeTemp > -100.0 && bmeTemp < 100.0 &&
+    fabsf(ntcTemp - bmeTemp) > NTC_BME_MAX_DIFF_C)   // 15.0 °C, strictly greater
+      → battery temperature = -999.0f                // reported as N/A
+```
+
+- The threshold is `NTC_BME_MAX_DIFF_C = 15.0 °C`. A difference of exactly 15.0 °C passes.
+- The comparison runs on the **calibrated** value (raw + `tcCalOffset`).
+- If the BME280 cannot be read — no answer at 0x76, forced measurement failed, or `ENV_INCLUDE_BME280 = 0` — `readBmeTemperature()` returns −999.0, which fails the (−100, +100) guard and the check stands down: the NTC value passes unchanged. On the MR2 the sensor is compiled in (`ENV_INCLUDE_BME280=1`), so this is the fault path.
+
+#### Consequences
+
+| Area | Effect |
+|------|--------|
+| `board.telem` / CayenneLPP | Rejected reading is reported as "N/A" / the LPP temperature field is omitted. There is no distinct "rejected" indication. |
+| SOC derating | A rejected reading does **not** refresh `lastValidBatteryTemp` / `lastTempUpdateMs`. After 300000 ms (5 min) without an accepted NTC update, `refreshTempDerating()` falls back to the BME280; if that also fails, `lastValidBatteryTemp` keeps its previous value (default 25.0 °C = no derating). |
+| `set board.tccal` | Unaffected. `performTcCalibration()` reads `BqDriver::getTelemetryData(0)` directly with `tcCalOffset` temporarily zeroed and averages raw values, discarding only the driver's own error codes (raw ≤ −800.0 or ≥ 98.0); it needs 3 of 5 valid samples. Calibration therefore still works on a board whose reading the filter would drop. |
 
 ### JEITA WARM Zone & VBAT_OVP Prevention
 
@@ -379,6 +431,114 @@ With the BQ25798 POR defaults (`TS_WARM = 45°C`, `JEITA_VSET = VREG−400mV`, `
 - `BoardConfigContainer::configureBaseBQ()` — Applies all three settings at startup
 - `BqDriver::setTsWarm()` / `setJeitaVSet()` — Existing driver API
 - `BqDriver::setAutoIBATDIS()` — Added to driver (Charger Control 0, bit 7)
+
+### JEITA Override (set board.jeitaignore)
+
+Below the T-Cold boundary — −2.0 °C on the Inhero divider, see the threshold table above — the BQ25798 suspends charging for Li-ion and LiFePO4. `set board.jeitaignore 1` sets the charger's TS_IGNORE bit (NTC Control 1, register 0x18, bit 0), which makes the charger treat the TS pin as always good, so charging continues through frost. It is off by default, it is bounded by a charge-rate gate, and it is used at the operator's own risk — the trade is described under [What the override costs](#what-the-override-costs). The field background and the two positions on cold charging are in [BATTERY_GUIDE.md](BATTERY_GUIDE.md).
+
+#### Stored wish vs. derived state
+
+The verb does not store an on/off flag for the override. It stores a **user wish** under the SimplePreferences key `jeitaIgn` (namespace `inheromr2`) and then immediately re-derives the effective state and programs the BQ25798:
+
+```
+ignore = !props->needs_jeita || (getJeitaIgnoreWish() && jeitaIgnoreGateOk())
+```
+
+The result lands in the static `jeitaIgnoreActive`, which is **never persisted**. `applyJeitaIgnore()` is called from `setJeitaIgnoreWish()`, from the CLI writers of `imax` and `batcap`, and at the end of `configureChemistry()`.
+
+`needs_jeita` is a field of the `BatteryProperties` table and answers one question only: does this chemistry need JEITA temperature supervision at all. It says nothing about whether an NTC is fitted.
+
+| Chemistry | `needs_jeita` | Override | Reason |
+|-----------|---------------|----------|--------|
+| **Li-ion 1S** | true | user wish AND gate | cold charging plates lithium on the anode |
+| **LiFePO4 1S** | true | user wish AND gate | same mechanism, milder but present |
+| **LTO 2S** | false | forced on | tolerates charging in frost, no cold limit to enforce |
+| **Na-ion 1S** | false | forced on | tolerates charging in frost, no cold limit to enforce |
+| **BAT_UNKNOWN** | false | forced on | `charge_enable = false`, GPIO4 LOW → FET OFF → CE held HIGH by the pull-up → charging off; no charging to guard |
+
+For a `needs_jeita = false` chemistry the verb is refused before anything is stored: `Err: This chemistry runs without JEITA (always 1)`. With no chemistry set the reply is `Err: Set board.bat first`.
+
+**Fail-safe:** if `bqInitialized` is false or the properties pointer is null, `applyJeitaIgnore()` forces `jeitaIgnoreActive = false` and returns without touching the BQ. With a dead BQ25798, `get board.fmax` therefore shows the stored frost behaviour even for LTO/Na-ion; the reply follows the derived runtime state.
+
+#### The gate: imax ≤ 0.05C
+
+`jeitaIgnoreGateOk()` has a precondition and a formula:
+
+1. **Precondition** — `batcap` must have been written by the user (a non-empty `batCap` preference string). Without it the gate fails immediately: an unknown capacity gives the rate limit no reference.
+2. **Formula** — `getMaxChargeCurrent_mA() <= jeitaIgnoreLimit_mA(capacity_mah)`, with `jeitaIgnoreLimit_mA()` returning `0.05f * capacity_mah`. The comparison is `<=`, so an imax exactly at 0.05C passes.
+
+The gate reads the **persisted** capacity via `loadBatteryCapacity()`. `getBatteryCapacity()` returns the `socStats` RAM cache, which `begin()` fills only *after* `configureChemistry()` has run; gating the boot derivation against that cache would compare against 0 mAh and always fail.
+
+| Capacity (`set board.batcap`) | 0.05C limit | Example imax that passes |
+|-------------------------------|-------------|--------------------------|
+| 1000 mAh | 50 mA | 50 mA |
+| 3000 mAh | 150 mA | 150 mA, 100 mA |
+| 8000 mAh | 400 mA | 400 mA, 250 mA |
+| 20000 mAh | 1000 mA | 1000 mA, 500 mA |
+
+1000 mAh is the bottom of the table for a reason: `set board.imax` has a floor of 50 mA, so below that capacity the 0.05C limit sits under every imax the CLI accepts and the gate can never pass.
+
+**A failed gate discards nothing.** The wish stays in NVS; only `jeitaIgnoreActive` goes false and TS_IGNORE is cleared. Lowering imax back under 0.05C, or raising batcap, re-arms the override on its own — the CLI says so with `; jeitaignore 1`, and there is no need to repeat `set board.jeitaignore 1`.
+
+#### Boot behaviour
+
+| Step | What happens |
+|------|--------------|
+| POR | `jeitaIgnoreActive` is a static initialised to false; the BQ25798 comes up with TS_IGNORE cleared |
+| `configureBaseBQ()` | calls `bq.setTsIgnore(false)` explicitly — the hardware temperature guard is in charge from here |
+| `configureChemistry()` | restores cell count, VREG, VSYSMIN and ICHG, then calls `applyJeitaIgnore(props)` as its **last** step |
+| `begin()` | calls `setFrostChargeBehaviour(frost)` afterwards, which re-writes JEITA_ISETC from the stored fmax mapping |
+
+The derivation sits at the end of `configureChemistry()` on purpose. Writing the CELL bits resets ICHG to the 1 A POR default; deriving the override earlier would open a window in which the temperature guard is already off while ICHG is still 1 A, and an I2C failure inside that window would freeze the board in exactly that state. On the non-charging `BAT_UNKNOWN` early-return path the derivation still runs, purely so the reported state stays truthful.
+
+Net effect after a power loss: the guard rules until `configureChemistry()` completes. An override that still passes the gate is active again; one that no longer passes stays off, with the wish preserved.
+
+`set board.bat` runs the same derivation — it calls `configureBaseBQ()` and `configureChemistry()`, so the override is re-derived for the new chemistry. The stored wish survives a chemistry change, and the reply `Bat set to <type>` carries no transition suffix, so `get board.jeitaignore` is where the new state shows up. Switching to Li-ion or LiFePO4 also resets the stored fmax to `0%`.
+
+One register detail: because `begin()` re-writes ISETC after the derivation, a boot with the override active leaves ISETC holding the stored fmax mapping; `applyJeitaIgnore()` on its own writes UNCHANGED there. The difference is behaviourally moot — TS_IGNORE = 1 makes the BQ ignore the TS pin entirely.
+
+#### Turning it off
+
+`set board.jeitaignore 0` stores wish = false and re-derives. On the transition from active to inactive, `applyJeitaIgnore()` calls `setFrostChargeBehaviour(getFrostChargeBehaviour())`, which re-programs JEITA_ISETC from the stored fmax mapping:
+
+| `board.fmax` | JEITA_ISETC |
+|--------------|-------------|
+| 0% | ISETC_SUSPEND |
+| 20% | 20_PERCENT |
+| 40% | 40_PERCENT |
+| 100% | UNCHANGED |
+
+JEITA_ISETH gets no restore — its POR default is already "unchanged".
+
+While the override is active, `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on` and stores nothing; the previously stored value is what gets re-programmed once the override goes off. A chemistry that runs without JEITA is refused first, with `Err: Fmax setting N/A for this chemistry (JEITA disabled)`.
+
+#### What the override costs
+
+TS_IGNORE acts on both ends of the JEITA window. Per the BQ25798 datasheet, with TS_IGNORE = 1 the charger considers the TS pin always good for charging and OTG, and TS_COLD_STAT / TS_COOL_STAT / TS_WARM_STAT / TS_HOT_STAT all report 000. So while the override is on:
+
+- charging continues below −2 °C, at up to 0.05C;
+- the hot-side **charge suspend** at T-Hot (≈ +57.7 °C on the Inhero divider) is gone as well.
+
+The firmware offers no software replacement for either. The board sleeps in SYSTEMOFF with the charger enabled and no control loop runs there; a control loop would be asleep during the hours in which it would matter, which is why the design leaves it out. **The 0.05C bound is the entire safety argument.** On the hot side the residual risk stays small because 0.05C is thermally uninteresting.
+
+On the cold side the gate bounds the rate; the mechanism remains. Charging a frozen graphite anode plates metallic lithium onto its surface. That is cumulative and permanent, and it shows up as capacity quietly gone.
+
+The gate is one number for every temperature, while the tolerable charge rate falls as the cell gets colder. What that means for siting the node — and what the field evidence does and does not support — is covered in [BATTERY_GUIDE.md](BATTERY_GUIDE.md#charging-in-cold-conditions).
+
+#### Reading the state back
+
+| Command | While the override is active |
+|---------|------------------------------|
+| `get board.jeitaignore` | `jeitaignore 1` — or `jeitaignore 1 (chemistry)` for LTO/Na-ion |
+| `get board.fmax` | `N/A` (the test is `isJeitaIgnoreActive()`, so this holds for every chemistry) |
+| `get board.conf` | `F:` reads `N/A`; ` J:1` is appended only for a needs_jeita chemistry |
+| `get board.bqdiag` | ends with `N:%02X` = raw NTC_CONTROL_1 (0x18). Bit 0 is TS_IGNORE, so an odd `N:` value means the override is programmed in hardware. The `TS:` field of the same reply decodes STATUS_4 and reads "OK" while the override is on, because TS_IGNORE forces all four TS status bits to 000. |
+
+#### Code References
+- `BoardConfigContainer::setJeitaIgnoreWish()` — stores the wish, re-derives, programs the BQ
+- `BoardConfigContainer::jeitaIgnoreGateOk()` / `jeitaIgnoreLimit_mA()` — the 0.05C gate
+- `BoardConfigContainer::applyJeitaIgnore(props)` — derivation + TS_IGNORE/ISETC/ISETH programming
+- `BqDriver::setTsIgnore()` — NTC Control 1 (0x18), bit 0
 
 ---
 
@@ -758,6 +918,7 @@ The 168h ring buffer statistics (coulomb counter, MPPT data, SOC state) are stor
 - Frost behavior (`frost`)
 - Max charge current (`maxChrg`)
 - LED setting (`leds_en`)
+- JEITA override **wish** (`jeitaIgn`) — the effective override is derived from it on every chemistry apply and is never persisted
 
 **Non-persistent data** (lost on reboot):
 - 168h energy ring buffer (hourly charge/discharge/solar mAh)
@@ -778,7 +939,9 @@ board.bat       # Query battery type
                 # Output: liion1s | lifepo1s | lto2s | naion1s | none
 
 board.fmax      # Query frost charge behavior
-                # Output: 0% | 20% | 40% | 100% (LTO/Na-ion: N/A)
+                # Output: 0% | 20% | 40% | 100%
+                # Output: N/A whenever the JEITA override is active
+                #         (chemistry-forced on LTO/Na-ion/none, or user-armed)
 
 board.imax      # Query maximum charge current
                 # Output: <current>mA (e.g. 500mA)
@@ -808,6 +971,10 @@ board.selftest  # I²C hardware probe (all on-board devices)
 board.conf      # All configuration values
                 # Output: B:<bat> F:<fmax> M:<mppt> I:<imax> Vco:<V> V0:<V>
                 # Example: B:liion1s F:0% M:1 I:500mA Vco:4.10 V0:3.30
+                # F: reads N/A while the JEITA override is active;
+                # " J:1" is appended only for a needs_jeita chemistry with the
+                # user override on (never for lto2s/naion1s, never for none)
+                # Example: B:liion1s F:N/A M:1 I:400mA Vco:4.10 V0:3.30 J:1
 
 board.tccal     # NTC temperature calibration offset
                 # Output: TC offset: +0.00 C (0.00=default)
@@ -817,7 +984,17 @@ board.leds      # LED enable status (Heartbeat + BQ Stat)
 
 board.batcap    # Battery capacity
                 # Output: 10000 mAh (set) or 2000 mAh (default; LiFePO4 defaults to 1500 mAh)
+
+board.jeitaignore  # JEITA override state
+                   # Output: N/A                        ← no chemistry set (none)
+                   # Output: jeitaignore 1 (chemistry)  ← lto2s | naion1s
+                   # Output: jeitaignore 1              ← user override effectively active
+                   # Output: jeitaignore 1, N/A, C>0.05 ← wish stored, imax above 0.05C
+                   # Output: jeitaignore 1, N/A, batcap not set
+                   # Output: jeitaignore 0              ← no wish stored
 ```
+
+Unknown getter → `Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore`. The list omits the `bqdiag`, `selftest` and `socdebug` getters, which do work.
 
 ### Setters
 ```bash
@@ -827,15 +1004,30 @@ set board.bat <type>        # Set battery chemistry
 set board.fmax <value>      # Set frost charge current reduction
                             # Options: 0% | 20% | 40% | 100%
                             # Limits charge current in T-Cool range (approx. -2 °C to +3 °C, see JEITA table in README)
-                            # No effect on LTO / Na-ion (JEITA disabled)
+                            # Err: Set board.bat first                                  ← none
+                            # Err: Fmax setting N/A for this chemistry (JEITA disabled)  ← lto2s | naion1s
+                            # Err: Fmax N/A while jeitaignore is on                      ← user override active
+                            # None of the three refusals stores anything.
 
 set board.imax <mA>         # Set maximum charge current
-                            # Range: 50-1500 mA
+                            # Range: 50-1500 mA (out of range: "Err: Try 50-1500", nothing written)
+                            # imax is a gate quantity for the JEITA override — the reply
+                            # names a state change:
+                            #   Max charge current set to 400mA
+                            #   Max charge current set to 400mA; jeitaignore 1
+                            #   Max charge current set to 800mA; jeitaignore N/A, C>0.05
 
 set board.mppt <0|1>        # Enable/disable MPPT
 
 set board.batcap <mAh>      # Set battery capacity
                             # Range: 100-100000 mAh
+                            # (out of range: "Err: Invalid capacity (100-100000 mAh)", no re-derive)
+                            # Also a gate quantity — same reply pattern as imax:
+                            #   Battery capacity set to 8000 mAh
+                            #   Battery capacity set to 8000 mAh; jeitaignore 1
+                            #   Battery capacity set to 4000 mAh; jeitaignore N/A, C>0.05
+                            # Side effect: socStats.soc_valid = false, so SOC reads N/A
+                            # until the next "Charging Done" sync or a manual set board.soc
 
 set board.tccal             # Calibrate NTC temperature (auto via BME280)
 set board.tccal reset       # Reset offset to 0.00
@@ -843,7 +1035,23 @@ set board.tccal reset       # Reset offset to 0.00
 set board.leds <on|off>     # Enable/disable LEDs (on/1, off/0)
 
 set board.soc <percent>     # Manually set SOC (0-100, INA228 must be ready)
+
+set board.jeitaignore <1|0> # JEITA override — charge through frost, at the operator's own risk
+                            # Accepts 1|0|true|false; anything else: "Err: Use 1|0"
+                            # With no chemistry set: "Err: Set board.bat first"
+                            # Only for needs_jeita chemistries (liion1s, lifepo1s); otherwise:
+                            #   Err: This chemistry runs without JEITA (always 1)
+                            # Stores a wish, then re-derives the effective override:
+                            #   jeitaignore set to 1
+                            #   jeitaignore set to 1, N/A, C>0.05
+                            #   jeitaignore set to 1, N/A, batcap not set
+                            #   jeitaignore set to 0
+                            # Gate: batcap must be set AND imax <= 0.05C. The wish survives a
+                            # failed gate and re-arms on its own. See "JEITA Override" in
+                            # Section 4 and BATTERY_GUIDE.md.
 ```
+
+Unknown setter → `Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore`.
 
 ---
 
@@ -876,6 +1084,9 @@ set board.soc <percent>     # Manually set SOC (0-100, INA228 must be ready)
 | `updateHourlyStats()` | BoardConfigContainer.cpp | Hourly sampling into the 168h ring buffer |
 | `calculateRollingStats()` | BoardConfigContainer.cpp | 24h/3d/7d rolling sums + living_on_battery |
 | `calculateTTL()` | BoardConfigContainer.cpp | Batt-TTL forecast |
+| `applyJeitaIgnore()` | BoardConfigContainer.cpp | Derives the effective JEITA override, programs TS_IGNORE/ISETC/ISETH |
+| `jeitaIgnoreGateOk()` | BoardConfigContainer.cpp | The 0.05C gate (batcap user-set AND imax ≤ 0.05C) |
+| `refreshTempDerating()` | BoardConfigContainer.cpp | Derating temperature, BME280 fallback after 5 min without an accepted NTC update |
 | `Ina228Driver::begin()` | lib/Ina228Driver.cpp | 100mΩ calibration, ADC config |
 | `Ina228Driver::readVBATDirect()` | lib/Ina228Driver.cpp | Static early-boot VBAT read |
 
