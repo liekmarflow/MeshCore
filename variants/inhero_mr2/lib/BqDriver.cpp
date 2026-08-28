@@ -99,13 +99,19 @@ bq25798_charging_status BqDriver::getChargingStatus() {
 const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
   telemetryData = { 0 };
 
-  // The TS channel runs whenever VBAT allows it (datasheet quote above: TS
-  // requires VBAT >= 3.2V battery-only) — regardless of chemistry. A missing
-  // NTC then decodes through the RT2-only pole to a bogus ≈-46°C that slips
-  // past the open-pin check; the BME280 plausibility filter in
+  // The TS channel runs regardless of chemistry. A missing NTC then decodes
+  // through the RT2-only pole to a bogus ≈-46°C that slips past the open-pin
+  // check; the BME280 plausibility filter in
   // BoardConfigContainer::getTelemetryData() discards such readings.
+  //
+  // The VBAT >= 3.2V requirement applies to battery-only operation (datasheet
+  // quote above). With an input source qualified the ADC runs off VBUS, so the
+  // channel stays on — that is exactly the case worth measuring: a cold, nearly
+  // empty cell being charged. Below the threshold and without an input the TS
+  // channel would stall the whole conversion, costing the solar readings too,
+  // so it is switched off there.
   bool ts_enabled = true;
-  if (vbat_mv > 0 && vbat_mv < 3200) {
+  if (vbat_mv > 0 && vbat_mv < 3200 && !this->getChargerStatusPowerGood()) {
     ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
   }
 
@@ -143,7 +149,7 @@ const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
     if (ts_enabled) {
       telemetryData.battery.temperature = this->calculateBatteryTemp(getTS());
     } else {
-      // TS channel off — VBAT too low to run the channel. No reading.
+      // TS channel off — battery-only below 3.2V. No reading.
       telemetryData.battery.temperature = -888.0f;
     }
   } else {

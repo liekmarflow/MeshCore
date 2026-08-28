@@ -288,7 +288,10 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     return true;
   } else if (strcmp(cmd, "jeitaignore") == 0) {
     const auto* jiProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    if (jiProps && !jiProps->needs_jeita) {
+    if (cfg.getBatteryType() == BoardConfigContainer::BAT_UNKNOWN) {
+      // No chemistry set means no charging at all, so the question has no answer yet.
+      snprintf(reply, maxlen, "N/A");
+    } else if (jiProps && !jiProps->needs_jeita) {
       snprintf(reply, maxlen, "jeitaignore 1 (chemistry)");
     } else if (cfg.isJeitaIgnoreActive()) {
       snprintf(reply, maxlen, "jeitaignore 1");
@@ -324,6 +327,9 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
     }
     return ret;
   } else if (strncmp(setCommand, "fmax ", 5) == 0) {
+    if (cfg.getBatteryType() == BoardConfigContainer::BAT_UNKNOWN) {
+      return "Err: Set board.bat first";
+    }
     const auto* fmaxProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
     if (fmaxProps && !fmaxProps->needs_jeita) {
       snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for this chemistry (JEITA disabled)");
@@ -455,6 +461,9 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
     bool off = (strcmp(value, "0") == 0 || strcmp(value, "false") == 0);
     if (!on && !off) {
       return "Err: Use 1|0";
+    }
+    if (cfg.getBatteryType() == BoardConfigContainer::BAT_UNKNOWN) {
+      return "Err: Set board.bat first";
     }
     const auto* jiProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
     if (jiProps && !jiProps->needs_jeita) {
