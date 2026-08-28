@@ -65,6 +65,7 @@ BoardConfigContainer::BatteryType BoardConfigContainer::cachedBatteryType = BAT_
 bool BoardConfigContainer::leds_enabled = true;  // Default: enabled
 bool BoardConfigContainer::usbInputActive = false;  // Default: no USB connected
 float BoardConfigContainer::tcCalOffset = 0.0f;  // Default: no temperature calibration offset
+bool BoardConfigContainer::jeitaIgnoreActive = false;  // Derived on chemistry apply, never persisted
 float BoardConfigContainer::lastValidBatteryTemp = 25.0f;  // 25°C = no derating until first valid reading
 uint32_t BoardConfigContainer::lastTempUpdateMs = 0;  // 0 = never updated
 
@@ -1024,16 +1025,10 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
                      props->charge_enable);
 #endif
 
-  // Apply TS_IGNORE before the potential early return — configureBaseBQ()
-  // resets it to false, so chemistries that need no JEITA supervision
-  // (BAT_UNKNOWN, LTO, Na-ion) have to set it here.
-  bq.setTsIgnore(!props->needs_jeita);
-  if (!props->needs_jeita) {
-    bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
-    bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
-  }
-
   if (!props->charge_enable) {
+    // No charging at all for this type, so the temperature guard has nothing to
+    // guard; derive the override anyway to keep the reported state truthful.
+    applyJeitaIgnore(props);
     MESH_DEBUG_PRINTLN("WARNING: Battery type UNKNOWN - Charging DISABLED for safety!");
     return true;  // No further configuration needed for unknown battery
   }
@@ -1053,6 +1048,13 @@ bool BoardConfigContainer::configureChemistry(BatteryType type) {
   // configured imax silently falls back to the 1A default on every boot.
   bq.setMinSystemV(2.75);
   bq.setChargeLimitA(getMaxChargeCurrent_mA() / 1000.0f);
+
+  // Derive the JEITA override LAST, once ICHG holds the configured imax again.
+  // Deriving it earlier leaves a window in which the temperature guard is off
+  // while setCellCount() has just reset ICHG to the 1A POR default — and an I2C
+  // failure inside that window would freeze the board in exactly that state.
+  // configureBaseBQ() clears TS_IGNORE, so the hardware guard rules until here.
+  applyJeitaIgnore(props);
 
   return true;
 }
@@ -1091,6 +1093,86 @@ bool BoardConfigContainer::getMPPTEnabled() const {
   return enabled;
 }
 
+// === JEITA override (board.jeitaignore) ===
+
+// Loads the stored user wish. Only meaningful for needs_jeita chemistries.
+bool BoardConfigContainer::loadJeitaIgnoreWish(bool& on) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+
+  char buffer[4];
+  if (prefs.getString(JEITAIGNKEY, buffer, sizeof(buffer), "") > 0) {
+    on = (buffer[0] == '1');
+    return true;
+  }
+  on = false;
+  return false;
+}
+
+bool BoardConfigContainer::getJeitaIgnoreWish() const {
+  bool on = false;
+  loadJeitaIgnoreWish(on);
+  return on;
+}
+
+// The gate: batcap must be user-set and imax must not exceed 0.05C of it.
+// The safety is this static bound, not a firmware control loop — in SYSTEMOFF
+// sleep the charger stays enabled and no loop runs, so an unattended frozen
+// cell must never see more than that rate.
+bool BoardConfigContainer::jeitaIgnoreGateOk() const {
+  if (!isBatteryCapacitySet()) {
+    return false;
+  }
+  // Read the persisted capacity, not getBatteryCapacity(): that returns the
+  // socStats RAM cache, which begin() fills only AFTER configureChemistry() —
+  // the boot derivation would gate against 0 mAh and always fail.
+  float cap_mah = 0.0f;
+  loadBatteryCapacity(cap_mah);
+  return getMaxChargeCurrent_mA() <= jeitaIgnoreLimit_mA(cap_mah);
+}
+
+// Stores the wish and re-derives the effective state. The wish survives a
+// failed gate — it re-arms as soon as imax/batcap pass again.
+bool BoardConfigContainer::setJeitaIgnoreWish(bool on) {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  if (!prefs.putString(JEITAIGNKEY, on ? "1" : "0")) {
+    return false;
+  }
+  applyJeitaIgnore();
+  return true;
+}
+
+// Re-derives for the current chemistry (CLI writers of imax/batcap/wish).
+bool BoardConfigContainer::applyJeitaIgnore() {
+  return applyJeitaIgnore(getBatteryProperties(getBatteryType()));
+}
+
+// Derives the effective JEITA override and programs the BQ:
+//   chemistry needs no JEITA (LTO, Na-ion, UNKNOWN) → forced on
+//   otherwise → user wish AND 0.05C gate
+// TS_IGNORE stops the BQ's temperature regulation permanently — deliberately
+// including SYSTEMOFF sleep. Turning the override off restores the stored
+// fmax mapping (ISETC); ISETH needs no restore, its POR default is UNCHANGED.
+bool BoardConfigContainer::applyJeitaIgnore(const BatteryProperties* props) {
+  if (!bqInitialized || !props) {
+    jeitaIgnoreActive = false;
+    return false;
+  }
+
+  bool ignore = !props->needs_jeita || (getJeitaIgnoreWish() && jeitaIgnoreGateOk());
+  bool was_active = jeitaIgnoreActive;
+  jeitaIgnoreActive = ignore;
+
+  bq.setTsIgnore(ignore);
+  if (ignore) {
+    bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
+    bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
+  } else if (was_active) {
+    setFrostChargeBehaviour(getFrostChargeBehaviour());
+  }
+  return ignore;
+}
 
 // Enables or disables MPPT
 bool BoardConfigContainer::setMPPTEnable(bool enableMPPT) {

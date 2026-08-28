@@ -125,8 +125,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
              BoardConfigContainer::getBatteryTypeCommandString(cfg.getBatteryType()));
     return true;
   } else if (strcmp(cmd, "fmax") == 0) {
-    const auto* props = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    if (props && !props->needs_jeita) {
+    if (cfg.isJeitaIgnoreActive()) {
       snprintf(reply, maxlen, "N/A");
     } else {
       snprintf(reply, maxlen, "%s",
@@ -255,7 +254,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
   } else if (strcmp(cmd, "conf") == 0) {
     const char* batType = BoardConfigContainer::getBatteryTypeCommandString(cfg.getBatteryType());
     const auto* confProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
-    const char* frostBehaviour = (confProps && !confProps->needs_jeita)
+    const char* frostBehaviour = cfg.isJeitaIgnoreActive()
         ? "N/A"
         : BoardConfigContainer::getFrostChargeBehaviourCommandString(cfg.getFrostChargeBehaviour());
 
@@ -267,8 +266,12 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
           BoardConfigContainer::getLowVoltageWakeThreshold(cfg.getBatteryType()) / 1000.0f;
       const char* imax = cfg.getChargeCurrentAsStr();
       bool mpptEnabled = cfg.getMPPTEnabled();
-      snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f V0:%.2f", batType, frostBehaviour,
-               mpptEnabled ? "1" : "0", imax, chargeVoltage, voltage0Soc);
+      // J:1 appears only while the user override is on — for chemistries that
+      // run without JEITA anyway the line is unchanged.
+      const char* jeitaMark =
+          (confProps && confProps->needs_jeita && cfg.isJeitaIgnoreActive()) ? " J:1" : "";
+      snprintf(reply, maxlen, "B:%s F:%s M:%s I:%s Vco:%.2f V0:%.2f%s", batType, frostBehaviour,
+               mpptEnabled ? "1" : "0", imax, chargeVoltage, voltage0Soc, jeitaMark);
     }
     return true;
   } else if (strcmp(cmd, "tccal") == 0) {
@@ -283,10 +286,24 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     bool explicitly_set = cfg.isBatteryCapacitySet();
     snprintf(reply, maxlen, "%.0f mAh (%s)", capacity_mah, explicitly_set ? "set" : "default");
     return true;
+  } else if (strcmp(cmd, "jeitaignore") == 0) {
+    const auto* jiProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
+    if (jiProps && !jiProps->needs_jeita) {
+      snprintf(reply, maxlen, "jeitaignore 1 (chemistry)");
+    } else if (cfg.isJeitaIgnoreActive()) {
+      snprintf(reply, maxlen, "jeitaignore 1");
+    } else if (cfg.getJeitaIgnoreWish()) {
+      // Wish is stored but the gate blocks it — name the blocker.
+      snprintf(reply, maxlen, "jeitaignore 1, N/A, %s",
+               cfg.isBatteryCapacitySet() ? "C>0.05" : "batcap not set");
+    } else {
+      snprintf(reply, maxlen, "jeitaignore 0");
+    }
+    return true;
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap");
+           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore");
   return true;
 }
 
@@ -312,6 +329,10 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Fmax setting N/A for this chemistry (JEITA disabled)");
       return ret;
     }
+    if (cfg.isJeitaIgnoreActive()) {
+      snprintf(ret, sizeof(ret), "Err: Fmax N/A while jeitaignore is on");
+      return ret;
+    }
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
     BoardConfigContainer::FrostChargeBehaviour fcb =
         BoardConfigContainer::getFrostChargeBehaviourFromCommandString(value);
@@ -328,8 +349,21 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[5]));
     int ma = atoi(value);
     if (ma >= 50 && ma <= 1500) {
+      // imax is a gate quantity — the write goes through, the override is
+      // re-derived, and a state change is reported (same pattern as batcap).
+      // The stored wish survives and re-arms once the gate passes again.
+      bool wasActive = cfg.isJeitaIgnoreActive();
       cfg.setMaxChargeCurrent_mA(ma);
-      snprintf(ret, sizeof(ret), "Max charge current set to %s", cfg.getChargeCurrentAsStr());
+      cfg.applyJeitaIgnore();
+      if (wasActive && !cfg.isJeitaIgnoreActive()) {
+        snprintf(ret, sizeof(ret), "Max charge current set to %s; jeitaignore N/A, C>0.05",
+                 cfg.getChargeCurrentAsStr());
+      } else if (!wasActive && cfg.isJeitaIgnoreActive()) {
+        snprintf(ret, sizeof(ret), "Max charge current set to %s; jeitaignore 1",
+                 cfg.getChargeCurrentAsStr());
+      } else {
+        snprintf(ret, sizeof(ret), "Max charge current set to %s", cfg.getChargeCurrentAsStr());
+      }
       return ret;
     }
     return "Err: Try 50-1500";
@@ -353,8 +387,19 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
   } else if (strncmp(setCommand, "batcap ", 7) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[7]));
     float capacity_mah = atof(value);
+    bool wasActive = cfg.isJeitaIgnoreActive();
     if (cfg.setBatteryCapacity(capacity_mah)) {
-      snprintf(ret, sizeof(ret), "Battery capacity set to %.0f mAh", capacity_mah);
+      // batcap is a gate quantity — re-derive and report a state change.
+      cfg.applyJeitaIgnore();
+      if (wasActive && !cfg.isJeitaIgnoreActive()) {
+        snprintf(ret, sizeof(ret), "Battery capacity set to %.0f mAh; jeitaignore N/A, C>0.05",
+                 capacity_mah);
+      } else if (!wasActive && cfg.isJeitaIgnoreActive()) {
+        snprintf(ret, sizeof(ret), "Battery capacity set to %.0f mAh; jeitaignore 1",
+                 capacity_mah);
+      } else {
+        snprintf(ret, sizeof(ret), "Battery capacity set to %.0f mAh", capacity_mah);
+      }
     } else {
       snprintf(ret, sizeof(ret), "Err: Invalid capacity (100-100000 mAh)");
     }
@@ -404,9 +449,34 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
       snprintf(ret, sizeof(ret), "Err: Invalid SOC (0-100) or INA228 not ready");
     }
     return ret;
+  } else if (strncmp(setCommand, "jeitaignore ", 12) == 0) {
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[12]));
+    bool on  = (strcmp(value, "1") == 0 || strcmp(value, "true") == 0);
+    bool off = (strcmp(value, "0") == 0 || strcmp(value, "false") == 0);
+    if (!on && !off) {
+      return "Err: Use 1|0";
+    }
+    const auto* jiProps = BoardConfigContainer::getBatteryProperties(cfg.getBatteryType());
+    if (jiProps && !jiProps->needs_jeita) {
+      return "Err: This chemistry runs without JEITA (always 1)";
+    }
+    if (!cfg.setJeitaIgnoreWish(on)) {
+      return "Err: Failed to store setting";
+    }
+    if (!on) {
+      snprintf(ret, sizeof(ret), "jeitaignore set to 0");
+    } else if (cfg.isJeitaIgnoreActive()) {
+      snprintf(ret, sizeof(ret), "jeitaignore set to 1");
+    } else {
+      // Wish stored, gate blocks it — name the blocker; re-arms on its own
+      // once imax/batcap pass.
+      snprintf(ret, sizeof(ret), "jeitaignore set to 1, N/A, %s",
+               cfg.isBatteryCapacitySet() ? "C>0.05" : "batcap not set");
+    }
+    return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore");
   return ret;
 }
 

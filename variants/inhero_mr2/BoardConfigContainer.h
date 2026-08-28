@@ -99,7 +99,7 @@ public:
     bool charge_enable;
     // Whether the chemistry needs JEITA temperature supervision. false (LTO,
     // Na-ion) forces the JEITA override on; true (Li-ion, LiFePO4) leaves it
-    // off unless the user sets board.jeitaignore and passes the 0.02C gate.
+    // off unless the user sets board.jeitaignore and passes the 0.05C gate.
     bool needs_jeita;
     // Capacity derating at cold temps. Calibrated for ~0.01C avg / ~0.05C TX
     // peak loads on 2–8 Ah cells (much milder than datasheet 0.2C–0.5C values).
@@ -247,6 +247,18 @@ public:
   float performTcCalibration(float* bme_temp_out = nullptr);
   static float readBmeTemperature();
 
+  // JEITA override (board.jeitaignore). The stored value is the USER WISH and
+  // only exists for needs_jeita chemistries; the effective state is derived on
+  // every chemistry apply: forced on when the chemistry needs no JEITA,
+  // otherwise wish AND 0.05C gate. The wish survives a failed gate — it
+  // re-arms as soon as imax/batcap pass again.
+  bool setJeitaIgnoreWish(bool on);    // store wish, re-derive, program the BQ
+  bool getJeitaIgnoreWish() const;     // stored wish (default false)
+  bool isJeitaIgnoreActive() const { return jeitaIgnoreActive; }
+  bool jeitaIgnoreGateOk() const;      // batcap user-set AND imax <= 0.05C
+  static float jeitaIgnoreLimit_mA(float capacity_mah) { return 0.05f * capacity_mah; }
+  bool applyJeitaIgnore();             // re-derive for the current chemistry
+
   // INA228 ALERT on P1.02 (Rev 1.1)
   void armLowVoltageAlert();
   static void disarmLowVoltageAlert();
@@ -287,6 +299,7 @@ private:
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
   static bool usbInputActive; // True when USB VBUS detected — caps IINDPM to 500mA
   static float tcCalOffset;   // NTC temperature calibration offset in °C (0.0 = no calibration)
+  static bool jeitaIgnoreActive;  // effective JEITA override state (derived, never persisted)
   // NTC plausibility: an open/missing NTC decodes through the RT2-only pole to
   // ≈-46°C regardless of ambient — in DC indistinguishable from a real NTC at
   // that temperature. The BME280 is the reference; readings further apart than
@@ -312,7 +325,10 @@ private:
   static constexpr const char* LEDSKEY = "leds_en";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
+  static constexpr const char* JEITAIGNKEY = "jeitaIgn";         // JEITA override user wish
 
+  bool applyJeitaIgnore(const BatteryProperties* props);  // derive + program TS_IGNORE/ISETC/ISETH
+  bool loadJeitaIgnoreWish(bool& on) const;
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
