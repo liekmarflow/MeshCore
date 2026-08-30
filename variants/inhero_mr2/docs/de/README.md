@@ -414,12 +414,17 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 
 ## Regulatorische Hinweise & CE-Konformität (RED 2014/53/EU)
 
-Das Inhero MR2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+Das Inhero MR2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert.
 
-**Verbautes Funkmodul:** RAK4630**(H)** — die Hochband-Variante (IN865, EU868, RU864, US915, AU915, KR920, AS923). Die Niederband-Variante RAK4630(L) (EU433, CN470) ist nicht verbaut; ein Betrieb auf 433 MHz oder 470 MHz ist mit diesem Board nicht möglich. Siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder).
+**Was das Board festlegt und was der Betreiber wählt:** Die Funkhardware kann alles, was das verbaute Modul RAK4630**(H)** hergibt — IN865, EU868, RU864, US915, AU915, KR920, AS923 (siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder)). Ausgeschlossen ist einzig das Niederband: RAK4630(L) (EU433, CN470) ist nicht verbaut, 433 MHz und 470 MHz stehen damit nicht zur Verfügung. Alles Übrige — **Frequenz, Sendeleistung und Duty Cycle — wird in der Firmware eingestellt, nicht vom Board vorgegeben**. Welche Grenzwerte gelten, ergibt sich daher daraus, wo das Board betrieben wird, und ihre Einhaltung liegt beim Betreiber.
 
-**Vorgaben für den gesetzeskonformen Betrieb der Funk-Firmware:**
-Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss sichergestellt werden, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) zwingend eingehalten werden:
+Firmware-Vorgabewerte sind eine Entscheidung der Firmware und können sich von Version zu Version ändern. MeshCore sendet auf diesem Board derzeit auf 869,618 MHz (`LORA_FREQ=869.618`), einem Wert innerhalb des EU-g3-Subbands. Das ist ein Startwert, den man gegen die am Standort geltenden Regeln prüft — keine Eigenschaft der Hardware.
+
+### Betrieb in der EU (CE / RED 2014/53/EU)
+
+Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+
+Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss jeder, der das Board in der EU betreibt, es so konfigurieren, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) eingehalten werden:
 
 1. **Standard LoRa (868 MHz Band):**
    * Frequenzbereich: 865,0 – 868,6 MHz
@@ -427,8 +432,8 @@ Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgebl
    * Max. Duty Cycle: 1 % (oder LBT+AFA gemäß EN 300 220)
    * *Hinweis: Im Sub-Band 863,0 – 865,0 MHz gelten abweichende Duty-Cycle-Anforderungen gemäß ERC/REC 70-03.*
 
-2. **High-Power LoRa (Sonderbereich 869,5 MHz):**
-   * Frequenzbereich: 869,40 – 869,65 MHz (MeshCore Standard-Kanal)
+2. **High-Power LoRa (g3-Subband, Bereich 869,5 MHz):**
+   * Frequenzbereich: 869,40 – 869,65 MHz — jeder Kanal innerhalb von g3 erfüllt das; die konkrete Frequenz ist eine Firmware-Einstellung
    * Max. abgestrahlte Sendeleistung (ERP): **500 mW (27 dBm)**
    * Max. Duty Cycle: 10 %
    * *Hinweis zur Hardware:* Der verbaute LoRa-Transceiver (SX1262) liefert eine maximale leitungsgebundene Sendeleistung von 22 dBm. Um das gesetzliche Limit von 500 mW ERP (entspricht 29,15 dBm EIRP) vollständig auszuschöpfen, ist die Verwendung einer entsprechenden Antenne mit einem Antennengewinn von ca. +7 dBi erforderlich (abzüglich etwaiger Kabelverluste). Mit der mitgelieferten FPCB-Antenne (0,7 dBi) werden max. ca. 114 mW ERP erreicht.
@@ -439,8 +444,12 @@ Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgebl
 **Antennen & Verantwortung des Betreibers (EIRP/ERP Limit):**
 Der Anwender ist verpflichtet, die konfigurierte Sendeleistung (TX Power) im Chip und den Antennengewinn aufeinander abzustimmen. Wird eine Antenne verwendet, deren Gewinn in Kombination mit der eingestellten Sendeleistung die oben genannten gesetzlichen EIRP/ERP-Limits überschreitet, muss die Sendeleistung softwareseitig zwingend reduziert werden.
 
+### Betrieb außerhalb der EU
+
+Das verbaute (H)-Modul deckt die zu Beginn dieses Abschnitts genannten regionalen Bänder ab, das Board ist also auch außerhalb Europas einsetzbar. Die Werte im vorangehenden Abschnitt sind die **europäischen** Grenzwerte und gelten dort nicht. Die vorliegende EU-Konformitätserklärung deckt den Betrieb innerhalb der EU ab; in jeder anderen Region gelten die dortigen nationalen Funkvorschriften — Frequenzplan, abgestrahlte Leistung sowie Duty Cycle bzw. Dwell Time. Ihre Einhaltung einschließlich einer örtlich erforderlichen Zulassung liegt beim Integrator bzw. Anwender.
+
 **Haftungsausschluss:**
-Das Inhero MR2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Werden durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration die gesetzlichen Parameter außerhalb der EU-Normen betrieben, erlischt die CE-Konformität des Geräts. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
+Das Inhero MR2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Wird das Gerät durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration außerhalb der oben genannten EU-Grenzwerte betrieben, erlischt seine CE-Konformität. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
 
 ## Siehe auch
 

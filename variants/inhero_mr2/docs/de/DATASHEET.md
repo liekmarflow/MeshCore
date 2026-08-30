@@ -77,7 +77,7 @@ Für die durchgehende Abdeckung des (H)-Moduls gibt es zwei Angaben, und die dec
 
 Die Abweichung liegt am oberen Ende: Mit 923 MHz wären US915 und AU915 nicht vollständig abgedeckt. Beide Angaben stehen hier so, wie sie veröffentlicht sind; keine von beiden ist eine zugesicherte Betriebsgrenze für ein einzelnes Band. Die Variante selbst steht dagegen fest — ein Betrieb auf 433 MHz oder 470 MHz setzt das (L)-Modul voraus und ist auf diesem Board **nicht möglich**.
 
-Die MeshCore-Firmware für dieses Board sendet vorgabemäßig auf **869,618 MHz** (EU868-g3-Subband, `LORA_FREQ=869.618`). Die geltenden gesetzlichen Grenzwerte stehen unter [Regulatorische Hinweise & CE-Konformität](README.md#regulatorische-hinweise--ce-konformität-red-201453eu).
+**Die Sendefrequenz ist eine Firmware-Einstellung, keine Eigenschaft des Boards.** Innerhalb der oben genannten Abdeckung wählt sie, wer den Knoten konfiguriert. MeshCore steht auf diesem Board derzeit auf 869,618 MHz (`LORA_FREQ=869.618`) — eine Entscheidung der Firmware, die sich von Version zu Version ändern kann. Welche Grenzwerte für Frequenz, abgestrahlte Leistung und Duty Cycle gelten, ergibt sich daraus, wo das Board betrieben wird: siehe [Regulatorische Hinweise & CE-Konformität](README.md#regulatorische-hinweise--ce-konformität-red-201453eu) für die europäischen Werte und für den Betrieb anderswo.
 
 Quellen: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (Bändertabelle) · [RAK4630-Produktseite](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz)
 

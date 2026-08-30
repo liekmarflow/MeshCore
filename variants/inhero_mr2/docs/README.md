@@ -411,12 +411,17 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 
 ## Regulatory Notes & CE Compliance (RED 2014/53/EU)
 
-The Inhero MR2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware is **CE-marked and conforms to the European Radio Equipment Directive (RED 2014/53/EU)**; the corresponding tests were carried out by an accredited test laboratory and an EU Declaration of Conformity is on file. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
+The Inhero MR2 is shipped as a hardware platform (development module) with a pre-installed bootloader.
 
-**Fitted radio module:** RAK4630**(H)** — the high-band variant (IN865, EU868, RU864, US915, AU915, KR920, AS923). The low-band variant RAK4630(L) (EU433, CN470) is not fitted; the board cannot be operated on 433 MHz or 470 MHz. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
+**What the board fixes, and what the operator chooses:** The radio hardware covers everything the fitted RAK4630**(H)** module supports — IN865, EU868, RU864, US915, AU915, KR920, AS923 (see [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands)). The one thing the board rules out is the low band: RAK4630(L) (EU433, CN470) is not fitted, so 433 MHz and 470 MHz are unavailable. Everything else — **frequency, TX power and duty cycle — is set in the firmware, not by the board**. Which limits apply therefore follows from where the board is operated, and observing them is the operator's responsibility.
 
-**Requirements for legally compliant operation of radio firmware:**
-Since the final transmission characteristics (TX power, frequency, duty cycle) are largely determined by the software installed by the user (e.g. MeshCore) and the chosen antenna, the following European limits (per EN 300 220 and EN 300 328, ERC/REC 70-03 Annex 1) must be strictly observed:
+Firmware defaults are the firmware's choice and can change from one version to the next. MeshCore currently transmits on 869.618 MHz on this board (`LORA_FREQ=869.618`), a value inside the EU g3 sub-band. Treat that as a starting value to check against the rules that apply at the site, not as a property of the hardware.
+
+### Operation in the EU (CE / RED 2014/53/EU)
+
+The hardware is **CE-marked and conforms to the European Radio Equipment Directive (RED 2014/53/EU)**; the corresponding tests were carried out by an accredited test laboratory and an EU Declaration of Conformity is on file. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
+
+Since the final transmission characteristics (TX power, frequency, duty cycle) are largely determined by the software installed by the user (e.g. MeshCore) and the chosen antenna, anyone operating the board in the EU has to configure it so that it stays inside the following European limits (per EN 300 220 and EN 300 328, ERC/REC 70-03 Annex 1):
 
 1. **Standard LoRa (868 MHz band):**
    * Frequency range: 865.0 – 868.6 MHz
@@ -424,8 +429,8 @@ Since the final transmission characteristics (TX power, frequency, duty cycle) a
    * Max. duty cycle: 1% (or LBT+AFA per EN 300 220)
    * *Note: Different duty cycle requirements per ERC/REC 70-03 apply in the 863.0 – 865.0 MHz sub-band.*
 
-2. **High-Power LoRa (special band 869.5 MHz):**
-   * Frequency range: 869.40 – 869.65 MHz (MeshCore default channel)
+2. **High-Power LoRa (g3 sub-band, 869.5 MHz range):**
+   * Frequency range: 869.40 – 869.65 MHz — any channel inside g3 qualifies; the specific frequency is a firmware setting
    * Max. radiated TX power (ERP): **500 mW (27 dBm)**
    * Max. duty cycle: 10%
    * *Hardware note:* The onboard LoRa transceiver (SX1262) provides a maximum conducted TX power of 22 dBm. To fully utilize the legal limit of 500 mW ERP (equivalent to 29.15 dBm EIRP), an antenna with a gain of approx. +7 dBi is required (minus any cable losses). With the included FPCB antenna (0.7 dBi), max. approx. 114 mW ERP is achieved.
@@ -436,8 +441,12 @@ Since the final transmission characteristics (TX power, frequency, duty cycle) a
 **Antennas & operator responsibility (EIRP/ERP limit):**
 The user is obligated to match the configured TX power in the chip with the antenna gain. If an antenna is used whose gain, in combination with the configured TX power, exceeds the legal EIRP/ERP limits stated above, the TX power must be reduced in software.
 
+### Operation outside the EU
+
+The fitted (H) module covers the regional bands named at the start of this section, so the board is usable outside Europe. The figures in the preceding section are the **European** limits and do not apply there. The EU Declaration of Conformity on file covers operation within the EU; in any other region the applicable national radio regulations govern — frequency plan, radiated power, and duty cycle or dwell time — and meeting them, including obtaining any approval required locally, is the responsibility of the integrator or end user.
+
 **Disclaimer:**
-The Inhero MR2 is a module intended for professional developers and qualified users. If the legal parameters are operated outside EU norms due to the choice of firmware, antenna, or manual configuration, the CE compliance of the device is void. In this case, all legal responsibility for operation transfers to the integrator or end user.
+The Inhero MR2 is a module intended for professional developers and qualified users. If the device is operated outside the EU limits stated above through the choice of firmware, antenna, or manual configuration, its CE conformity is void. In this case, all legal responsibility for operation transfers to the integrator or end user.
 
 ## See Also
 

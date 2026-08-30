@@ -77,7 +77,7 @@ Two figures exist for the continuous coverage of the (H) module, and they do not
 
 The upper edge is the discrepancy: 923 MHz would not cover US915 and AU915 in full. Both figures are reproduced here as published; neither is a guaranteed operating limit for an individual band. The variant itself is not in doubt — operation on 433 MHz or 470 MHz requires the (L) module and is therefore **not possible** on this board.
 
-The MeshCore firmware for this board defaults to **869.618 MHz** (EU868 g3 sub-band, `LORA_FREQ=869.618`). The applicable legal limits are listed under [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu).
+**The operating frequency is a firmware setting, not a property of the board.** Anywhere inside the coverage above, the band is chosen by whoever configures the node. MeshCore's current default on this board is 869.618 MHz (`LORA_FREQ=869.618`) — the firmware's choice, which can change from one version to the next. Which limits apply to frequency, radiated power and duty cycle follows from where the board is operated: see [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu) for the European figures and for operation elsewhere.
 
 Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz)
 

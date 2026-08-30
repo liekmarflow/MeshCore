@@ -349,7 +349,7 @@ Typical Inhero MR2 power consumption (repeater mode, LEDs off):
 | TX burst (SX1262 +22 dBm) | ~130 mA @ 3.3 V | Short bursts only, regulated by duty cycle |
 | Low-voltage sleep | <0.5 mA | Solar charging continues |
 
-> **How these values are determined:** MeshCore operates on **869.618 MHz** in the EU868 **g3 sub-band** (869.4–869.65 MHz), which allows up to +27 dBm ERP and a **10% duty cycle**. At +22 dBm the SX1262 + MCU draw ~130 mA during TX. With 10% TX time: `0.90 × 7.6 + 0.10 × 130 = 19.8 mA` → **~65 mW or ~1.57 Wh/day** — the regulatory maximum.
+> **How these values are determined:** The worst case assumes the EU868 **g3 sub-band** (869.4–869.65 MHz), which permits up to +27 dBm ERP and a **10% duty cycle** — MeshCore's current default channel of 869.618 MHz sits inside it. The frequency is a firmware setting; on a band with a tighter duty cycle the worst case drops accordingly. At +22 dBm the SX1262 + MCU draw ~130 mA during TX. With 10% TX time: `0.90 × 7.6 + 0.10 × 130 = 19.8 mA` → **~65 mW or ~1.57 Wh/day** — the regulatory maximum.
 >
 > **Measured typical (~12.3 mA):** Validated 24h measurement in repeater mode with typical traffic: **295 mAh/day @ 3.32 V** = 0.98 Wh/day → **~41 mW or ~0.98 Wh/day**.
 
