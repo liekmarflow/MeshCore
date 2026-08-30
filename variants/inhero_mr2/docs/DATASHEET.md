@@ -67,7 +67,7 @@ The MR2 is fitted with the **high-band variant RAK4630(H)**. RAK supplies the mo
 
 | Core module | Regional bands | Fitted on the MR2 |
 |---|---|---|
-| **RAK4630(H)** | IN865, EU868, RU864, US915 (incl. Canada), AU915, KR920, AS923-1/2/3/4 | **Yes** |
+| **RAK4630(H)** | IN865, EU868, US915 (incl. Canada), AU915, KR920, AS923-1/2/3/4 | **Yes** |
 | RAK4630(L) | EU433, CN470 | No |
 
 Two figures exist for the continuous coverage of the (H) module, and they do not agree:

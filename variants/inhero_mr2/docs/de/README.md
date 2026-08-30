@@ -21,7 +21,7 @@ Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autark
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
-- **Core:** Basierend auf RAK4630**(H)** (nRF52840 + SX1262) — Hochband-Variante für IN865, EU868, RU864, US915, AU915, KR920 und AS923. Die Niederband-Variante RAK4630(L) (EU433 / CN470) ist nicht verbaut, ein Betrieb auf 433 MHz / 470 MHz ist damit nicht möglich. Siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder).
+- **Core:** Basierend auf RAK4630**(H)** (nRF52840 + SX1262) — Hochband-Variante für IN865, EU868, US915, AU915, KR920 und AS923. Die Niederband-Variante RAK4630(L) (EU433 / CN470) ist nicht verbaut, ein Betrieb auf 433 MHz / 470 MHz ist damit nicht möglich. Siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder).
 - **Power-Path:** BQ25798 Buck/Boost Charger. Ermöglicht Energiegewinnung auch dann, wenn die Solarspannung unter der Akkuspannung liegt (wichtig für Schwachlicht-Phasen).
 - **High-Efficiency Rail:** 3.3V-Rail via TPS62840 für maximale Effizienz.
 - **Robustes Monitoring:** INA228 Coulomb-Counter für präzises SOC-Tracking (essenziell für LiFePO4-Chemie) und Langzeit-Energiestatistiken.
@@ -416,7 +416,7 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 
 Das Inhero MR2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert.
 
-**Was das Board festlegt und was der Betreiber wählt:** Die Funkhardware kann alles, was das verbaute Modul RAK4630**(H)** hergibt — IN865, EU868, RU864, US915, AU915, KR920, AS923 (siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder)). Ausgeschlossen ist einzig das Niederband: RAK4630(L) (EU433, CN470) ist nicht verbaut, 433 MHz und 470 MHz stehen damit nicht zur Verfügung. Alles Übrige — **Frequenz, Sendeleistung und Duty Cycle — wird in der Firmware eingestellt, nicht vom Board vorgegeben**. Welche Grenzwerte gelten, ergibt sich daher daraus, wo das Board betrieben wird, und ihre Einhaltung liegt beim Betreiber.
+**Was das Board festlegt und was der Betreiber wählt:** Die Funkhardware kann alles, was das verbaute Modul RAK4630**(H)** hergibt — IN865, EU868, US915, AU915, KR920, AS923 (siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder)). Ausgeschlossen ist einzig das Niederband: RAK4630(L) (EU433, CN470) ist nicht verbaut, 433 MHz und 470 MHz stehen damit nicht zur Verfügung. Alles Übrige — **Frequenz, Sendeleistung und Duty Cycle — wird in der Firmware eingestellt, nicht vom Board vorgegeben**. Welche Grenzwerte gelten, ergibt sich daher daraus, wo das Board betrieben wird, und ihre Einhaltung liegt beim Betreiber.
 
 Firmware-Vorgabewerte sind eine Entscheidung der Firmware und können sich von Version zu Version ändern. MeshCore sendet auf diesem Board derzeit auf 869,618 MHz (`LORA_FREQ=869.618`), einem Wert innerhalb des EU-g3-Subbands. Das ist ein Startwert, den man gegen die am Standort geltenden Regeln prüft — keine Eigenschaft der Hardware.
 

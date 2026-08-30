@@ -21,7 +21,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
-- **Core:** Based on RAK4630**(H)** (nRF52840 + SX1262) — high-band variant covering IN865, EU868, RU864, US915, AU915, KR920 and AS923. The low-band variant RAK4630(L) (EU433 / CN470) is not fitted, so 433 MHz / 470 MHz operation is not possible. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
+- **Core:** Based on RAK4630**(H)** (nRF52840 + SX1262) — high-band variant covering IN865, EU868, US915, AU915, KR920 and AS923. The low-band variant RAK4630(L) (EU433 / CN470) is not fitted, so 433 MHz / 470 MHz operation is not possible. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
 - **Power Path:** BQ25798 Buck/Boost Charger. Enables energy harvesting even when solar voltage is below battery voltage (critical for low-light conditions).
 - **High-Efficiency Rail:** 3.3V rail via TPS62840 for maximum efficiency.
 - **Robust Monitoring:** INA228 Coulomb Counter for precise SOC tracking (essential for LiFePO4 chemistry) and long-term energy statistics.
@@ -413,7 +413,7 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 
 The Inhero MR2 is shipped as a hardware platform (development module) with a pre-installed bootloader.
 
-**What the board fixes, and what the operator chooses:** The radio hardware covers everything the fitted RAK4630**(H)** module supports — IN865, EU868, RU864, US915, AU915, KR920, AS923 (see [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands)). The one thing the board rules out is the low band: RAK4630(L) (EU433, CN470) is not fitted, so 433 MHz and 470 MHz are unavailable. Everything else — **frequency, TX power and duty cycle — is set in the firmware, not by the board**. Which limits apply therefore follows from where the board is operated, and observing them is the operator's responsibility.
+**What the board fixes, and what the operator chooses:** The radio hardware covers everything the fitted RAK4630**(H)** module supports — IN865, EU868, US915, AU915, KR920, AS923 (see [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands)). The one thing the board rules out is the low band: RAK4630(L) (EU433, CN470) is not fitted, so 433 MHz and 470 MHz are unavailable. Everything else — **frequency, TX power and duty cycle — is set in the firmware, not by the board**. Which limits apply therefore follows from where the board is operated, and observing them is the operator's responsibility.
 
 Firmware defaults are the firmware's choice and can change from one version to the next. MeshCore currently transmits on 869.618 MHz on this board (`LORA_FREQ=869.618`), a value inside the EU g3 sub-band. Treat that as a starting value to check against the rules that apply at the site, not as a property of the hardware.
 

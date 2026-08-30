@@ -67,7 +67,7 @@ Auf dem MR2 sitzt die **Hochband-Variante RAK4630(H)**. RAK liefert das Modul in
 
 | Core-Modul | Regionale Bänder | Auf dem MR2 verbaut |
 |---|---|---|
-| **RAK4630(H)** | IN865, EU868, RU864, US915 (inkl. Kanada), AU915, KR920, AS923-1/2/3/4 | **Ja** |
+| **RAK4630(H)** | IN865, EU868, US915 (inkl. Kanada), AU915, KR920, AS923-1/2/3/4 | **Ja** |
 | RAK4630(L) | EU433, CN470 | Nein |
 
 Für die durchgehende Abdeckung des (H)-Moduls gibt es zwei Angaben, und die decken sich nicht:
