@@ -21,7 +21,7 @@ Das Inhero MR2 ist eine anwendungsspezifische Hardware-Plattform für den autark
 
 **Hardware-Version:** Rev 1.1  
 **Hauptmerkmale:**
-- **Core:** Basierend auf RAK4630 (nRF52840 + SX1262).
+- **Core:** Basierend auf RAK4630**(H)** (nRF52840 + SX1262) — Hochband-Variante für IN865, EU868, RU864, US915, AU915, KR920 und AS923 (ca. 864–928 MHz). Die Niederband-Variante RAK4630(L) (EU433 / CN470) ist nicht verbaut, ein Betrieb auf 433 MHz / 470 MHz ist damit nicht möglich. Siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder).
 - **Power-Path:** BQ25798 Buck/Boost Charger. Ermöglicht Energiegewinnung auch dann, wenn die Solarspannung unter der Akkuspannung liegt (wichtig für Schwachlicht-Phasen).
 - **High-Efficiency Rail:** 3.3V-Rail via TPS62840 für maximale Effizienz.
 - **Robustes Monitoring:** INA228 Coulomb-Counter für präzises SOC-Tracking (essenziell für LiFePO4-Chemie) und Langzeit-Energiestatistiken.
@@ -415,6 +415,8 @@ Die Diagnosefunktionen ermöglichen präzise Verifikation der BQ25798-Register g
 ## Regulatorische Hinweise & CE-Konformität (RED 2014/53/EU)
 
 Das Inhero MR2 wird als Hardware-Plattform (Entwicklungsmodul) mit vorinstalliertem Bootloader ausgeliefert. Die Hardware ist **CE-gekennzeichnet und konform zur europäischen Funkanlagenrichtlinie (RED 2014/53/EU)**; die zugehörigen Prüfungen wurden durch ein akkreditiertes Prüflabor durchgeführt, und eine EU-Konformitätserklärung liegt vor. Die Zertifizierung der abgestrahlten Leistung erfolgte unter Verwendung der vorgesehenen Referenzantennen (RAK FPCB-Antenne 863–870 MHz, MHF1-Anschluss, Antennengewinn: 0,7 dBi).
+
+**Verbautes Funkmodul:** RAK4630**(H)** — die Hochband-Variante (IN865, EU868, RU864, US915, AU915, KR920, AS923). Die Niederband-Variante RAK4630(L) (EU433, CN470) ist nicht verbaut; ein Betrieb auf 433 MHz oder 470 MHz ist mit diesem Board nicht möglich. Siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder).
 
 **Vorgaben für den gesetzeskonformen Betrieb der Funk-Firmware:**
 Da die finale Sendecharakteristik (Sendeleistung, Frequenz, Duty Cycle) maßgeblich von der durch den Anwender installierten Software (z. B. MeshCore) und der gewählten Antenne abhängt, muss sichergestellt werden, dass die folgenden europäischen Grenzwerte (gemäß EN 300 220 und EN 300 328, ERC/REC 70-03 Annex 1) zwingend eingehalten werden:

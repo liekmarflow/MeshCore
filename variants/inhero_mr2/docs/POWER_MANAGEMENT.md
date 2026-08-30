@@ -60,7 +60,7 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 ### Components
 | Component | Function | I2C | Pin | Details |
 |-----------|----------|-----|-----|---------|
-| **RAK4630** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa transceiver |
+| **RAK4630(H)** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa transceiver, high-band variant (see [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands)) |
 | **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ shunt, 1.6A max, Coulomb Counter, BUVL Alert |
 | **BME280** | Temp/Humidity/Pressure sensor | 0x76 | — | NTC calibration reference (`set board.tccal`), selftest |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Countdown timer, wake-up. See [FAQ #23](FAQ.md#23-why-does-the-repeater-board-need-a-correct-time) |

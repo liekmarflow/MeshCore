@@ -60,7 +60,7 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 ### Komponenten
 | Komponente | Funktion | I2C | Pin | Details |
 |------------|----------|-----|-----|---------|
-| **RAK4630** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa Transceiver |
+| **RAK4630(H)** | Core Module | — | — | nRF52840 SoC + SX1262 LoRa Transceiver, Hochband-Variante (siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder)) |
 | **INA228** | Power Monitor | 0x40 | ALERT→P1.02 (ISR) | 100mΩ Shunt, 1.6A max, Coulomb Counter, BUVL Alert |
 | **BME280** | Temperatur-/Feuchte-/Drucksensor | 0x76 | — | NTC-Kalibrier-Referenz (`set board.tccal`), Selftest |
 | **RV-3028-C7** | RTC | 0x52 | INT→GPIO17 | Zeitbasis, Countdown-Timer, Wake-up. Siehe [FAQ #23](FAQ.md#23-warum-braucht-das-repeater-board-eine-korrekte-uhrzeit) zur Bedeutung der Uhrzeit. |

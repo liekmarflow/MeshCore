@@ -21,7 +21,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
-- **Core:** Based on RAK4630 (nRF52840 + SX1262).
+- **Core:** Based on RAK4630**(H)** (nRF52840 + SX1262) — high-band variant covering IN865, EU868, RU864, US915, AU915, KR920 and AS923 (approx. 864–928 MHz). The low-band variant RAK4630(L) (EU433 / CN470) is not fitted, so 433 MHz / 470 MHz operation is not possible. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
 - **Power Path:** BQ25798 Buck/Boost Charger. Enables energy harvesting even when solar voltage is below battery voltage (critical for low-light conditions).
 - **High-Efficiency Rail:** 3.3V rail via TPS62840 for maximum efficiency.
 - **Robust Monitoring:** INA228 Coulomb Counter for precise SOC tracking (essential for LiFePO4 chemistry) and long-term energy statistics.
@@ -412,6 +412,8 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 ## Regulatory Notes & CE Compliance (RED 2014/53/EU)
 
 The Inhero MR2 is shipped as a hardware platform (development module) with a pre-installed bootloader. The hardware is **CE-marked and conforms to the European Radio Equipment Directive (RED 2014/53/EU)**; the corresponding tests were carried out by an accredited test laboratory and an EU Declaration of Conformity is on file. Radiated power certification was performed using the designated reference antennas (RAK FPCB antenna 863–870 MHz, MHF1 connector, antenna gain: 0.7 dBi).
+
+**Fitted radio module:** RAK4630**(H)** — the high-band variant (IN865, EU868, RU864, US915, AU915, KR920, AS923). The low-band variant RAK4630(L) (EU433, CN470) is not fitted; the board cannot be operated on 433 MHz or 470 MHz. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
 
 **Requirements for legally compliant operation of radio firmware:**
 Since the final transmission characteristics (TX power, frequency, duty cycle) are largely determined by the software installed by the user (e.g. MeshCore) and the chosen antenna, the following European limits (per EN 300 220 and EN 300 328, ERC/REC 70-03 Annex 1) must be strictly observed:

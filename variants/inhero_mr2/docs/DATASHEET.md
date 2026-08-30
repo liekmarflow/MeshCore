@@ -9,7 +9,7 @@
 
 ## Board Overview
 
-The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630** module (nRF52840 + SX1262) with integrated smart solar charging, power monitoring, and low-voltage protection. Supported battery configurations are 1S Li-ion, 1S LiFePO4, 2S LTO, and 1S Na-ion. The board was specifically designed for autonomous long-term deployment at remote or hard-to-reach locations. In Central Europe, uninterrupted continuous repeater operation is possible with unshaded solar panels ≥ 1 W and battery capacities ≥ 9 Ah.
+The Inhero MR2 is a LoRa mesh repeater board based on the **RAK4630(H)** module (nRF52840 + SX1262, high-band variant — see [LoRa Frequency Bands](#lora-frequency-bands)) with integrated smart solar charging, power monitoring, and low-voltage protection. Supported battery configurations are 1S Li-ion, 1S LiFePO4, 2S LTO, and 1S Na-ion. The board was specifically designed for autonomous long-term deployment at remote or hard-to-reach locations. In Central Europe, uninterrupted continuous repeater operation is possible with unshaded solar panels ≥ 1 W and battery capacities ≥ 9 Ah.
 
 The charge and discharge cutoff voltages (see table [Supported Battery Chemistries](#supported-battery-chemistries)) are chosen to avoid excessive stress on the batteries during summer while ensuring that sleep mode can be reliably initiated when energy is low.
 
@@ -39,8 +39,8 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | Parameter | Value |
 |---|---|
 | **MCU** | nRF52840 (ARM Cortex-M4, 64 MHz) |
-| **Radio** | Semtech SX1262 (via RAK4630) |
-| **Frequency** | LoRa Sub-GHz (region-dependent) |
+| **Radio** | Semtech SX1262 (via RAK4630**(H)**, high-band module variant) |
+| **Frequency** | LoRa Sub-GHz, approx. 864–928 MHz — see [LoRa Frequency Bands](#lora-frequency-bands). 433 MHz / 470 MHz is **not** possible. |
 | **Connectivity** | LoRa, BLE 5.0, USB-C |
 | **Supply Voltage** | 1S Li-ion / 1S LiFePO4 / 2S LTO / 1S Na-ion (via firmware config) |
 | **Solar Input** | 3.6 V – 24 V (MPPT) |
@@ -60,6 +60,21 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 | **Mounting Holes** | 4× M2.5, hole spacing 40 × 35 mm |
 | **Operating Temperature** | –40 °C to +85 °C (MCU spec) |
 | **Bootloader** | Adafruit nRF52 OTA-Fix Bootloader (factory-installed), UF2-capable |
+
+### LoRa Frequency Bands
+
+The MR2 is fitted with the **high-band variant RAK4630(H)**. RAK supplies the module in two radio variants; the variant is fixed when the board is assembled and **cannot be changed in firmware**:
+
+| Core module | Regional bands | Fitted on the MR2 |
+|---|---|---|
+| **RAK4630(H)** | IN865, EU868, RU864, US915 (incl. Canada), AU915, KR920, AS923-1/2/3/4 | **Yes** |
+| RAK4630(L) | EU433, CN470 | No |
+
+Taken together, the (H) bands span roughly **864–928 MHz**. RAK does not publish a single continuous frequency range for the module — this figure is the span of the bands listed above, not a guaranteed operating limit. Operation on 433 MHz or 470 MHz requires the (L) module and is therefore **not possible** on this board.
+
+The MeshCore firmware for this board defaults to **869.618 MHz** (EU868 g3 sub-band, `LORA_FREQ=869.618`). The applicable legal limits are listed under [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu).
+
+Source: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/)
 
 ---
 
@@ -88,7 +103,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 
 | Component | Name | Description |
 |-----------|------|-------------|
-| **RAK4630** | Core Module | nRF52840 SoC + SX1262 LoRa transceiver (center, shielded) |
+| **RAK4630(H)** | Core Module | nRF52840 SoC + SX1262 LoRa transceiver, high-band variant (center, shielded) |
 | **BME280** | Environmental Sensor | Temperature, humidity, pressure |
 | **BQ25798** | Battery Charger | MPPT, JEITA temperature protection, 15-bit ADC |
 | **INA228** | Power Monitor | Coulomb counter with ALERT interrupt |
