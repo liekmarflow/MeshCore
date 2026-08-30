@@ -445,6 +445,12 @@ The user is obligated to match the configured TX power in the chip with the ante
 
 The fitted (H) module covers the regional bands named at the start of this section, so the board is usable outside Europe. The figures in the preceding section are the **European** limits and do not apply there. The EU Declaration of Conformity on file covers operation within the EU; in any other region the applicable national radio regulations govern — frequency plan, radiated power, and duty cycle or dwell time — and meeting them, including obtaining any approval required locally, is the responsibility of the integrator or end user.
 
+**United States (FCC):** The fitted RAK4630**(H)** module holds a modular approval under FCC 15.212 (47 CFR Part 15 Subpart C) — FCC ID `2AF6B-RAK4630`, granted on 27 November 2020 to Shenzhen RAKwireless Technology Co., Ltd. for the models RAK4630 and RAK4631. The approval is held by the module; the MR2 board holds no approval of its own. It covers the module in the configuration recorded in the grant — the frequency ranges stated there (LoRa 902.3–914.9 MHz and 903.0–914.2 MHz, BLE 2402.0–2480.0 MHz; see [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands)) and the antennas on its antenna list. Anything outside that configuration is not covered by it, and responsibility for it rests with the host manufacturer or the operator. Whether a given deployment is lawful does not follow from the module grant alone. The conditions the OEM manual attaches to the approval apply to every host that carries the module:
+
+* **Host marking:** the host has to carry the marking `Contains FCC ID: 2AF6B-RAK4630`.
+* **RF exposure:** a separation distance of at least 20 cm from the body has to be maintained.
+* **Antennas:** the grant lists the antennas the module was authorized with, each with a maximum gain. That figure is not reproduced here — checking the antenna actually used against the antenna list is the operator's task.
+
 **Disclaimer:**
 The Inhero MR2 is a module intended for professional developers and qualified users. If the device is operated outside the EU limits stated above through the choice of firmware, antenna, or manual configuration, its CE conformity is void. In this case, all legal responsibility for operation transfers to the integrator or end user.
 

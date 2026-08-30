@@ -448,6 +448,12 @@ Der Anwender ist verpflichtet, die konfigurierte Sendeleistung (TX Power) im Chi
 
 Das verbaute (H)-Modul deckt die zu Beginn dieses Abschnitts genannten regionalen Bänder ab, das Board ist also auch außerhalb Europas einsetzbar. Die Werte im vorangehenden Abschnitt sind die **europäischen** Grenzwerte und gelten dort nicht. Die vorliegende EU-Konformitätserklärung deckt den Betrieb innerhalb der EU ab; in jeder anderen Region gelten die dortigen nationalen Funkvorschriften — Frequenzplan, abgestrahlte Leistung sowie Duty Cycle bzw. Dwell Time. Ihre Einhaltung einschließlich einer örtlich erforderlichen Zulassung liegt beim Integrator bzw. Anwender.
 
+**USA (FCC):** Das verbaute Modul RAK4630**(H)** besitzt eine modulare Zulassung nach FCC 15.212 (47 CFR Part 15 Subpart C) — FCC ID `2AF6B-RAK4630`, erteilt am 27.11.2020 an Shenzhen RAKwireless Technology Co., Ltd. für die Modelle RAK4630 und RAK4631. Die Zulassung hat das Modul; das MR2-Board selbst hat keine eigene Zulassung. Sie deckt das Modul in der Konfiguration ab, die im Grant festgehalten ist — die dort genannten Frequenzbereiche (LoRa 902,3–914,9 MHz sowie 903,0–914,2 MHz, BLE 2402,0–2480,0 MHz; siehe [DATASHEET.md — LoRa-Frequenzbänder](DATASHEET.md#lora-frequenzbänder)) und die Antennen seiner Antennenliste. Alles außerhalb dieser Konfiguration ist davon nicht abgedeckt; dafür ist der Host-Hersteller bzw. der Betreiber verantwortlich. Ob ein konkreter Einsatz zulässig ist, folgt nicht allein aus der Modulzulassung. Die Auflagen, die das OEM-Manual an die Zulassung knüpft, gelten für jedes Host-Gerät, das das Modul trägt:
+
+* **Kennzeichnung des Host-Geräts:** Das Host-Gerät muss die Kennzeichnung `Contains FCC ID: 2AF6B-RAK4630` tragen.
+* **RF-Exposition:** Es ist ein Mindestabstand von 20 cm zum Körper einzuhalten.
+* **Antennen:** Der Grant führt die Antennen auf, mit denen das Modul zugelassen wurde, jeweils mit einem maximalen Gewinn. Dieser Wert steht hier nicht — die eigene Antennenauswahl gegen die Antennenliste zu prüfen, ist Sache des Betreibers.
+
 **Haftungsausschluss:**
 Das Inhero MR2 ist ein Modul für professionelle Entwickler und qualifizierte Anwender. Wird das Gerät durch die Wahl der Firmware, der Antenne oder durch manuelle Konfiguration außerhalb der oben genannten EU-Grenzwerte betrieben, erlischt seine CE-Konformität. In diesem Fall geht die gesamte rechtliche Verantwortung für den Betrieb auf den Integrator bzw. Anwender über.
 

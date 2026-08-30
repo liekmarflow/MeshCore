@@ -77,9 +77,25 @@ Two figures exist for the continuous coverage of the (H) module, and they do not
 
 The upper edge is the discrepancy: 923 MHz would not cover US915 and AU915 in full. Both figures are reproduced here as published; neither is a guaranteed operating limit for an individual band. The variant itself is not in doubt — operation on 433 MHz or 470 MHz requires the (L) module and is therefore **not possible** on this board.
 
+**FCC module grant.** The fitted module holds a modular approval under FCC 15.212 (47 CFR Part 15 Subpart C). The approval is held by the module, not by the MR2 board:
+
+| Item | Value |
+|---|---|
+| **FCC ID** | `2AF6B-RAK4630` |
+| **Grantee** | Shenzhen RAKwireless Technology Co., Ltd. (grantee code 2AF6B) |
+| **Models covered** | RAK4630, RAK4631 |
+| **Type of approval** | Modular approval per FCC 15.212, 47 CFR Part 15 Subpart C |
+| **Grant date** | 27 November 2020 |
+| **LoRa range in the grant** | 902.3–914.9 MHz and 903.0–914.2 MHz |
+| **BLE range in the grant** | 2402.0–2480.0 MHz |
+
+Here, too, two figures stand side by side and do not agree: the LoRa range in the grant ends at **914.9 MHz**, while US915 — the LoRaWAN regional band listed in the table above — reaches **928 MHz**. The upper part of US915 therefore lies outside the range the grant covers. Both figures are reproduced here as published. They are statements about different things: the grant records the configuration the module was authorized in, the band table records the LoRaWAN regional plans the module can be tuned to. Neither is resolved into the other here.
+
+The grant also carries an antenna list with a maximum gain per antenna, and the OEM manual attaches conditions to any host that carries the module. Those figures are not reproduced here; checking a chosen antenna against the antenna list is the operator's task. What the approval means for a host device — host marking and the RF exposure separation distance — is in [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu), under “Operation outside the EU”.
+
 **The operating frequency is a firmware setting, not a property of the board.** Anywhere inside the coverage above, the band is chosen by whoever configures the node. MeshCore's current default on this board is 869.618 MHz (`LORA_FREQ=869.618`) — the firmware's choice, which can change from one version to the next. Which limits apply to frequency, radiated power and duty cycle follows from where the board is operated: see [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu) for the European figures and for operation elsewhere.
 
-Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz)
+Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz) · FCC Equipment Authorization for FCC ID 2AF6B-RAK4630 — grant of 27 November 2020 and the OEM manual belonging to it (FCC figures)
 
 ---
 
