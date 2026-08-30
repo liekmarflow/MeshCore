@@ -21,7 +21,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 
 **Hardware Version:** Rev 1.1  
 **Key Features:**
-- **Core:** Based on RAK4630**(H)** (nRF52840 + SX1262) — high-band variant covering IN865, EU868, RU864, US915, AU915, KR920 and AS923 (approx. 864–928 MHz). The low-band variant RAK4630(L) (EU433 / CN470) is not fitted, so 433 MHz / 470 MHz operation is not possible. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
+- **Core:** Based on RAK4630**(H)** (nRF52840 + SX1262) — high-band variant covering IN865, EU868, RU864, US915, AU915, KR920 and AS923. The low-band variant RAK4630(L) (EU433 / CN470) is not fitted, so 433 MHz / 470 MHz operation is not possible. See [DATASHEET.md — LoRa Frequency Bands](DATASHEET.md#lora-frequency-bands).
 - **Power Path:** BQ25798 Buck/Boost Charger. Enables energy harvesting even when solar voltage is below battery voltage (critical for low-light conditions).
 - **High-Efficiency Rail:** 3.3V rail via TPS62840 for maximum efficiency.
 - **Robust Monitoring:** INA228 Coulomb Counter for precise SOC tracking (essential for LiFePO4 chemistry) and long-term energy statistics.

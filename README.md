@@ -15,7 +15,7 @@ The upstream MeshCore project README is preserved as
 - **Hardware:** RAK4630(H) (nRF52840 + SX1262, high-band variant), BQ25798 buck/boost charger,
   INA228 coulomb counter, RV-3028 RTC, BME280, TPS62840 3.3 V rail,
   universal 3.6–24 V solar input with autonomous MPPT.
-- **LoRa bands:** IN865, EU868, RU864, US915, AU915, KR920, AS923 (approx. 864–928 MHz).
+- **LoRa bands:** IN865, EU868, RU864, US915, AU915, KR920, AS923.
   The low-band module RAK4630(L) (EU433 / CN470) is not fitted — see
   [LoRa Frequency Bands](variants/inhero_mr2/docs/DATASHEET.md#lora-frequency-bands).
 - **Form factor:** 45 × 40 mm.

@@ -40,7 +40,7 @@ Im Low-Voltage-Sleep beträgt die Stromaufnahme < 500 µA. Sobald die Akkuspannu
 |---|---|
 | **MCU** | nRF52840 (ARM Cortex-M4, 64 MHz) |
 | **Funk** | Semtech SX1262 (via RAK4630**(H)**, Hochband-Variante des Moduls) |
-| **Frequenz** | LoRa Sub-GHz, ca. 864–928 MHz — siehe [LoRa-Frequenzbänder](#lora-frequenzbänder). 433 MHz / 470 MHz ist **nicht** möglich. |
+| **Frequenz** | LoRa Sub-GHz, Hochband — siehe [LoRa-Frequenzbänder](#lora-frequenzbänder). 433 MHz / 470 MHz ist **nicht** möglich. |
 | **Konnektivität** | LoRa, BLE 5.0, USB-C |
 | **Versorgungsspannung** | 1S Li-ion / 1S LiFePO4 / 2S LTO / 1S Na-ion (per Firmware konfigurierbar) |
 | **Solareingang** | 3,6 V – 24 V (MPPT) |
@@ -70,11 +70,16 @@ Auf dem MR2 sitzt die **Hochband-Variante RAK4630(H)**. RAK liefert das Modul in
 | **RAK4630(H)** | IN865, EU868, RU864, US915 (inkl. Kanada), AU915, KR920, AS923-1/2/3/4 | **Ja** |
 | RAK4630(L) | EU433, CN470 | Nein |
 
-Zusammengenommen erstrecken sich die (H)-Bänder über etwa **864–928 MHz**. RAK gibt für das Modul keinen durchgehenden Frequenzbereich an — dieser Wert ist die Spanne der oben genannten Bänder, keine zugesicherte Betriebsgrenze. Ein Betrieb auf 433 MHz oder 470 MHz setzt das (L)-Modul voraus und ist auf diesem Board daher **nicht möglich**.
+Für die durchgehende Abdeckung des (H)-Moduls gibt es zwei Angaben, und die decken sich nicht:
+
+- RAKs Produktseite nennt für das Modul **„ISM bands from 779-923MHz"** (für die (L)-Variante: **„the 433-470Mhz bands"**).
+- Die Bänder aus der Tabelle oben erstrecken sich über **863–928 MHz** — EU868 ist am unteren Ende das LoRaWAN-Band EU863-870, US915 und AU915 reichen am oberen Ende bis 928 MHz.
+
+Die Abweichung liegt am oberen Ende: Mit 923 MHz wären US915 und AU915 nicht vollständig abgedeckt. Beide Angaben stehen hier so, wie sie veröffentlicht sind; keine von beiden ist eine zugesicherte Betriebsgrenze für ein einzelnes Band. Die Variante selbst steht dagegen fest — ein Betrieb auf 433 MHz oder 470 MHz setzt das (L)-Modul voraus und ist auf diesem Board **nicht möglich**.
 
 Die MeshCore-Firmware für dieses Board sendet vorgabemäßig auf **869,618 MHz** (EU868-g3-Subband, `LORA_FREQ=869.618`). Die geltenden gesetzlichen Grenzwerte stehen unter [Regulatorische Hinweise & CE-Konformität](README.md#regulatorische-hinweise--ce-konformität-red-201453eu).
 
-Quelle: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/)
+Quellen: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (Bändertabelle) · [RAK4630-Produktseite](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz)
 
 ---
 

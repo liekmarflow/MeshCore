@@ -40,7 +40,7 @@ In low-voltage sleep, current consumption is < 500 µA. Once the battery voltage
 |---|---|
 | **MCU** | nRF52840 (ARM Cortex-M4, 64 MHz) |
 | **Radio** | Semtech SX1262 (via RAK4630**(H)**, high-band module variant) |
-| **Frequency** | LoRa Sub-GHz, approx. 864–928 MHz — see [LoRa Frequency Bands](#lora-frequency-bands). 433 MHz / 470 MHz is **not** possible. |
+| **Frequency** | LoRa Sub-GHz, high band — see [LoRa Frequency Bands](#lora-frequency-bands). 433 MHz / 470 MHz is **not** possible. |
 | **Connectivity** | LoRa, BLE 5.0, USB-C |
 | **Supply Voltage** | 1S Li-ion / 1S LiFePO4 / 2S LTO / 1S Na-ion (via firmware config) |
 | **Solar Input** | 3.6 V – 24 V (MPPT) |
@@ -70,11 +70,16 @@ The MR2 is fitted with the **high-band variant RAK4630(H)**. RAK supplies the mo
 | **RAK4630(H)** | IN865, EU868, RU864, US915 (incl. Canada), AU915, KR920, AS923-1/2/3/4 | **Yes** |
 | RAK4630(L) | EU433, CN470 | No |
 
-Taken together, the (H) bands span roughly **864–928 MHz**. RAK does not publish a single continuous frequency range for the module — this figure is the span of the bands listed above, not a guaranteed operating limit. Operation on 433 MHz or 470 MHz requires the (L) module and is therefore **not possible** on this board.
+Two figures exist for the continuous coverage of the (H) module, and they do not agree:
+
+- RAK's product page states the module supports **"ISM bands from 779-923MHz"** (the (L) variant: **"the 433-470Mhz bands"**).
+- The bands in the table above span **863–928 MHz** — EU868 is the LoRaWAN band EU863-870 at the lower edge, US915 and AU915 reach 928 MHz at the upper edge.
+
+The upper edge is the discrepancy: 923 MHz would not cover US915 and AU915 in full. Both figures are reproduced here as published; neither is a guaranteed operating limit for an individual band. The variant itself is not in doubt — operation on 433 MHz or 470 MHz requires the (L) module and is therefore **not possible** on this board.
 
 The MeshCore firmware for this board defaults to **869.618 MHz** (EU868 g3 sub-band, `LORA_FREQ=869.618`). The applicable legal limits are listed under [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu).
 
-Source: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/)
+Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz)
 
 ---
 
