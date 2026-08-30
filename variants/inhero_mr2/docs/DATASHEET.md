@@ -93,9 +93,33 @@ Here, too, two figures stand side by side and do not agree: the LoRa range in th
 
 The grant also carries an antenna list with a maximum gain per antenna, and the OEM manual attaches conditions to any host that carries the module. Those figures are not reproduced here; checking a chosen antenna against the antenna list is the operator's task. What the approval means for a host device — host marking and the RF exposure separation distance — is in [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu), under “Operation outside the EU”.
 
+The Canadian ISED certificate for the same module records the same frequency ranges as the FCC grant, so what is said above about 914.9 MHz against US915 applies to it unchanged. Both certificates, and the module's remaining approvals, are listed under [Radio Module Approvals](#radio-module-approvals).
+
+**Antenna gain in the approvals.** Annex A of that ISED certificate names the antennas the certification was issued with: for LoRa a dipole with 3.0 dBi, for BLE a PCB antenna with 2.23 dBi. An antenna with a higher gain puts the combination outside the tested configuration; assessing that case is then the operator's business. The figure comes from the ISED certificate and is not an FCC condition — the FCC grant carries an antenna list of its own, in section 2.7 of the OEM manual, which is not verified here and has to be checked separately. The MR2's U.FL connector accepts any antenna: that is a property of the board, not a permission.
+
 **The operating frequency is a firmware setting, not a property of the board.** Anywhere inside the coverage above, the band is chosen by whoever configures the node. MeshCore's current default on this board is 869.618 MHz (`LORA_FREQ=869.618`) — the firmware's choice, which can change from one version to the next. Which limits apply to frequency, radiated power and duty cycle follows from where the board is operated: see [Regulatory Notes & CE Compliance](README.md#regulatory-notes--ce-compliance-red-201453eu) for the European figures and for operation elsewhere.
 
-Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz) · FCC Equipment Authorization for FCC ID 2AF6B-RAK4630 — grant of 27 November 2020 and the OEM manual belonging to it (FCC figures)
+Sources: [RAK4630 Module Datasheet — RF Characteristics](https://docs.rakwireless.com/product-categories/wisduo/rak4630-module/datasheet/) (band table) · [RAK4630 product page](https://store.rakwireless.com/products/rak4630-nrf52840-sx1262-lora-bluetooth-module-for-lorawan) (779–923 MHz / 433–470 MHz) · FCC Equipment Authorization for FCC ID 2AF6B-RAK4630 — grant of 27 November 2020 and the OEM manual belonging to it (FCC figures) · ISED certificate 25908-RAK4630, Annex A (antenna figures)
+
+### Radio Module Approvals
+
+The approvals below are held by the RAK4630 module. What a module approval does for the board the module is built into differs from entry to entry; the last column states it per row:
+
+| Region | Certificate | Identifier | What it means for the MR2 |
+|---|---|---|---|
+| United States | Modular FCC approval per FCC 15.212 (47 CFR Part 15 Subpart C) | `2AF6B-RAK4630` | Carries over through the modular approval; the host is marked `Contains FCC ID: 2AF6B-RAK4630` |
+| Canada | ISED certification per RSS-247, Issue 2 (February 2017) | `25908-RAK4630` | Carries over through the modular approval; the host is marked `Contains IC: 25908-RAK4630` |
+| EU | CE (module) | no identifier on hand | Does **not** make the board conform: the MR2 has an EU Declaration of Conformity of its own, and the module's CE is independent of it |
+| Australia | RCM (supplier declaration by RAK) | no identifier on hand | Does **not** carry over — see [Regulatory Notes](README.md#regulatory-notes--ce-compliance-red-201453eu), “Operation outside the EU” |
+| Korea | KC | no identifier on hand | A statement about the module; not relevant to distribution of the MR2 |
+| EU | REACH | no identifier on hand | Applies to the module, not to the MR2 as a whole — the board has components of its own |
+| EU | RoHS | no identifier on hand | Applies to the module, not to the MR2 as a whole — the board has components of its own |
+
+The Canadian certificate was issued on 16 August 2021 by Bay Area Compliance Laboratories to Shenzhen RAKwireless Technology Co., Ltd. (HVIN RAK4630). It records LoRa 902.3–914.9 MHz and 903.0–914.2 MHz and BLE 2402–2480 MHz — the same ranges as the FCC grant — and its Annex A names the antennas it was issued with; both are set out under [LoRa Frequency Bands](#lora-frequency-bands).
+
+For CE, RCM, KC, REACH and RoHS only the existence of the documents is on hand; none of them carries an identifier that could be quoted here. Those rows are left without a number rather than filled with one taken from another RAK module.
+
+Sources: FCC Equipment Authorization for FCC ID 2AF6B-RAK4630 · ISED certificate 25908-RAK4630, Bay Area Compliance Laboratories, 16 August 2021, including Annex A · RAK's certification documents on docs.rakwireless.com for CE, RCM, KC, REACH and RoHS (file dates 20 November 2023 and 20 June 2024)
 
 ---
 

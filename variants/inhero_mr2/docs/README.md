@@ -451,6 +451,14 @@ The fitted (H) module covers the regional bands named at the start of this secti
 * **RF exposure:** a separation distance of at least 20 cm from the body has to be maintained.
 * **Antennas:** the grant lists the antennas the module was authorized with, each with a maximum gain. That figure is not reproduced here — checking the antenna actually used against the antenna list is the operator's task.
 
+**Canada (ISED):** The same module is certified in Canada under RSS-247, Issue 2 (February 2017) — certification number `25908-RAK4630`, issued on 16 August 2021 by Bay Area Compliance Laboratories to Shenzhen RAKwireless Technology Co., Ltd. (HVIN RAK4630). The certificate records the same frequency ranges as the FCC grant: LoRa 902.3–914.9 MHz and 903.0–914.2 MHz, BLE 2402–2480 MHz. As with the FCC approval, it is held by the module and not by the board, it covers the module in the configuration recorded in the certificate, and responsibility for anything outside that rests with the host manufacturer or the operator. A host that carries the module has to carry the marking `Contains IC: 25908-RAK4630`.
+
+**Australia (RCM):** RAK holds an RCM supplier declaration for the module. That declaration does not entitle Inhero to put the RCM mark on the MR2 or to declare conformity for Australia. Under the ACMA rules the supplier is an Australian manufacturer, importer or agent, and the supplier has to be registered in the national database before the mark may be applied — a role a German manufacturer cannot fill itself. The MR2 therefore carries no RCM mark, and nothing is stated here about Australian conformity.
+
+**Antennas and the tested configuration:** Annex A of the ISED certificate names the antennas the Canadian certification was issued with: a dipole with 3.0 dBi for LoRa, a PCB antenna with 2.23 dBi for BLE. An antenna with a higher gain puts the combination outside the tested configuration, and assessing that case is then the operator's business. That figure comes from the ISED certificate and is not an FCC condition — the FCC grant carries an antenna list of its own, in section 2.7 of the OEM manual, which is not verified here and has to be checked separately. The MR2's U.FL connector accepts any antenna: that is a property of the board, not a permission.
+
+Which approvals the module holds, and what each of them does for the MR2, is set out in [DATASHEET.md — Radio Module Approvals](DATASHEET.md#radio-module-approvals).
+
 **Disclaimer:**
 The Inhero MR2 is a module intended for professional developers and qualified users. If the device is operated outside the EU limits stated above through the choice of firmware, antenna, or manual configuration, its CE conformity is void. In this case, all legal responsibility for operation transfers to the integrator or end user.
 
