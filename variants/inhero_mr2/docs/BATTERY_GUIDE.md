@@ -204,7 +204,7 @@ From best to worst cold-weather performance:
 | **LTO** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
 | **Na-ion** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
 
-For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). Note that selecting Li-ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. See [FAQ #6](FAQ.md#6-what-does-set-boardfmax-control).
+For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). `fmax` acts in this band only — below −2 °C (T-Cold) the hardware block stands regardless of `fmax`, and only `board.jeitaignore` lifts it. Note that selecting Li-ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. [FAQ #6](FAQ.md#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together) shows the two settings side by side.
 
 **Why is frost charging dangerous for Li-ion and LiFePO4?** At low temperatures, lithium ions cannot intercalate properly into the graphite anode. Instead, they deposit as metallic lithium on the anode surface ("lithium plating"). This permanently reduces capacity and can create internal short circuits — a safety hazard.
 

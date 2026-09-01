@@ -65,7 +65,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Unter ca. -2 °C (T-Cold): Laden komplett gesperrt durch JEITA, sofern nicht der Override aus Schritt 10 scharf ist.
 - Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
 - Hinweis: Bei LTO und Na-ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt, lädt auch bei Frost).
-- → [FAQ #6 — Was steuert fmax?](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst)
+- → [FAQ #6 — Was ist Frostladen? (fmax, jeitaignore)](FAQ.md#6-was-ist-frostladen-und-wie-wirken-fmax-und-jeitaignore-zusammen)
 
 ## 10) Frost-Lade-Override (optional)
 - Command: set board.jeitaignore <1|0> — Default 0.

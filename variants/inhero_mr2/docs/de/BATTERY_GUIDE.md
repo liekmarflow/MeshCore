@@ -204,7 +204,7 @@ Von bester zu schlechtester Kälteperformance:
 | **LTO** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
 | **Na-ion** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
 
-Für Li-ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) standardmäßig gesperrt und kann über `set board.fmax` (20%, 40% oder 100%) auf eine reduzierte Rate gesetzt werden. Beachte: Die Auswahl von Li-ion oder LiFePO4 über `set board.bat` setzt `board.fmax` auf 0% zurück. Siehe [FAQ #6](FAQ.md#6-was-wird-durch-set-boardfmax-beeinflusst).
+Für Li-ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) standardmäßig gesperrt und kann über `set board.fmax` (20%, 40% oder 100%) auf eine reduzierte Rate gesetzt werden. `fmax` wirkt nur in diesem Band — unterhalb von −2 °C (T-Cold) bleibt die Hardware-Sperre unabhängig von `fmax` bestehen, und nur `board.jeitaignore` hebt sie auf. Beachte: Die Auswahl von Li-ion oder LiFePO4 über `set board.bat` setzt `board.fmax` auf 0% zurück. [FAQ #6](FAQ.md#6-was-ist-frostladen-und-wie-wirken-fmax-und-jeitaignore-zusammen) stellt beide Einstellungen nebeneinander.
 
 **Warum ist Frostladen bei Li-ion und LiFePO4 gefährlich?** Bei niedrigen Temperaturen können Lithium-Ionen nicht ordnungsgemäß in die Graphit-Anode interkalieren. Stattdessen lagern sie sich als metallisches Lithium auf der Anodenoberfläche ab („Lithium-Plating"). Das reduziert die Kapazität permanent und kann interne Kurzschlüsse erzeugen — ein Sicherheitsrisiko.
 

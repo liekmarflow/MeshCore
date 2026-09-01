@@ -65,7 +65,7 @@ This guide walks you through commissioning and the most important CLI commands.
 - Below approx. -2 °C (T-Cold): Charging completely blocked by JEITA, unless the override from step 10 is armed.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
 - Note: For LTO and Na-ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
-- → [FAQ #6 — What does fmax control?](FAQ.md#6-what-does-set-boardfmax-control)
+- → [FAQ #6 — What is frost charging? (fmax, jeitaignore)](FAQ.md#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together)
 
 ## 10) Frost Charging Override (optional)
 - Command: set board.jeitaignore <1|0> — default 0.
