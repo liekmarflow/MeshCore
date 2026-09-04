@@ -52,7 +52,7 @@
 
 The Inhero MR2 supports **Li-ion**, **LiFePO4**, **LTO (2S)**, and **Na-ion**. The right choice depends on your deployment conditions — especially temperature range, available space, and expected service life.
 
-In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold or maximum cycle life, **Li-ion** when space is tight, **Na-ion** for sustainable cold-weather deployments.
+In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold or maximum cycle life, **Li-ion** when space is tight, **Na-ion** for sustainable deployments — in frost only with a cell whose datasheet allows charging there, because the board does not supervise the Na-ion charge temperature.
 
 → **Full guide:** [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Detailed comparison, pros & cons, deployment recommendations, capacity planning, solar sizing, safety tips, and long-term aging.
 

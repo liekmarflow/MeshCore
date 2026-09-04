@@ -130,7 +130,7 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 - **Gute Kälteperformance** — 78% entnehmbar bei −20 °C
 - **Kein Kobalt, kein Lithium** — nachhaltig und ethisch beschaffte Materialien (Natrium, Eisen, Mangan)
 - **Kann bei 0 V gelagert und versandt werden** — kein Tiefentladeschaden (einzigartig unter allen Chemien)
-- **Kann bei Frost geladen werden** — keine JEITA-Einschränkung nötig
+- **Kann bei Frost geladen werden, wenn die Zelle dafür freigegeben ist** — das Board sperrt nicht (keine JEITA-Einschränkung); die Grenze setzt das Zell-Datenblatt, siehe [Na-ion-Zellen](#na-ion-zellen)
 - Gutes Sicherheitsprofil — kein thermisches Durchgehen unter normalen Bedingungen
 - Sich schnell verbessernde Technologie — Energiedichte und Zyklenlebensdauer steigen mit jeder Generation
 
@@ -138,12 +138,13 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 - **Neue Technologie** — eingeschränkte Zellverfügbarkeit Stand 2025/2026
 - Geringere Energiedichte als Li-ion (~130 Wh/kg, steigend)
 - Weniger validierte Zelloptionen und öffentliche Datenblätter
+- **Ladetemperaturfenster je nach Hersteller verschieden** — von 0 °C (viele Consumer- und NFPP-Zellen) bis −20 °C (HiNa, AuroraCell, mit Raten- und SOC-Grenzen); maßgeblich ist das Zell-Datenblatt, das Board setzt es nicht durch
 - Zyklenlebensdauer noch unter LiFePO4 bei den meisten aktuellen Zellen (1000–3000 Zyklen)
 - Markt reift noch — Qualitätsvariation zwischen Herstellern
 
 **Inhero MR2 Besonderheiten:**
 - Ladeschlussspannung: **3,9 V**
-- **Keine JEITA-Überwachung nötig** (`needs_jeita = false`) — die Temperaturüberwachung des Ladereglers ist für diese Chemie abgeschaltet, ein NTC ist zum Laden nicht erforderlich
+- **Keine JEITA-Überwachung** (`needs_jeita = false`) — die Temperaturüberwachung des Ladereglers ist für diese Chemie abgeschaltet, ein NTC ist zum Laden nicht erforderlich. Das Board setzt für Na-ion also keine untere Ladetemperatur durch; die Zelle muss laut Datenblatt die kälteste Ladetemperatur am Standort abdecken (siehe [Na-ion-Zellen](#na-ion-zellen))
 - Ein NTC ist optional. Ein bestückter NTC wird wie bei jeder anderen Chemie ausgelesen und gemeldet; bei 3,1 V nominal liegen weite Teile der Entladung unter der 3200-mV-Grenze der Erfassung, im reinen Akkubetrieb meldet die Messung dort also `N/A` (siehe [Akkutemperatur-Erfassung](#akkutemperatur-erfassung)). Ohne NTC kommt die Temperatur für das SOC-Derating vom **BME280** auf dem Board
 - `set board.fmax` hat keine Wirkung (zeigt „N/A"), und `set board.jeitaignore` wird abgelehnt mit `Err: This chemistry runs without JEITA (always 1)`
 
@@ -162,8 +163,8 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 | **Therm. Durchgehen** | Ja (Risiko) | Nein | Nein | Nein |
 | **NTC erforderlich?** | Ja¹ | Ja¹ | Nein (optional) | Nein (optional) |
 | **Akkutemperatur gemeldet?** | Mit NTC | Mit NTC² | Mit NTC | Mit NTC² |
-| **JEITA** | Aktiv | Aktiv | Nicht nötig (`needs_jeita = false`) | Nicht nötig (`needs_jeita = false`) |
-| **Laden bei Frost?** | Nein (gesperrt <−2 °C)¹ | Nein (gesperrt <−2 °C)¹ | Ja | Ja |
+| **JEITA** | Aktiv | Aktiv | Nicht nötig (`needs_jeita = false`) | Aus (`needs_jeita = false`) |
+| **Laden bei Frost?** | Nein (gesperrt <−2 °C)¹ | Nein (gesperrt <−2 °C)¹ | Ja | Zellabhängig³ |
 | **Ladeschlussspannung** | 4,1 V | 3,5 V | 5,4 V (2S) | 3,9 V |
 | **Low-V Sleep** | 3100 mV | 2700 mV | 3900 mV | 2500 mV |
 | **Low-V Wake** | 3300 mV | 2900 mV | 4100 mV | 2700 mV |
@@ -176,6 +177,8 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 
 ² Ein bestückter NTC wird bei jeder Chemie ausgelesen. Im reinen Akkubetrieb ist der TS-Kanal unter 3200 mV abgeschaltet, daher melden LiFePO4 und Na-ion über weite Teile ihrer Entladung `N/A` — siehe [Akkutemperatur-Erfassung](#akkutemperatur-erfassung).
 
+³ Das Board sperrt das Laden bei Na-ion nicht. Die zulässige Ladetemperatur steht im Zell-Datenblatt — je nach Hersteller 0 °C, −10 °C oder −20 °C. Siehe [Na-ion-Zellen](#na-ion-zellen).
+
 > **Hinweis zu den Entnehmbar-Werten:** Das sind typische Datenblattwerte bei 0,2C–0,5C-Entladelast. Die Last des MR2 liegt weit unter 0,05C und ist damit deutlich sanfter; das Derating-Modell der Firmware (Abschnitt 3) zeigt daher in `get board.telem` höhere entnehmbare Werte.
 
 ---
@@ -187,7 +190,7 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 Von bester zu schlechtester Kälteperformance:
 
 1. **LTO** — 82% entnehmbar bei −20 °C, lädt bei Frost
-2. **Na-ion** — 78% entnehmbar bei −20 °C, lädt bei Frost
+2. **Na-ion** — 78% entnehmbar bei −20 °C; Laden bei Frost nur im Fenster des Zell-Datenblatts (je nach Zelle 0 °C bis −20 °C)
 3. **Li-ion** — 55% entnehmbar bei −20 °C, Laden bei Frost gesperrt
 4. **LiFePO4** — 46% entnehmbar bei −20 °C, Laden bei Frost gesperrt
 
@@ -202,13 +205,13 @@ Von bester zu schlechtester Kälteperformance:
 | **Li-ion** | Nein — gesperrt unter −2 °C, außer `board.jeitaignore` ist scharf | JEITA T-Cold (Hardware, BQ25798) |
 | **LiFePO4** | Nein — gesperrt unter −2 °C, außer `board.jeitaignore` ist scharf | JEITA T-Cold (Hardware, BQ25798) |
 | **LTO** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
-| **Na-ion** | Ja — lädt bei jeder Temperatur | Keine JEITA-Überwachung (`needs_jeita = false`) |
+| **Na-ion** | Vom Board nicht gesperrt — die Grenze setzt das Zell-Datenblatt (je nach Hersteller 0 °C, −10 °C oder −20 °C) | Keine JEITA-Überwachung (`needs_jeita = false`); das Temperaturfenster ist die Zellwahl des Betreibers |
 
 Für Li-ion und LiFePO4 ist die Ladung im **T-Cool-Bereich** (+3 °C bis −2 °C mit Inhero-Spannungsteiler) standardmäßig gesperrt und kann über `set board.fmax` (20%, 40% oder 100%) auf eine reduzierte Rate gesetzt werden. `fmax` wirkt nur in diesem Band — unterhalb von −2 °C (T-Cold) bleibt die Hardware-Sperre unabhängig von `fmax` bestehen, und nur `board.jeitaignore` hebt sie auf. Beachte: Die Auswahl von Li-ion oder LiFePO4 über `set board.bat` setzt `board.fmax` auf 0% zurück. [FAQ #6](FAQ.md#6-was-ist-frostladen-und-wie-wirken-fmax-und-jeitaignore-zusammen) stellt beide Einstellungen nebeneinander.
 
 **Warum ist Frostladen bei Li-ion und LiFePO4 gefährlich?** Bei niedrigen Temperaturen können Lithium-Ionen nicht ordnungsgemäß in die Graphit-Anode interkalieren. Stattdessen lagern sie sich als metallisches Lithium auf der Anodenoberfläche ab („Lithium-Plating"). Das reduziert die Kapazität permanent und kann interne Kurzschlüsse erzeugen — ein Sicherheitsrisiko.
 
-LTO und Na-ion verwenden andere Anodenmaterialien (Lithium-Titanat bzw. Hard Carbon), die nicht vom Lithium-Plating betroffen sind, weshalb Frostladen sicher ist.
+LTO verwendet eine Lithium-Titanat-Anode, die bei etwa 1,55 V arbeitet — weit oberhalb des Lithium-Plating-Potentials —, deshalb ist Frostladen dort sicher. Na-ion verwendet eine Hard-Carbon-Anode, deren Ladeplateau nur rund 0,1 V vom Natrium-Plating entfernt liegt; ob eine Zelle das Laden unter 0 °C verträgt, hängt von Elektrolyt und Zellauslegung ab, weshalb die Hersteller alles von 0 °C bis −20 °C angeben. Das Board überwacht das bei Na-ion nicht — maßgeblich ist das Zell-Datenblatt.
 
 > **Felderfahrung vs. Theorie:** Viele Repeater-Betreiber laden Li-ion-Zellen bei Frost mit geringen Solarströmen und berichten über mehrere Winter hinweg von keiner messbaren Degradation. Die [YYCMesh-Community](https://yycmesh.com/blog/cold-weather-charging) dokumentierte zwei Jahre alpine Einsätze in den kanadischen Rockies (bis −40 °C) mit gewöhnlichen, ungeschützten 18650-Zellen (3000–3500 mAh) — die Innenwiderstände lagen weiterhin im Werksspezifikationsbereich. Ihr eigenes Arbeitsfenster beschreiben sie mit „most of our systems charge at < 0.1 C, often well below 0.05 C", gespeist aus 1-W- bis 6-W-Panels mit durchschnittlichen Ladeströmen typisch unter 200 mA und gelegentlichen Spitzen um 300 mA. Dieses Fenster **schließt** 0,05C ein — 200 mA in eine 3,5-Ah-Zelle sind 0,057C. Weitere Faktoren dort: passive Sonnenerwärmung der Gehäuse und Ladung während der wärmsten Tageszeit.
 >
@@ -227,7 +230,7 @@ Für Betreiber, die die oben beschriebene Praxis fahren wollen, bietet die Firmw
 
 **Was man aufgibt.** TS_IGNORE nimmt den TS-Pin aus jeder Ladeentscheidung heraus, die heiße eingeschlossen. Solange der Override an ist, unterbricht der Laderegler die Ladung auch auf der heißen Seite nicht mehr (T-Hot, rund +58 °C am Spannungsteiler des MR2), und alle vier TS-Statusbits melden „kein Fehler". Für keine der beiden Grenzen gibt es einen Software-Ersatz: Das Board schläft im SYSTEMOFF mit aktivem Laderegler, dort läuft keine Regelschleife — die 0,05C-Schranke ist das gesamte Sicherheitsargument. Auf der heißen Seite hält genau diese Schranke das Restrisiko klein, weil 0,05C thermisch uninteressant ist. Auf der kalten Seite bleibt der Plating-Mechanismus unverändert; das Gate begrenzt die Rate, es beseitigt den Mechanismus nicht. Wer das Flag setzt, akzeptiert beschleunigte Zellalterung als Preis für Ladezeit im Winter.
 
-**Wofür es ausgelegt ist.** Das Gate ist eine einzige Zahl für alle Temperaturen, während die vertretbare Laderate mit sinkender Zelltemperatur fällt — etwa um die Hälfte je 10 K. Knapp unter dem Gefrierpunkt ist der Abstand bei 0,05C komfortabel; er schrumpft mit jedem Grad, das der Standort tiefer liegt. Der Override ist auf mitteleuropäischen Frost ausgelegt, die Bedingungen, für die das [Datenblatt](DATASHEET.md) Modul- und Akkugröße bemisst. Für Standorte regelmäßig unter etwa −20 °C wählt man besser die passende Chemie: LTO und Na-ion sind von ihren Herstellern für das Laden bei −20 °C freigegeben, und das MR2 unterstützt beide.
+**Wofür es ausgelegt ist.** Das Gate ist eine einzige Zahl für alle Temperaturen, während die vertretbare Laderate mit sinkender Zelltemperatur fällt — etwa um die Hälfte je 10 K. Knapp unter dem Gefrierpunkt ist der Abstand bei 0,05C komfortabel; er schrumpft mit jedem Grad, das der Standort tiefer liegt. Der Override ist auf mitteleuropäischen Frost ausgelegt, die Bedingungen, für die das [Datenblatt](DATASHEET.md) Modul- und Akkugröße bemisst. Für Standorte regelmäßig unter etwa −20 °C wählt man besser die passende Chemie: LTO ist von seinen Herstellern für das Laden bei −20 °C und darunter freigegeben; bei Na-ion sind es nur manche Zellen (HiNa und AuroraCell geben −20 °C mit reduzierter Rate, Spannung und SOC an, viele Consumer-Zellen enden bei −10 °C oder 0 °C) — Zell-Datenblatt prüfen. Das MR2 unterstützt beide Chemien.
 
 **Solange er an ist.** `get board.fmax` antwortet `N/A`, `set board.fmax` wird mit `Err: Fmax N/A while jeitaignore is on` abgelehnt, und `get board.conf` hängt ` J:1` an. `set board.jeitaignore 0` schaltet den Override ab und stellt das gespeicherte `fmax`-Verhalten wieder her.
 
@@ -325,7 +328,11 @@ Das Inhero MR2 konfiguriert den BQ25798 für 2S-Betrieb, bietet aber **kein eing
 | Bauform | Typische Kapazität | Hinweise |
 |---|---|---|
 | **18650** | 1000–1500 mAh | Aufkommend; Zellen der ersten Generation |
+| **26700** | 3000–3500 mAh | Schichtoxid-Consumer-Zellen (z. B. HAKADI) |
+| **32140 / 33140** | 8000–10 000 mAh | Industrielle Rundzellen (HiNa, AuroraCell) |
 | **Prismatisch** | 5000–20 000 mAh | Größere Formate erscheinen von HiNa, CATL, Faradion |
+
+**Vor dem Kauf das Ladetemperaturfenster im Datenblatt prüfen.** Na-ion-Zellen unterscheiden sich: HiNa NaCR32140 lädt bis −20 °C (0,1C, 3,8 V, max. 75 % SOC unter −10 °C), AuroraCell 32140 bis −20 °C, HAKADI 26700 und viele 18650-Zellen bis −10 °C, NFPP-Zellen und etliche Budget-Zellen erst ab 0 °C. Das MR2 fährt Na-ion ohne Temperaturüberwachung, das Fenster der Zelle ist also die einzige wirksame Grenze — eine Zelle wählen, deren Fenster die kälteste Ladetemperatur am Standort abdeckt. Hintergrund: [CUK-SIB zu Kälteanwendungen](https://www.cuk-sib.com/de/blog/sodium-ion-batteries-for-cold-climate-applications).
 
 **Tipps:**
 - Technologie entwickelt sich schnell — vor dem Kauf aktuelle verfügbare Zellen prüfen
@@ -427,7 +434,8 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 
 **Chemiespezifische Aspekte:**
 - **Li-ion / LiFePO4:** Solarladung ist bei Frost (<−2 °C) gesperrt, sofern nicht `set board.jeitaignore 1` scharf ist — auf eigenes Risiko des Betreibers. An kalten Wintertagen kann das Panel Strom liefern, aber der Akku nimmt keine Ladung an, bis er sich über −2 °C erwärmt. Das Board läuft derweil direkt auf Solar, wenn die Leistung ausreicht. Beachte: PV-Panels liefern **bei Kälte mehr Leistung** (Silizium-Temperaturkoeffizient ~−0,35%/°C) — tatsächliche Ladeströme können die Nennwerte überschreiten. Deshalb sitzt die Sperre in der Hardware, und deshalb hängt das Gate des `jeitaignore`-Overrides am eingestellten Ladestrom — siehe [Laden bei Kälte](#laden-bei-kälte).
-- **LTO / Na-ion:** Solarladung funktioniert auch bei tiefem Frost — ein erheblicher Vorteil für alpine Einsätze, wo Frost tage- oder wochenlang anhalten kann.
+- **LTO:** Solarladung funktioniert auch bei tiefem Frost — ein erheblicher Vorteil für alpine Einsätze, wo Frost tage- oder wochenlang anhalten kann.
+- **Na-ion:** Das Board sperrt das Laden bei Frost nicht; ob die Zelle dort geladen werden darf, steht in ihrem Datenblatt (je nach Zelle 0 °C bis −20 °C). Mit einer für −20 °C freigegebenen Zelle gilt der alpine Vorteil, mit einer 0-°C-Zelle nicht — siehe [Na-ion-Zellen](#na-ion-zellen).
 
 ---
 
@@ -461,8 +469,8 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 | **Indoor, gemäßigtes Klima (0–40 °C)** | **LiFePO4** | Li-ion | LiFePO4: bestes Verhältnis Sicherheit + Zyklen |
 | **Outdoor, gemäßigt (−5 bis +35 °C)** | **LiFePO4** | Li-ion | Frost selten; fmax behandelt gelegentliche Kälte |
 | **Platzbeschränktes Gehäuse** | **Li-ion** | — | Höchste Energiedichte; nichts anderes passt |
-| **Alpin, extreme Kälte (−20 °C und darunter)** | **LTO** | Na-ion | LTO: lädt bei Frost, 82% Kapazität bei −20 °C |
-| **Kaltes Klima, mäßiger Frost (−10 bis −15 °C)** | **Na-ion** oder **LTO** | LiFePO4 (mit Reserve) | Beide laden bei Frost; Na-ion balanciert Dichte und Kälte |
+| **Alpin, extreme Kälte (−20 °C und darunter)** | **LTO** | Na-ion (Zelle für −20 °C Ladung freigegeben) | LTO: lädt bei Frost, 82% Kapazität bei −20 °C |
+| **Kaltes Klima, mäßiger Frost (−10 bis −15 °C)** | **LTO** oder **Na-ion** (Zelle für die Mindest-Ladetemperatur des Standorts freigegeben) | LiFePO4 (mit Reserve) | Na-ion balanciert Dichte und Kälte — Ladefenster im Zell-Datenblatt prüfen |
 | **Maximale Lebensdauer (>10 Jahre)** | **LTO** | LiFePO4 | LTO: 10 000+ Zyklen; Solar-Repeater praktisch unbegrenzt |
 | **Nachhaltigkeit / ethische Beschaffung** | **Na-ion** | LiFePO4 | Kein Kobalt, kein Lithium; verbessert sich schnell |
 | **Maritim / Küste (Salz, Feuchtigkeit)** | **LiFePO4** | Li-ion | Versiegelte prismatische Zellen; inhärente Sicherheit |
@@ -472,7 +480,7 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 *(Die Prozentangaben zur entnehmbaren Kapazität sind Datenblattwerte bei 0,2C–0,5C-Last — siehe Hinweis in Abschnitt 2.)*
 
 > **Checkliste für alpine Wintereinsätze:**
-> 1. LTO oder Na-ion für Frostladen wählen
+> 1. LTO wählen, oder eine Na-ion-Zelle, deren Datenblatt das Laden bei der Mindesttemperatur des Standorts erlaubt
 > 2. Akkukapazität um 1,5–2× überdimensionieren für Kälte-Derating
 > 3. Solarpanel um 3–5× überdimensionieren für kurze Wintertage
 > 4. MPPT aktivieren (`set board.mppt 1`)

@@ -64,12 +64,12 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - 100% = keine Reduktion, voller Ladestrom auch bei Kälte.
 - Unter ca. -2 °C (T-Cold): Laden komplett gesperrt durch JEITA, sofern nicht der Override aus Schritt 10 scharf ist.
 - Wichtig: Nur das Laden wird eingeschränkt. Bei ausreichend Solar wird das Board weiterhin mit Solarstrom betrieben — der Akku wird weder ge- noch entladen.
-- Hinweis: Bei LTO und Na-ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt, lädt auch bei Frost).
+- Hinweis: Bei LTO und Na-ion ist JEITA deaktiviert (`set board.fmax` wird mit Fehler abgelehnt; das Board sperrt das Laden bei Frost nicht — bei Na-ion gilt das Ladetemperaturfenster aus dem Zell-Datenblatt).
 - → [FAQ #6 — Was ist Frostladen? (fmax, jeitaignore)](FAQ.md#6-was-ist-frostladen-und-wie-wirken-fmax-und-jeitaignore-zusammen)
 
 ## 10) Frost-Lade-Override (optional)
 - Command: set board.jeitaignore <1|0> — Default 0.
-- Nur für Li-ion und LiFePO4. LTO und Na-ion laden ohnehin bei Frost und lehnen den Command mit `Err: This chemistry runs without JEITA (always 1)` ab.
+- Nur für Li-ion und LiFePO4. LTO und Na-ion laufen ohnehin ohne JEITA und lehnen den Command mit `Err: This chemistry runs without JEITA (always 1)` ab.
 - Mit 1 ignoriert der Charger den TS-Pin: Das Laden läuft unter -2 °C weiter, und die obere Abschaltung des Chargers bei ca. +58 °C entfällt ebenfalls.
 - Voraussetzung: `board.batcap` muss gesetzt sein (Schritt 7) und `board.imax` höchstens 0,05C dieser Kapazität betragen (10000 mAh → 500 mA). Sonst benennt die Antwort den Blocker — `jeitaignore set to 1, N/A, batcap not set` oder `jeitaignore set to 1, N/A, C>0.05`. Die Einstellung bleibt in beiden Fällen gespeichert und greift von selbst, sobald imax oder batcap passen.
 - Die 0,05C-Grenze gilt, solange der Override an ist, und sie kann deutlich unter dem liegen, was das Panel liefert: Ein 4000-mAh-Akku erlaubt 200 mA; das 2-W-Panel aus Schritt 8 gibt rund 480 mA.

@@ -1149,7 +1149,8 @@ bool BoardConfigContainer::applyJeitaIgnore() {
 }
 
 // Derives the effective JEITA override and programs the BQ:
-//   chemistry needs no JEITA (LTO, Na-ion, UNKNOWN) → forced on
+//   chemistry runs without JEITA (LTO, Na-ion, UNKNOWN) → forced on; for
+//   Na-ion the cell datasheet sets the charge window, the board does not
 //   otherwise → user wish AND 0.05C gate
 // TS_IGNORE stops the BQ's temperature regulation permanently — deliberately
 // including SYSTEMOFF sleep. Turning the override off restores the stored

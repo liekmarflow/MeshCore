@@ -97,9 +97,13 @@ public:
     uint16_t lowv_sleep_mv;     // INA228 ALERT → System Sleep
     uint16_t lowv_wake_mv;      // 0% SOC marker, RTC wake decision
     bool charge_enable;
-    // Whether the chemistry needs JEITA temperature supervision. false (LTO,
-    // Na-ion) forces the JEITA override on; true (Li-ion, LiFePO4) leaves it
-    // off unless the user sets board.jeitaignore and passes the 0.05C gate.
+    // Whether the board supervises the charge temperature for this chemistry.
+    // false forces the JEITA override on: LTO because its anode sits far above
+    // the plating potential, Na-ion by product decision — the permissible charge
+    // window differs per cell (0 to -20 C by manufacturer) and is left to the
+    // cell datasheet, not enforced here. true (Li-ion, LiFePO4) leaves the
+    // override off unless the user sets board.jeitaignore and passes the 0.05C
+    // gate.
     bool needs_jeita;
     // Capacity derating at cold temps. Calibrated for ~0.01C avg / ~0.05C TX
     // peak loads on 2–8 Ah cells (much milder than datasheet 0.2C–0.5C values).

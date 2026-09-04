@@ -453,7 +453,7 @@ The result lands in the static `jeitaIgnoreActive`, which is **never persisted**
 | **Li-ion 1S** | true | user wish AND gate | cold charging plates lithium on the anode |
 | **LiFePO4 1S** | true | user wish AND gate | same mechanism, milder but present |
 | **LTO 2S** | false | forced on | tolerates charging in frost, no cold limit to enforce |
-| **Na-ion 1S** | false | forced on | tolerates charging in frost, no cold limit to enforce |
+| **Na-ion 1S** | false | forced on | the board enforces no cold limit; the permissible charge temperature is set by the cell datasheet (0 °C to −20 °C depending on the cell) |
 | **BAT_UNKNOWN** | false | forced on | `charge_enable = false`, GPIO4 LOW → FET OFF → CE held HIGH by the pull-up → charging off; no charging to guard |
 
 For a `needs_jeita = false` chemistry the verb is refused before anything is stored: `Err: This chemistry runs without JEITA (always 1)`. With no chemistry set the reply is `Err: Set board.bat first`.

@@ -64,12 +64,12 @@ This guide walks you through commissioning and the most important CLI commands.
 - 100% = no reduction, full charge current even in cold conditions.
 - Below approx. -2 °C (T-Cold): Charging completely blocked by JEITA, unless the override from step 10 is armed.
 - Important: Only charging is restricted. With sufficient solar, the board continues to run on solar power — the battery is neither charged nor discharged.
-- Note: For LTO and Na-ion, JEITA is disabled (`set board.fmax` is rejected with an error, charging works even in frost).
+- Note: For LTO and Na-ion, JEITA is disabled (`set board.fmax` is rejected with an error; the board does not block charging in frost — for Na-ion the charge temperature window of the cell datasheet applies).
 - → [FAQ #6 — What is frost charging? (fmax, jeitaignore)](FAQ.md#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together)
 
 ## 10) Frost Charging Override (optional)
 - Command: set board.jeitaignore <1|0> — default 0.
-- Only for Li-ion and LiFePO4. LTO and Na-ion charge in frost anyway and reject the command with `Err: This chemistry runs without JEITA (always 1)`.
+- Only for Li-ion and LiFePO4. LTO and Na-ion run without JEITA anyway and reject the command with `Err: This chemistry runs without JEITA (always 1)`.
 - With 1 the charger ignores the TS pin: charging continues below -2 °C, and the charger's upper cut-off at approx. +58 °C is dropped as well.
 - Precondition: `board.batcap` must be set (step 7) and `board.imax` must be at or below 0.05C of that capacity (10000 mAh → 500 mA). Otherwise the reply names the blocker — `jeitaignore set to 1, N/A, batcap not set` or `jeitaignore set to 1, N/A, C>0.05`. The setting stays stored either way and takes effect on its own once imax or batcap pass.
 - The 0.05C ceiling holds for as long as the override is on, and it can sit well below what the panel delivers: a 4000 mAh pack allows 200 mA; the 2 W panel from step 8 gives about 480 mA.

@@ -130,7 +130,7 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 - **Good cold performance** — 78% extractable at −20 °C
 - **No cobalt, no lithium** — ethically sourced, sustainable materials (sodium, iron, manganese)
 - **Can be stored and shipped at 0 V** — no deep discharge damage (unique among all chemistries)
-- **Can be charged in frost** — no JEITA restriction needed
+- **Can be charged in frost with cells rated for it** — the board does not block charging (no JEITA restriction); the cell datasheet sets the limit, see [Na-ion Cells](#na-ion-cells)
 - Good safety profile — no thermal runaway under normal conditions
 - Rapidly improving technology — energy density and cycle life increase with each generation
 
@@ -138,12 +138,13 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 - **New technology** — limited cell availability as of 2025/2026
 - Lower energy density than Li-ion (~130 Wh/kg, improving)
 - Fewer validated cell options and public datasheets
+- **Charge temperature window varies by manufacturer** — from 0 °C (many consumer and NFPP cells) to −20 °C (HiNa, AuroraCell, with rate and SOC limits); the cell datasheet is the authority, the board does not enforce it
 - Cycle life still below LiFePO4 in most current cells (1000–3000 cycles)
 - Market still maturing — quality variation between manufacturers
 
 **Inhero MR2 specifics:**
 - Charge voltage: **3.9 V**
-- **No JEITA supervision needed** (`needs_jeita = false`) — the charger's temperature guard is switched off for this chemistry, so no NTC is required for charging
+- **No JEITA supervision** (`needs_jeita = false`) — the charger's temperature guard is off for this chemistry, so no NTC is required for charging. The board therefore enforces no lower charge temperature for Na-ion; choose a cell whose datasheet covers the coldest charging temperature at the site (see [Na-ion Cells](#na-ion-cells))
 - An NTC is optional. A fitted one is read and reported like on any other chemistry; at 3.1 V nominal much of the discharge sits below the 3200 mV sensing bar, so on battery alone the reading is often `N/A` (see [Battery Temperature Sensing](#battery-temperature-sensing)). Without one, the temperature for SOC derating comes from the **BME280** on the board
 - `set board.fmax` has no effect (shown as "N/A"), and `set board.jeitaignore` is refused with `Err: This chemistry runs without JEITA (always 1)`
 
@@ -162,8 +163,8 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 | **Thermal runaway risk** | Yes | No | No | No |
 | **NTC required?** | Yes¹ | Yes¹ | No (optional) | No (optional) |
 | **Battery temperature reported?** | With NTC | With NTC² | With NTC | With NTC² |
-| **JEITA** | Active | Active | Not needed (`needs_jeita = false`) | Not needed (`needs_jeita = false`) |
-| **Charge in frost?** | No (blocked <−2 °C)¹ | No (blocked <−2 °C)¹ | Yes | Yes |
+| **JEITA** | Active | Active | Not needed (`needs_jeita = false`) | Off (`needs_jeita = false`) |
+| **Charge in frost?** | No (blocked <−2 °C)¹ | No (blocked <−2 °C)¹ | Yes | Cell-dependent³ |
 | **Charge voltage** | 4.1 V | 3.5 V | 5.4 V (2S) | 3.9 V |
 | **Low-V sleep** | 3100 mV | 2700 mV | 3900 mV | 2500 mV |
 | **Low-V wake** | 3300 mV | 2900 mV | 4100 mV | 2700 mV |
@@ -176,6 +177,8 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 
 ² A fitted NTC is read on every chemistry. On battery alone the TS channel is off below 3200 mV, so LiFePO4 and Na-ion read `N/A` over much of their discharge — see [Battery Temperature Sensing](#battery-temperature-sensing).
 
+³ The board does not block charging on Na-ion. The permissible charge temperature comes from the cell datasheet — 0 °C, −10 °C or −20 °C depending on the manufacturer. See [Na-ion Cells](#na-ion-cells).
+
 > **Note on the extractable-capacity figures:** These are typical datasheet values at 0.2C–0.5C discharge loads. The MR2's sub-0.05C load is much gentler; the firmware's derating model (section 3) therefore shows higher extractable values in `get board.telem`.
 
 ---
@@ -187,7 +190,7 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 From best to worst cold-weather performance:
 
 1. **LTO** — 82% extractable at −20 °C, charges in frost
-2. **Na-ion** — 78% extractable at −20 °C, charges in frost
+2. **Na-ion** — 78% extractable at −20 °C; charging in frost only within the cell datasheet's window (0 °C to −20 °C depending on the cell)
 3. **Li-ion** — 55% extractable at −20 °C, charging blocked in frost
 4. **LiFePO4** — 46% extractable at −20 °C, charging blocked in frost
 
@@ -202,13 +205,13 @@ From best to worst cold-weather performance:
 | **Li-ion** | No — blocked below −2 °C, unless `board.jeitaignore` is armed | JEITA T-Cold (hardware, BQ25798) |
 | **LiFePO4** | No — blocked below −2 °C, unless `board.jeitaignore` is armed | JEITA T-Cold (hardware, BQ25798) |
 | **LTO** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
-| **Na-ion** | Yes — charges at any temperature | No JEITA supervision (`needs_jeita = false`) |
+| **Na-ion** | Not blocked by the board — the cell datasheet sets the limit (0 °C, −10 °C or −20 °C depending on the manufacturer) | No JEITA supervision (`needs_jeita = false`); the temperature window is the operator's cell choice |
 
 For Li-ion and LiFePO4, charging in the **T-Cool range** (+3 °C to −2 °C with the Inhero voltage divider) is blocked by default and can be set to a reduced rate via `set board.fmax` (20%, 40% or 100%). `fmax` acts in this band only — below −2 °C (T-Cold) the hardware block stands regardless of `fmax`, and only `board.jeitaignore` lifts it. Note that selecting Li-ion or LiFePO4 via `set board.bat` resets `board.fmax` to 0%. [FAQ #6](FAQ.md#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together) shows the two settings side by side.
 
 **Why is frost charging dangerous for Li-ion and LiFePO4?** At low temperatures, lithium ions cannot intercalate properly into the graphite anode. Instead, they deposit as metallic lithium on the anode surface ("lithium plating"). This permanently reduces capacity and can create internal short circuits — a safety hazard.
 
-LTO and Na-ion use different anode materials (lithium titanate and hard carbon respectively) that do not suffer from lithium plating, making frost charging safe.
+LTO uses a lithium titanate anode that works at about 1.55 V — far above the lithium plating potential — so frost charging is safe. Na-ion uses a hard carbon anode whose charge plateau sits within about 0.1 V of sodium plating; whether a given cell tolerates charging below 0 °C depends on its electrolyte and cell design, which is why manufacturers specify anything from 0 °C to −20 °C. The board does not supervise this for Na-ion — the cell datasheet is the authority.
 
 > **Field experience vs. theory:** Many repeater operators charge Li-ion cells in frost with low solar currents and report no measurable degradation over multiple winters. The [YYCMesh community](https://yycmesh.com/blog/cold-weather-charging) documented two years of alpine deployments in the Canadian Rockies (down to −40 °C) with standard unprotected 18650 cells (3000–3500 mAh) and found internal resistance still within factory spec. They describe their own operating window as "most of our systems charge at < 0.1 C, often well below 0.05 C", fed by 1 W to 6 W panels with average charging currents typically below 200 mA and occasional peaks around 300 mA. That window **encloses** 0.05C — 200 mA into a 3.5 Ah cell is 0.057C. Their other factors: passive solar heating of enclosures, and charging coinciding with the warmest part of the day.
 >
@@ -227,7 +230,7 @@ For operators who want the field practice described above, the firmware offers i
 
 **What you give up.** TS_IGNORE removes the TS pin from every charge decision, the hot one included. While the override is on, the charger also stops suspending charge on the hot side (T-Hot, roughly +58 °C on the MR2 divider), and all four TS status bits report "no fault". The firmware offers no software replacement for either limit: the board sleeps in SYSTEMOFF with the charger enabled and no control loop runs there, so the 0.05C bound is the entire safety argument. On the hot side that bound is what keeps the residual risk small — 0.05C is thermally uninteresting. On the cold side the plating mechanism is unchanged; the gate bounds the rate, it does not remove the mechanism. Setting the flag is accepting accelerated cell ageing as the price for winter charge time.
 
-**What it is scoped for.** The gate is a single number for every temperature, while the tolerable charge rate falls as the cell gets colder — roughly by half per 10 K. Just below the freezing point the margin at 0.05C is comfortable; it shrinks with every degree the site drops further. The override is dimensioned for central European frost, the conditions the [datasheet](DATASHEET.md) sizes panel and bank for. For sites regularly below about −20 °C, choose the chemistry accordingly: LTO and Na-ion are rated by their manufacturers for charging at −20 °C, and the MR2 supports both.
+**What it is scoped for.** The gate is a single number for every temperature, while the tolerable charge rate falls as the cell gets colder — roughly by half per 10 K. Just below the freezing point the margin at 0.05C is comfortable; it shrinks with every degree the site drops further. The override is dimensioned for central European frost, the conditions the [datasheet](DATASHEET.md) sizes panel and bank for. For sites regularly below about −20 °C, choose the chemistry accordingly: LTO is rated by its manufacturers for charging at −20 °C and below; among Na-ion cells only some are (HiNa and AuroraCell rate −20 °C with reduced rate, voltage and SOC, many consumer cells stop at −10 °C or 0 °C) — check the cell datasheet. The MR2 supports both chemistries.
 
 **While it is on.** `get board.fmax` answers `N/A`, `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`, and `get board.conf` appends ` J:1`. `set board.jeitaignore 0` switches the override off and restores the stored `fmax` behaviour.
 
@@ -325,7 +328,11 @@ The Inhero MR2 configures the BQ25798 for 2S operation but provides **no built-i
 | Form Factor | Typical Capacity | Notes |
 |---|---|---|
 | **18650** | 1000–1500 mAh | Emerging; first-generation cells |
+| **26700** | 3000–3500 mAh | Layered-oxide consumer cells (e.g. HAKADI) |
+| **32140 / 33140** | 8000–10 000 mAh | Industrial cylindrical cells (HiNa, AuroraCell) |
 | **Prismatic** | 5000–20 000 mAh | Larger formats appearing from HiNa, CATL, Faradion |
+
+**Check the charge temperature window in the datasheet before buying.** Na-ion cells differ: HiNa NaCR32140 charges down to −20 °C (0.1C, 3.8 V, max 75 % SOC below −10 °C), AuroraCell 32140 to −20 °C, HAKADI 26700 and many 18650 cells to −10 °C, NFPP cells and several budget cells only from 0 °C upward. The MR2 runs Na-ion without a temperature guard, so the cell's window is the only limit in effect — pick a cell whose window covers the coldest charging temperature at the site. Background: [CUK-SIB on cold-climate use](https://www.cuk-sib.com/de/blog/sodium-ion-batteries-for-cold-climate-applications).
 
 **Tips:**
 - Technology is evolving rapidly — check latest available cells before purchasing
@@ -427,7 +434,8 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 
 **Chemistry-specific considerations:**
 - **Li-ion / LiFePO4:** Solar charging is blocked in frost (<−2 °C) unless `set board.jeitaignore 1` is armed, at the operator's own risk. On cold winter days, the panel may produce power but the battery won't accept charge until it warms above −2 °C. Meanwhile, the board runs directly on solar if power is sufficient. Note that PV panels produce **more power in cold weather** (silicon temperature coefficient ~−0.35%/°C), so actual charge currents can exceed nominal ratings. This is why the block sits in hardware, and why the `jeitaignore` override is gated on the configured charge current — see [Charging in Cold Conditions](#charging-in-cold-conditions).
-- **LTO / Na-ion:** Solar charging works even in deep frost — a significant advantage for alpine deployments where frost can persist for days or weeks.
+- **LTO:** Solar charging works even in deep frost — a significant advantage for alpine deployments where frost can persist for days or weeks.
+- **Na-ion:** The board does not block charging in frost; whether the cell may be charged there is in its datasheet (0 °C to −20 °C depending on the cell). With a −20 °C-rated cell the alpine advantage applies; with a 0 °C cell it does not — see [Na-ion Cells](#na-ion-cells).
 
 ---
 
@@ -461,8 +469,8 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 | **Indoor, moderate climate (0–40 °C)** | **LiFePO4** | Li-ion | LiFePO4: best safety + cycle life balance |
 | **Outdoor, temperate (−5 to +35 °C)** | **LiFePO4** | Li-ion | Frost is rare; fmax handles occasional cold |
 | **Space-constrained enclosure** | **Li-ion** | — | Highest energy density; nothing else fits |
-| **Alpine, extreme cold (−20 °C and below)** | **LTO** | Na-ion | LTO: charges in frost, 82% capacity at −20 °C |
-| **Cold climate, moderate frost (−10 to −15 °C)** | **Na-ion** or **LTO** | LiFePO4 (with margin) | Both charge in frost; Na-ion balances density and cold |
+| **Alpine, extreme cold (−20 °C and below)** | **LTO** | Na-ion (cell rated for −20 °C charging) | LTO: charges in frost, 82% capacity at −20 °C |
+| **Cold climate, moderate frost (−10 to −15 °C)** | **LTO** or **Na-ion** (cell rated for the site's minimum charging temperature) | LiFePO4 (with margin) | Na-ion balances density and cold — check the cell datasheet's charge window |
 | **Maximum service life (>10 years)** | **LTO** | LiFePO4 | LTO: 10 000+ cycles; solar repeater essentially unlimited |
 | **Sustainability / ethical sourcing** | **Na-ion** | LiFePO4 | No cobalt, no lithium; improving rapidly |
 | **Maritime / coastal (salt, humidity)** | **LiFePO4** | Li-ion | Sealed prismatic cells; inherent safety in harsh environments |
@@ -472,7 +480,7 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 *(Extractable-capacity percentages are datasheet values at 0.2C–0.5C loads — see the note in section 2.)*
 
 > **Winter alpine checklist:**
-> 1. Choose LTO or Na-ion for frost charging
+> 1. Choose LTO, or a Na-ion cell whose datasheet allows charging at the site's minimum temperature
 > 2. Oversize battery capacity by 1.5–2× for cold derating
 > 3. Oversize solar panel by 3–5× for short winter days
 > 4. Enable MPPT (`set board.mppt 1`)

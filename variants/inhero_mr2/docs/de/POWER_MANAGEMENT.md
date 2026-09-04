@@ -453,7 +453,7 @@ Das Ergebnis landet in der statischen `jeitaIgnoreActive`, die **nie persistiert
 | **Li-ion 1S** | true | Wunsch UND Gate | Kaltladen scheidet Lithium auf der Anode ab |
 | **LiFePO4 1S** | true | Wunsch UND Gate | derselbe Mechanismus, milder, aber vorhanden |
 | **LTO 2S** | false | fest an | verträgt Laden im Frost, es gibt keine Kältegrenze durchzusetzen |
-| **Na-ion 1S** | false | fest an | verträgt Laden im Frost, es gibt keine Kältegrenze durchzusetzen |
+| **Na-ion 1S** | false | fest an | das Board setzt keine Kältegrenze durch; die zulässige Ladetemperatur steht im Zell-Datenblatt (je nach Zelle 0 °C bis −20 °C) |
 | **BAT_UNKNOWN** | false | fest an | `charge_enable = false`, GPIO4 LOW → FET aus → CE über den Pull-up auf HIGH → Laden aus; es gibt kein Laden zu schützen |
 
 Für eine Chemie mit `needs_jeita = false` wird der Befehl abgewiesen, bevor irgendetwas gespeichert wird: `Err: This chemistry runs without JEITA (always 1)`. Ist noch keine Chemie gesetzt, lautet die Antwort `Err: Set board.bat first`.
