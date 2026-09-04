@@ -129,7 +129,7 @@ Natrium-Ionen-Technologie — die nachhaltige Alternative mit abundanten, nicht-
 **Stärken:**
 - **Gute Kälteperformance** — 78% entnehmbar bei −20 °C
 - **Kein Kobalt, kein Lithium** — nachhaltig und ethisch beschaffte Materialien (Natrium, Eisen, Mangan)
-- **Kann bei 0 V gelagert und versandt werden** — kein Tiefentladeschaden (einzigartig unter allen Chemien)
+- **Lagerung und Versand sind zellabhängig** — einige Zellen dürfen laut Datenblatt bei 0 V gelagert und versandt werden, andere verlangen ausdrücklich 30–50 % SOC (z. B. HNXN NaCR26700-ME35); maßgeblich ist das Datenblatt der konkreten Zelle
 - **Kann bei Frost geladen werden, wenn die Zelle dafür freigegeben ist** — das Board sperrt nicht (keine JEITA-Einschränkung); die Grenze setzt das Zell-Datenblatt, siehe [Na-ion-Zellen](#na-ion-zellen)
 - Gutes Sicherheitsprofil — kein thermisches Durchgehen unter normalen Bedingungen
 - Sich schnell verbessernde Technologie — Energiedichte und Zyklenlebensdauer steigen mit jeder Generation
@@ -336,8 +336,7 @@ Das Inhero MR2 konfiguriert den BQ25798 für 2S-Betrieb, bietet aber **kein eing
 
 **Tipps:**
 - Technologie entwickelt sich schnell — vor dem Kauf aktuelle verfügbare Zellen prüfen
-- Kann bei 0 V versandt werden (anders als alle Lithium-Chemien) — vereinfacht Logistik
-- Keine besondere Lagerungsbehandlung nötig
+- Lager- und Versandzustand laut Zell-Datenblatt: einige Zellen erlauben 0 V, andere verlangen 30–50 % SOC (z. B. HNXN NaCR26700-ME35)
 - HiNa, CATL, Faradion/Reliance sind zentrale Hersteller (Stand 2025/2026)
 
 ---
@@ -496,7 +495,7 @@ Konventionelle PV-Anlagen neigen Panels auf ~30–40°, um den Jahresertrag zu m
 | **Li-ion** | 500–1000 | Mäßig (schneller bei hoher Temp/SOC) | 40–60% bei 15–25 °C |
 | **LiFePO4** | 2000–5000 | Gering | 50% bei Raumtemperatur |
 | **LTO** | 10 000+ | Sehr gering | Beliebiger SOC; sehr tolerant |
-| **Na-ion** | 1000–3000 | Gering | 0 V (einzigartig — kein Schaden) |
+| **Na-ion** | 1000–3000 | Gering | zellabhängig (0 V bis 30–50 % SOC) |
 
 **Solar-Repeater-Kontext:** Ein gut dimensionierter Solarrepeater macht **keinen** Vollzyklus pro Tag. Das tatsächliche Profil ist flaches Mikro-Cycling mit starker saisonaler Variation:
 

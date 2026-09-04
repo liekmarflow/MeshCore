@@ -129,7 +129,7 @@ Sodium-ion technology — the sustainable alternative using abundant, non-critic
 **Strengths:**
 - **Good cold performance** — 78% extractable at −20 °C
 - **No cobalt, no lithium** — ethically sourced, sustainable materials (sodium, iron, manganese)
-- **Can be stored and shipped at 0 V** — no deep discharge damage (unique among all chemistries)
+- **Storage and shipping are cell-specific** — some cells may be stored and shipped at 0 V per datasheet, others explicitly require 30–50 % SOC (e.g. HNXN NaCR26700-ME35); the datasheet of the actual cell is the authority
 - **Can be charged in frost with cells rated for it** — the board does not block charging (no JEITA restriction); the cell datasheet sets the limit, see [Na-ion Cells](#na-ion-cells)
 - Good safety profile — no thermal runaway under normal conditions
 - Rapidly improving technology — energy density and cycle life increase with each generation
@@ -336,8 +336,7 @@ The Inhero MR2 configures the BQ25798 for 2S operation but provides **no built-i
 
 **Tips:**
 - Technology is evolving rapidly — check latest available cells before purchasing
-- Can be shipped at 0 V (unlike all lithium chemistries) — simplifies logistics
-- No special handling required for storage
+- Storage and shipping state per cell datasheet: some cells allow 0 V, others require 30–50 % SOC (e.g. HNXN NaCR26700-ME35)
 - HiNa, CATL, Faradion/Reliance are key manufacturers (as of 2025/2026)
 
 ---
@@ -496,7 +495,7 @@ Conventional PV installations tilt panels at ~30–40° to maximize annual yield
 | **Li-ion** | 500–1000 | Moderate (faster at high temp/SOC) | 40–60% at 15–25 °C |
 | **LiFePO4** | 2000–5000 | Low | 50% at room temperature |
 | **LTO** | 10 000+ | Very low | Any SOC; very tolerant |
-| **Na-ion** | 1000–3000 | Low | 0 V (unique — no damage) |
+| **Na-ion** | 1000–3000 | Low | cell-dependent (0 V to 30–50 % SOC) |
 
 **Solar repeater context:** A well-dimensioned solar repeater does **not** do 1 full cycle per day. The actual profile is shallow micro-cycling with strong seasonal variation:
 
