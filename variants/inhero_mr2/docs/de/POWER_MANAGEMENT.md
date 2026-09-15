@@ -890,10 +890,20 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 ### Verhalten im System Sleep mit GPIO-Latch (Rev 1.1)
 
 In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown()`):
-- `digitalWrite(BQ_CE_PIN, HIGH)` wird vor System Sleep aufgerufen
+- CE wird vor System Sleep anhand der gespeicherten Batterie-Konfiguration gesetzt (unbekannte Chemie: GPIO LOW).
 - P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Output-Latch bleibt HIGH
 - GPIO4 gelatcht HIGH → CE-FET ON → CE LOW → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
+
+Beim stündlichen UV-Wake wird CE nach dem GPIO-Reset anhand der gespeicherten
+Chemie wieder als Ausgang gesetzt. Ist Laden freigegeben, prüft die Firmware
+zuerst, ob der BQ25798 antwortet, und misst VBUS frisch mit einem VBUS-only
+ADC-One-Shot (Timeout 250 ms). Bei I²C-Fehlern, ADC-Timeout oder VBUS < 4,5 V
+endet die Solar-Pflege. Bei konfiguriertem MPPT wird PG=0 durch einen einmaligen
+HIZ-Toggle behandelt; anschließend wird maximal 1 s auf PG gewartet und MPPT
+bei PG=1 noch im selben Wake aktiviert. Vor dem erneuten Sleep werden ADC und
+Interrupts wieder in den stromsparenden Zustand versetzt. Im Sleep selbst
+bleibt CE vom RAK aktiv getrieben; die Software-Pflege läuft nur beim Wake.
 - Stromverbrauch: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents aller Komponenten)
 
 | Zustand | CE-Pin | Laden | Solar-Recovery |

@@ -26,6 +26,18 @@ static BoardConfigContainer boardConfig;
 volatile bool InheroMr2Board::rtc_irq_pending = false;
 volatile uint32_t InheroMr2Board::ota_dfu_reset_at = 0;
 
+// CE output is retained during SYSTEMOFF, but GPIO configuration resets on wake.
+// Restore only the charge permission from the stored chemistry (unknown = off).
+static bool restoreConfiguredChargeEnable() {
+  const auto* props = BoardConfigContainer::getBatteryProperties(boardConfig.getBatteryType());
+  bool enabled = props && props->charge_enable;
+#ifdef BQ_CE_PIN
+  digitalWrite(BQ_CE_PIN, enabled ? HIGH : LOW);
+  pinMode(BQ_CE_PIN, OUTPUT);
+#endif
+  return enabled;
+}
+
 // ===== Public Methods =====
 
 void InheroMr2Board::begin() {
@@ -66,14 +78,10 @@ void InheroMr2Board::begin() {
       // Still too low or read failed — go back to sleep immediately.
       // INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
 
-      // BQ CE pin: The System-ON reset after System Sleep wake resets all PIN_CNF
-      // to Input/Disconnect defaults. The previous cycle's OUTPUT latch is lost.
-      // Must explicitly re-assert OUTPUT HIGH so solar charging stays active.
-#ifdef BQ_CE_PIN
-      pinMode(BQ_CE_PIN, OUTPUT);
-      digitalWrite(BQ_CE_PIN, HIGH);
-      MESH_DEBUG_PRINTLN("LV-Wake: CE re-latched HIGH (solar charging active)");
-#endif
+      bool chargeEnabled = restoreConfiguredChargeEnable();
+      if (chargeEnabled) {
+        inhero::maintainSolarDuringLowVoltageWake(boardConfig.getMPPTEnabled());
+      }
 
       // Put INA228 + BQ25798 into a state that draws minimal current during System Sleep.
       inhero::prepareIcsForSystemOff();
@@ -233,10 +241,8 @@ void InheroMr2Board::begin() {
         Wire.requestFrom((uint8_t)INA228_I2C_ADDR, (uint8_t)2);
         while (Wire.available()) Wire.read();
 
-        // Latch BQ CE pin HIGH (solar charging active in sleep)
-#ifdef BQ_CE_PIN
-        digitalWrite(BQ_CE_PIN, HIGH);
-#endif
+        // Hold CE according to the configured chemistry during sleep
+        restoreConfiguredChargeEnable();
 
         // BQ25798 — Disable ADC (saves ~500µA continuous draw)
         Wire.beginTransmission(BQ25798_I2C_ADDR);
@@ -472,14 +478,11 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
 
     delay(100); // Allow I/O to complete
 
-    // 5. Latch BQ CE pin HIGH (FET ON = CE LOW = charge enabled)
+    // 5. Hold the configured CE level (HIGH enables charging via FET)
     // GPIO output latch survives System Sleep as long as VDD is present
-#ifdef BQ_CE_PIN
-    digitalWrite(BQ_CE_PIN, HIGH);
-    MESH_DEBUG_PRINTLN("PWRMGT: CE latched HIGH (solar charging active in sleep)");
-#endif
+    restoreConfiguredChargeEnable();
 
-    // 5b. INA228 + BQ25798 \u2192 minimum sleep current. Must be AFTER CE=HIGH
+    // 5b. INA228 + BQ25798 -> minimum sleep current. Must be AFTER CE restore
     // (charge enable may re-enable BQ ADC). Repeats INA228 shutdown via raw I2C
     // with readback as a safety net if the driver call in step 2 silently failed.
     inhero::prepareIcsForSystemOff();

@@ -13,4 +13,7 @@ namespace inhero {
 // Wire must be initialised before calling.
 void prepareIcsForSystemOff();
 
+// Bounded solar recovery before returning to UV sleep; no driver init required.
+void maintainSolarDuringLowVoltageWake(bool mpptEnabled);
+
 } // namespace inhero
