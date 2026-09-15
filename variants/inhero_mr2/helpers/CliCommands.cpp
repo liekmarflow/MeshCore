@@ -106,8 +106,10 @@ bool appendBoardTelemetry(BoardConfigContainer& cfg, CayenneLPP& telemetry) {
   }
 
   // Solar: VSOL[V], ISOL[A], MPPT_7D[%]
-  telemetry.addVoltage(solarChannel, telemetryData->solar.voltage / 1000.0f);
-  telemetry.addCurrent(solarChannel, telemetryData->solar.current / 1000.0f);
+  if (telemetryData->solar.valid) {
+    telemetry.addVoltage(solarChannel, telemetryData->solar.voltage / 1000.0f);
+    telemetry.addCurrent(solarChannel, telemetryData->solar.current / 1000.0f);
+  }
   telemetry.addPercentage(solarChannel, cfg.getMpptEnabledPercentage7Day());
 
   return true;
@@ -178,6 +180,21 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     cfg.getBqDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
+  } else if (strcmp(cmd, "adc") == 0) {
+    cfg.getAdcDiagnostics(reply, maxlen);
+    return true;
+  } else if (strcmp(cmd, "adc ts") == 0) {
+    cfg.getAdcDiagnostics(reply, maxlen, 1);
+    return true;
+  } else if (strcmp(cmd, "adc nots") == 0) {
+    cfg.getAdcDiagnostics(reply, maxlen, 0);
+    return true;
+  } else if (strcmp(cmd, "adc compare") == 0 || strcmp(cmd, "adc compare reverse") == 0) {
+    cfg.compareAdcSequences(reply, maxlen, strcmp(cmd, "adc compare reverse") == 0);
+    return true;
+  } else if (strcmp(cmd, "adc old") == 0 || strcmp(cmd, "adc new") == 0) {
+    cfg.getAdcSequenceTrace(reply, maxlen, strcmp(cmd, "adc old") == 0);
+    return true;
   } else if (strcmp(cmd, "selftest") == 0) {
     char stBuffer[64];
     cfg.getSelfTest(stBuffer, sizeof(stBuffer));
@@ -222,6 +239,13 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     else if (sol_current <= 100)  snprintf(sol_current_str, sizeof(sol_current_str), "~%dmA", (int)sol_current);
     else                          snprintf(sol_current_str, sizeof(sol_current_str), "%dmA", (int)sol_current);
 
+    char solar_str[32];
+    if (telemetry->solar.valid) {
+      snprintf(solar_str, sizeof(solar_str), "%.2fV/%s", telemetry->solar.voltage / 1000.0f, sol_current_str);
+    } else {
+      snprintf(solar_str, sizeof(solar_str), "N/A");
+    }
+
     char temp_str[8];
     if (telemetry->battery.temperature <= -100.0f) {
       snprintf(temp_str, sizeof(temp_str), "N/A");
@@ -237,18 +261,18 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
         float derated_soc = soc - trapped_pct;
         if (derated_soc < 0.0f) derated_soc = 0.0f;
         if (derated_soc > 100.0f) derated_soc = 100.0f;
-        snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% (%.0f%%) S:%.2fV/%s",
+        snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% (%.0f%%) S:%s",
                  telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
-                 soc, derated_soc, telemetry->solar.voltage / 1000.0f, sol_current_str);
+                 soc, derated_soc, solar_str);
       } else {
-        snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% S:%.2fV/%s",
+        snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:%.1f%% S:%s",
                  telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
-                 soc, telemetry->solar.voltage / 1000.0f, sol_current_str);
+                 soc, solar_str);
       }
     } else {
-      snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:N/A S:%.2fV/%s",
+      snprintf(reply, maxlen, "B:%.2fV/%s/%s SOC:N/A S:%s",
                telemetry->battery.voltage / 1000.0f, bat_current_str, temp_str,
-               telemetry->solar.voltage / 1000.0f, sol_current_str);
+               solar_str);
     }
     return true;
   } else if (strcmp(cmd, "conf") == 0) {

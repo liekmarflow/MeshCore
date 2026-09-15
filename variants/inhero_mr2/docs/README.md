@@ -405,7 +405,7 @@ The diagnostic functions enable precise verification of BQ25798 registers agains
 1. **MPPT disabled**: BQ25798 automatically sets MPPT=0 when PG=0
    - Solution: `checkAndFixSolarLogic()` re-enables MPPT on PG=1
 2. **PG stuck at sunrise**: VBUS rises slowly, BQ fails to qualify the source
-   - Solution: `checkAndFixSolarLogic()` toggles HIZ when VBUS ≥ 4.5V + PG=0 (5min cooldown)
+   - Solution: `checkAndFixSolarLogic()` toggles HIZ at PG=0 without an ADC/VBUS check (5min cooldown; MPPT and charging enabled in configuration)
 
 → [FAQ #9 — Red LED blinks / battery not charging](FAQ.md#9-the-red-led-bq-status-led-blinks-slowly-and-the-battery-is-not-charging)
 

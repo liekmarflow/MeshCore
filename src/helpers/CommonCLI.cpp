@@ -951,7 +951,7 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
       strcpy(reply, "Error: unsupported");
   #endif
   } else if (memcmp(config, "board.", 6) == 0) {
-    char res[100];
+    char res[160];  // Match the CLI reply capacity, including board diagnostics.
     memset(res, 0, sizeof(res));
     if (_board->getCustomGetter(&config[6], res, sizeof(res))) {
       strcpy(reply, res);

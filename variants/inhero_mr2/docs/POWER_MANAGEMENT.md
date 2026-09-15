@@ -235,10 +235,23 @@ No INT pin interrupt — everything runs via polling in `runMpptCycle()` (60s in
 **PG=1**: MPPT re-enablement — BQ25798 automatically disables MPPT on faults.
 Readback check: only write when actual change needed.
 
-**PG=0 + VBUS ≥ 4.5V**: PG-stuck recovery — panel delivers voltage, but BQ has not
-qualified the input source (typical during slow sunrise). HIZ toggle forces
-new input qualification. 5-minute cooldown prevents excessive toggling.
-Constant: `PG_STUCK_VBUS_THRESHOLD_MV = 4500` in BoardConfigContainer.h
+**PG=0**: A HIZ toggle retries input qualification without an ADC/VBUS check.
+The charger qualifies the source itself, including at night or with a weak panel.
+This avoids blocking recovery when low VBAT and HIZ leave the ADC unavailable.
+The BQ must respond, and MPPT and charging must be enabled in configuration.
+A 5-minute cooldown applies between attempts, including failed register accesses.
+Hourly UV wakes also perform one attempt, then wait up to 1 s for PG and restore
+MPPT if possible before returning to sleep. CE follows the stored battery configuration.
+
+After setting up ADC channels and flags, firmware clears HIZ immediately before
+starting each telemetry/diagnostic one-shot, preserving EN_CHG and other bits.
+There is no fixed delay during which source qualification could reassert HIZ
+before the ADC start. Firmware does not clear HIZ repeatedly during a measurement
+if the BQ sets it again. A fresh DONE flag and cleared ADC_EN are still required
+within the 250 ms measurement timeout. HIZ is not restored after the measurement.
+Invalid solar readings appear
+as `S:N/A` and are omitted from LPP. Both OLD and NEW diagnostic sequences now use
+the same HIZ preparation; their cached traces remain read-only.
 
 ### BQ25798 Interrupt Handling
 
@@ -277,13 +290,13 @@ tickPeriodic()  [called by tick(), main loop]
 
 ### BQ25798 ADC at Low Battery Voltages
 
-> **Reference:** BQ25798 Datasheet (TI SLUSE22), Section 9.3.16 — ADC
+> **Reference:** BQ25798 Datasheet SLUSDV2B, Section 9.3.10 — ADC; Section 7.3.10 in SLUSDV2C.
 
 #### Problem
 
 The 15-bit ADC in the BQ25798 has **voltage-dependent operating thresholds** that become relevant in battery-only operation (without solar). At low battery voltages, the ADC cannot complete its conversion — `ADC_EN` stays set and the firmware runs into a timeout.
 
-#### Datasheet Quote (Section 9.3.16)
+#### Datasheet Quote (Section 9.3.10, Rev. B)
 
 > *"The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
 > At battery only condition, if the TS_ADC channel is enabled, the ADC only works
@@ -310,7 +323,7 @@ The firmware reads the current battery voltage from the INA228, passes it to
 
 This allows the ADC to continue working in the 2.9–3.2V range for solar measurements (VBUS, IBUS), even when battery temperature cannot be read.
 
-The 3.2V requirement applies to battery-only operation (datasheet 9.3.16); with the panel supplying the system the channel costs nothing. That case matters: a cold, nearly empty cell being charged is exactly when the cell temperature is worth seeing, especially with the JEITA override armed.
+The 3.2V requirement applies to battery-only operation (SLUSDV2B 9.3.10). With a qualified input source, firmware keeps TS enabled even at low VBAT so that battery temperature remains available during charging.
 
 **The battery type never enters the decision.** `getTelemetryData()` starts with `ts_enabled = true` for every chemistry; the driver has no notion of which chemistry is configured and no "NTC fitted" flag. Availability of a battery temperature depends on VBAT, on the input source, and on the plausibility check below.
 
@@ -332,7 +345,7 @@ On the MR2, D+, D−, VAC1, VAC2 are not connected. The firmware enables only th
 | 0x2F (ADC_FUNCTION_DISABLE_0) | `0x58` | `0x5C` | IBUS, VBUS, TDIE, (TS) |
 | 0x30 (ADC_FUNCTION_DISABLE_1) | `0xF0` | `0xF0` | none (D+/D−/VAC disabled) |
 
-TDIE (bit 1) is cleared in both values, i.e. the charger's own silicon die temperature is converted in every one-shot. That is where the `TDIE:` field of `board.cinfo` comes from — it is the BQ25798 junction temperature, not the battery, not the board, not the MCU. (The channel-map comment above `startADCOneShot()` still lists TDIE as disabled; the written value is what counts.)
+TDIE (bit 1) is cleared in both values, i.e. the charger's own silicon die temperature is converted in every one-shot. That is where the `TDIE:` field of `board.cinfo` comes from — it is the BQ25798 junction temperature, not the battery, not the board, not the MCU.
 
 **Important:** In one-shot mode, `ADC_EN` is only cleared when **all enabled channels** have completed conversion. Unconnected channels can block this → therefore only required channels are enabled.
 

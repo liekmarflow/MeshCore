@@ -7,7 +7,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <MeshCore.h>
-#include "../BoardConfigContainer.h"
 
 #include "../InheroMr2Board.h"
 #include "../lib/BqDriver.h"
@@ -38,6 +37,9 @@ bool writeBq(uint8_t reg, uint8_t value) {
 }
 
 void maintainSolarDuringLowVoltageWake(bool mpptEnabled) {
+  // The caller already checked charge_enable and restored the CE output.
+  if (!mpptEnabled) return;
+
   // At deep discharge the charger may be unpowered. Never use failed reads
   // as status or ADC data, and never initialise/reset its retained settings.
   Wire.beginTransmission(BQ25798_I2C_ADDR);
@@ -46,26 +48,8 @@ void maintainSolarDuringLowVoltageWake(bool mpptEnabled) {
     return;
   }
 
-  // Fresh VBUS-only one-shot: TS and unused channels cannot stall conversion.
-  // ADC is always disabled afterwards, including failed writes and timeouts.
-  bool ready = false;
-  if (writeBq(0x2E, 0x00) && writeBq(0x2F, 0xDE) &&
-      writeBq(0x30, 0xF0) && writeBq(0x2E, 0xC0)) {
-    uint32_t start = millis();
-    while (millis() - start < 250) {
-      uint8_t control;
-      if (!readBq(0x2E, &control)) break;
-      if (!(control & 0x80)) { ready = true; break; }
-      delay(10);
-    }
-  }
-  BqDriver::disableAdc();
-  uint8_t voltage[2];
-  if (!ready || !readBq(0x35, voltage, 2)) return;
-  uint16_t vbus = (uint16_t(voltage[0]) << 8) | voltage[1];
-  if (vbus < BoardConfigContainer::PG_STUCK_VBUS_THRESHOLD_MV ||
-      vbus == 0xFFFF || !mpptEnabled) return;
-
+  // Do not require an ADC conversion: low VBAT + HIZ can prevent it from
+  // starting. Source qualification itself rejects missing/weak input power.
   uint8_t status;
   if (!readBq(0x1B, &status)) return;
   if (!(status & 0x08)) {
@@ -76,14 +60,15 @@ void maintainSolarDuringLowVoltageWake(bool mpptEnabled) {
     // Retry clearing HIZ on transient bus errors so charging can resume.
     bool cleared = false;
     for (int retry = 0; retry < 3; ++retry) {
-      if (writeBq(BQ25798_REG_CHARGER_CONTROL_0, control & ~0x04)) {
+      if (readBq(BQ25798_REG_CHARGER_CONTROL_0, &control) &&
+          writeBq(BQ25798_REG_CHARGER_CONTROL_0, control & ~0x04)) {
         cleared = true;
         break;
       }
       delay(10);
     }
     if (!cleared) return;
-    MESH_DEBUG_PRINTLN("LV-Wake: PG recovery, VBUS=%dmV", vbus);
+    MESH_DEBUG_PRINTLN("LV-Wake: PG=0, toggled HIZ");
     uint32_t start = millis();
     do {
       delay(20);
@@ -94,7 +79,8 @@ void maintainSolarDuringLowVoltageWake(bool mpptEnabled) {
   if (!(status & 0x08)) return;
   uint8_t mppt;
   if (readBq(0x15, &mppt) && !(mppt & 0x01)) {
-    if (writeBq(0x15, mppt | 0x01))
+    // Below VSYSMIN the BQ may immediately reset EN_MPPT. Verify before logging.
+    if (writeBq(0x15, mppt | 0x01) && readBq(0x15, &mppt) && (mppt & 0x01))
       MESH_DEBUG_PRINTLN("LV-Wake: MPPT re-enabled");
   }
 }

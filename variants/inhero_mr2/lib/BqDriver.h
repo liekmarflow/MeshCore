@@ -30,6 +30,7 @@ typedef struct {
   uint16_t voltage; // Solar voltage in mV
   int16_t current;  // Solar current in mA (approximate, see note above)
   int32_t power;    // Solar power in mW
+  bool valid;       // Fresh ADC conversion and successful U/I reads
   bool mppt;        // MPPT enabled status
 } SolarData;
 
@@ -181,9 +182,16 @@ public:
 
   // Read solar + temperature telemetry via BQ25798 ADC.
   // vbat_mv: battery voltage from INA228 in mV, used to decide if the TS channel
-  // can be enabled (requires VBAT >= 3.2V without VBUS, per datasheet 9.3.16).
+  // can be enabled (requires VBAT > 3.2V without VBUS, per SLUSDV2B 9.3.10).
   // Pass 0 if unknown (assumes sufficient voltage).
   const Telemetry* getTelemetryData(uint16_t vbat_mv = 0);
+  // Runs the same telemetry conversion and reports its actual ADC state.
+  // tsOverride: -1 = normal policy, 0 = TS off, 1 = TS on (diagnostics only).
+  void getAdcDiagnostics(char* buffer, uint32_t bufferSize, uint16_t vbat_mv, int8_t tsOverride = -1);
+  // Diagnostic-only A/B capture. Both use the same channel mask; reverse swaps
+  // their order. The cached trace reads never access the hardware.
+  void compareAdcSequences(char* buffer, uint32_t bufferSize, uint16_t vbat_mv, bool reverse = false);
+  void getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy) const;
 
   // Charger Status
   bool getChargerStatusPowerGood();
@@ -198,6 +206,7 @@ public:
   // Non-static register access methods (use instance I2C config)
   bool writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
+  bool readReg(uint8_t reg, uint8_t& val);
 
   // Low-level BQ25798 housekeeping via raw TwoWire. These are safe to call
   // before begin() — used on the low-voltage wake path where the driver
@@ -224,6 +233,40 @@ protected:
   Adafruit_I2CDevice* ih_i2c_dev = nullptr; // Dedicated I2C device for NTC access
 
 private:
+  struct AdcTracePoint {
+    uint16_t ms = 0;
+    uint8_t control = 0xFF, status = 0xFF, flags = 0xFF;
+  };
+  struct AdcSequenceTrace {
+    const char* result = "NOT-RUN";
+    AdcTracePoint before;
+    AdcTracePoint points[7];
+    uint8_t count = 0;
+    uint16_t voltageBefore = 0xFFFF, voltageAfter = 0xFFFF;
+    uint16_t currentBefore = 0xFFFF, currentAfter = 0xFFFF;
+    uint8_t inputBefore = 0xFF, inputAfter = 0xFF;
+    uint8_t chargerBefore = 0xFF, chargerAfter = 0xFF;
+    bool stateChanged = false;
+    bool captured = false;
+    bool stopped = true;
+  } adcSequenceTraces[2]; // OLD, NEW; not overwritten by normal telemetry
+  void captureAdcSequence(AdcSequenceTrace& trace, bool legacy, bool tsEnabled);
+  struct AdcDiagnostics {
+    const char* result = "NOT-RUN";
+    uint8_t startControl = 0xFF;
+    uint8_t endControl = 0xFF;
+    uint8_t status = 0xFF;
+    uint8_t flags = 0;
+    uint8_t disable0 = 0xFF;
+    uint8_t disable1 = 0xFF;
+    uint8_t inputBefore = 0xFF;
+    uint8_t inputAfter = 0xFF;
+    uint8_t chargerBefore = 0xFF;
+    uint8_t chargerAfter = 0xFF;
+    uint32_t elapsedMs = 0;
+  } adcDiagnostics;
+  const Telemetry* readTelemetry(uint16_t vbat_mv, int8_t tsOverride);
+  bool prepareADCInput();
   bool startADCOneShot(bool ts_enabled = true);
   bool setADCEnabled(bool enabled);
   int16_t getIBUS();

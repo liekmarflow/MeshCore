@@ -235,10 +235,13 @@ Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s I
 **PG=1**: MPPT-Reaktivierung — BQ25798 deaktiviert MPPT automatisch bei Faults.
 Readback-Check: nur schreiben wenn tatsächliche Änderung nötig.
 
-**PG=0 + VBUS ≥ 4.5V**: PG-Stuck Recovery — Panel liefert Spannung, aber BQ hat die
-Inputquelle nicht qualifiziert (typisch bei langsamem Sonnenaufgang). HIZ-Toggle erzwingt
-neue Input-Qualifikation. 5-Minuten-Cooldown verhindert übermäßiges Toggling.
-Konstante: `PG_STUCK_VBUS_THRESHOLD_MV = 4500` in BoardConfigContainer.h
+**PG=0**: PG-Recovery — ein HIZ-Toggle stößt die Input-Qualifikation erneut an.
+Eine VBUS-Messung ist dafür keine Voraussetzung: Bei niedriger VBAT und HIZ=1
+kann gerade der ADC ausfallen, den die frühere Prüfung benötigt hat. Der BQ
+prüft selbst, ob die Quelle ausreichend ist; auch nachts ist ein Versuch zulässig.
+Voraussetzungen sind ein antwortender BQ sowie aktiviertes MPPT und Ladefreigabe
+laut Batterie-Konfiguration. Zwischen Versuchen liegen mindestens 5 Minuten,
+auch wenn ein Registerzugriff während des Versuchs fehlschlägt.
 
 ### BQ25798 Interrupt Handling
 
@@ -277,13 +280,13 @@ tickPeriodic()  [aufgerufen von tick(), Main-Loop]
 
 ### BQ25798 ADC bei niedrigen Akkuspannungen
 
-> **Referenz:** BQ25798 Datasheet (TI SLUSE22), Section 9.3.16 — ADC
+> **Referenz:** BQ25798 Datasheet (TI SLUSDV2B), Abschnitt 9.3.10 — ADC; in SLUSDV2C Abschnitt 7.3.10.
 
 #### Problem
 
-Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**, die im reinen Akkubetrieb (ohne Solar) relevant werden. Bei niedrigen Akkuspannungen kann der ADC seine Konvertierung nicht abschließen — `ADC_EN` bleibt gesetzt und die Firmware läuft in einen Timeout.
+Der 15-bit ADC im BQ25798 hat **spannungsabhängige Betriebsschwellen**. Bei unzureichender Versorgung kann die Konvertierung ausbleiben. Im beobachteten Zustand mit niedriger VBAT und HIZ=1 blieb `ADC_EN` trotz Startanforderung gelöscht; deshalb genügt dieses Bit allein nicht als Abschlussnachweis.
 
-#### Datasheet-Zitat (Section 9.3.16)
+#### Datasheet-Zitat (Abschnitt 9.3.10, Rev. B)
 
 > *"The ADC is allowed to operate if either VBUS > 3.4V or VBAT > 2.9V is valid.
 > At battery only condition, if the TS_ADC channel is enabled, the ADC only works
@@ -310,7 +313,7 @@ Die Firmware liest die aktuelle Akkuspannung vom INA228, übergibt sie an
 
 Dadurch funktioniert der ADC im Bereich 2.9–3.2V weiterhin für Solar-Messungen (VBUS, IBUS), auch wenn die Akkutemperatur nicht gelesen werden kann.
 
-Die 3,2-V-Bedingung gilt für den reinen Akkubetrieb (Datenblatt 9.3.16); versorgt das Modul das System, kostet der Kanal nichts. Genau dieser Fall zählt: Eine kalte, fast leere Zelle, die geladen wird, ist der Moment, in dem die Zelltemperatur interessiert — besonders bei aktivem JEITA-Override.
+Die 3,2-V-Bedingung gilt für den reinen Akkubetrieb (SLUSDV2B 9.3.10). Bei qualifizierter Eingangsquelle bleibt TS auch mit niedriger VBAT aktiviert, damit die Akkutemperatur während des Ladens verfügbar ist.
 
 **Der Akkutyp geht nie in die Entscheidung ein.** `getTelemetryData()` startet für jede Chemie mit `ts_enabled = true`; der Treiber kennt die konfigurierte Chemie nicht und hat kein „NTC bestückt"-Flag. Ob eine Akkutemperatur verfügbar ist, hängt an VBAT, an der Eingangsquelle und an der Plausibilitätsprüfung weiter unten.
 
@@ -332,9 +335,85 @@ Auf dem MR2 sind D+, D−, VAC1, VAC2 nicht verbunden. Die Firmware aktiviert nu
 | 0x2F (ADC_FUNCTION_DISABLE_0) | `0x58` | `0x5C` | IBUS, VBUS, TDIE, (TS) |
 | 0x30 (ADC_FUNCTION_DISABLE_1) | `0xF0` | `0xF0` | keine (D+/D−/VAC disabled) |
 
-TDIE (Bit 1) ist in beiden Werten gelöscht, der Chip konvertiert seine eigene Silizium-Die-Temperatur also in jedem One-Shot. Daher stammt das `TDIE:`-Feld von `board.cinfo` — es ist die Sperrschichttemperatur des BQ25798, nicht die des Akkus, nicht die der Platine und nicht die des MCU. (Der Kanal-Kommentar über `startADCOneShot()` führt TDIE noch als deaktiviert; maßgeblich ist der geschriebene Wert.)
+TDIE (Bit 1) ist in beiden Werten gelöscht, der Chip konvertiert seine eigene Silizium-Die-Temperatur also in jedem One-Shot. Daher stammt das `TDIE:`-Feld von `board.cinfo` — es ist die Sperrschichttemperatur des BQ25798, nicht die des Akkus, nicht die der Platine und nicht die des MCU.
 
-**Wichtig:** Im One-Shot-Modus wird `ADC_EN` erst gelöscht, wenn **alle aktivierten Kanäle** fertig konvertiert haben. Nicht-verbundene Kanäle können dies blockieren → deshalb werden nur die benötigten Kanäle aktiviert.
+Im One-Shot-Modus bestätigt ein frisches ADC_DONE_FLAG bei gelöschtem ADC_EN den Abschluss der aktivierten Kanäle. ADC_EN=0 allein genügt nicht. Nicht benötigte Kanäle werden deaktiviert, um Messzeit zu sparen.
+
+#### ADC-Diagnose
+
+Zur ADC-Diagnose führt `get board.adc` denselben One-Shot wie `board.telem`
+aus und meldet z. B. `ADC:OK 80ms C:C0>40 S:20 F:20 M:5C/F0 VB:2580`.
+`C` zeigt ADC_CONTROL direkt nach dem Start und beim letzten Poll, `S` den
+abschließend gelesenen STATUS_3, `F` die während der Abfrage gesehenen FLAG_2-Bits,
+`M` die zurückgelesenen Kanalmasken und `VB` die INA228-Akkuspannung in mV.
+`TIMEOUT` bedeutet, dass ADC_EN nach 250 ms noch gesetzt war; `NO-DONE` bedeutet,
+dass ADC_EN gelöscht war, aber kein frisches ADC_DONE_FLAG beobachtet wurde.
+`SETUP-I2C`, `START-I2C`, `POLL-I2C` und `DATA-I2C` unterscheiden die Fehlerphasen;
+`MASK-MISMATCH` kennzeichnet nicht übernommene Kanalmasken. Nicht gelesene
+Registerfelder stehen auf `FF` (das Flag-Sammelfeld beginnt bei `00`).
+`P` zeigt STATUS_0 vor/nach der Messung (Bit 0: VBUS vorhanden, Bit 3: PG),
+`H` zeigt CONTROL_0 vor/nach der Messung (Bit 2: HIZ, Bit 5: EN_CHG).
+Für einen Vergleich unter gleichen Versorgungsbedingungen erzwingt
+`get board.adc nots` den ausgeschalteten TS-Kanal (`M:5C/F0`),
+`get board.adc ts` den eingeschalteten TS-Kanal (`M:58/F0`). Diese Auswahl
+gilt nur für die einzelne Diagnosemessung. Zuerst werden ADC, Kanäle und Flags
+vorbereitet; unmittelbar vor `ADC_EN=1` wird HIZ auf 0 gesetzt. Es gibt keine
+feste Pause dazwischen, in der die Quellenqualifizierung HIZ erneut setzen könnte.
+Danach gilt das Messzeitlimit von 250 ms. Setzt der BQ HIZ selbst wieder, wird
+innerhalb dieser Messung nicht erneut freigegeben. HIZ wird nach der Messung
+auch nicht von der Firmware wieder eingeschaltet. CE,
+EN_CHG und die gespeicherte Konfiguration werden nicht geändert.
+`HIZ-I2C` kennzeichnet einen fehlgeschlagenen Zugriff beim Freigeben von HIZ.
+Änderungen von `P` oder `H` zeigen,
+dass sich der Charger-Zustand während der Messung verändert hat.
+Ungültige Solarmessungen erscheinen in `board.telem` als `S:N/A` und werden
+nicht als U/I-Werte per LPP übertragen. Die periodische PG-Pflege ist von der
+ADC-Messung unabhängig; eine Telemetrieabfrage kann durch das Freigeben von HIZ
+ebenfalls einen Wiederanlauf der Quelle auslösen.
+
+Zum Vergleich der Startsequenzen dienen diese drei Kommandos:
+
+```text
+get board.adc compare
+get board.adc old
+get board.adc new
+```
+
+`compare` startet zuerst OLD (Kanalmasken schreiben, dann `ADC_CONTROL=0xC0`),
+danach NEW (die aktuelle Startfunktion mit vorherigem ADC-Stop, Flag-Clearing
+und Masken-Readback). Für beide Durchläufe wird dieselbe TS-Auswahl verwendet.
+`M` in dieser Zusammenfassung ist die angeforderte Kanalmaske. Mit
+`get board.adc compare reverse` lässt sich die Reihenfolge umkehren. Beide
+Varianten geben unmittelbar vor dem ADC-Start HIZ frei, ohne zusätzliche Wartezeit.
+OLD bezeichnet die historischen ADC-Schreibzugriffe mit dieser gemeinsamen
+HIZ-Vorbereitung. CE, MPPT und die gespeicherte Konfiguration werden vom Vergleich
+nicht geschrieben.
+Die reguläre Pflege läuft nach dem Kommando weiter.
+
+Die Antwort zeigt die Ergebnisse beider Durchläufe sowie STATUS_0 (`P`) und
+CONTROL_0 (`H`) vom Anfang des ersten bis zum Ende des zweiten Durchlaufs.
+`CHANGED` meldet auch zwischenzeitlich beobachtete Änderungen dieser Register;
+`STABLE` bedeutet unveränderte Register bei allen Abtastungen, keine Aussage
+über ungemessene Transienten. `INCOMPLETE` kennzeichnet einen abgebrochenen Test.
+Ein bereits aktiver ADC wird als `BUSY` gemeldet; er wird nicht für OLD gestoppt.
+Nach Start-, Daten- oder I2C-Fehlern entfällt der zweite Durchlauf. Ein nach dem
+Zeitlimit noch aktiver ADC wird abgeschaltet; `STOP-I2C` meldet fehlende Bestätigung.
+
+`old` und `new` lesen ausschließlich den zuletzt gespeicherten Vergleich aus.
+Andere Telemetrieabfragen überschreiben diese Aufzeichnung nicht. `U` und `I`
+zeigen die **rohen Hex-Registerwerte vor/nach** dem jeweiligen Versuch: U ist
+VBUS in mV, I ist IBUS in mA als vorzeichenbehafteter 16-Bit-Wert. Beispiel:
+`U:1B58>1770` entspricht 7000 → 6000 mV. Diese Werte werden auch bei `NO-DONE`
+ausgegeben und sind dann **keine bestätigten neuen Messwerte**.
+
+`pre:C/S/F` zeigt ADC_CONTROL / STATUS_3 / FLAG_2 vor dem Start. Der dortige
+FLAG-Lesezugriff löscht alte Ereignisse bei beiden Varianten. Danach folgen
+`Millisekunden:C/S/F` mit denselben Rohregistern, ungefähr bei 0, 10, 25, 50,
+100, 150 und 250 ms nach der Startfunktion. I2C-Laufzeit kann die Zeitpunkte
+verschieben. Es wird bis zum letzten Zeitpunkt weiter aufgezeichnet, auch wenn
+die Messung schon fertig war. Dadurch ist ein bleibendes DONE_STAT bei nach
+dem Lesen gelöschtem DONE_FLAG sichtbar. `OK` erfordert auch hier ein frisches
+DONE_FLAG und gelöschtes ADC_EN; die Rohdaten gelangen nicht in die Telemetrie.
 
 #### Temperatur-Sentinel-Werte
 
@@ -897,9 +976,8 @@ In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown
 
 Beim stündlichen UV-Wake wird CE nach dem GPIO-Reset anhand der gespeicherten
 Chemie wieder als Ausgang gesetzt. Ist Laden freigegeben, prüft die Firmware
-zuerst, ob der BQ25798 antwortet, und misst VBUS frisch mit einem VBUS-only
-ADC-One-Shot (Timeout 250 ms). Bei I²C-Fehlern, ADC-Timeout oder VBUS < 4,5 V
-endet die Solar-Pflege. Bei konfiguriertem MPPT wird PG=0 durch einen einmaligen
+bei konfiguriertem MPPT zuerst, ob der BQ25798 antwortet. Die Pflege benötigt
+keine ADC- oder VBUS-Messung. Bei I²C-Fehlern endet sie. PG=0 wird durch einen einmaligen
 HIZ-Toggle behandelt; anschließend wird maximal 1 s auf PG gewartet und MPPT
 bei PG=1 noch im selben Wake aktiviert. Vor dem erneuten Sleep werden ADC und
 Interrupts wieder in den stromsparenden Zustand versetzt. Im Sleep selbst

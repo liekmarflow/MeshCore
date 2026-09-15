@@ -76,17 +76,16 @@ uint32_t BoardConfigContainer::lastTempUpdateMs = 0;  // 0 = never updated
 
 // PG-Stuck recovery: timestamp of last HIZ toggle (0 = never)
 static uint32_t lastPgStuckToggleTime = 0;
+static uint32_t lastPgStuckAttemptTime = 0;
+static bool pgStuckRecoveryAttempted = false;
 #define PG_STUCK_COOLDOWN_MS (5 * 60 * 1000)  // 5 minutes between toggles
 
 void BoardConfigContainer::setupWatchdog() { inhero::setupWatchdog(leds_enabled); }
 void BoardConfigContainer::feedWatchdog()  { inhero::feedWatchdog(); }
 void BoardConfigContainer::disableWatchdog() { inhero::disableWatchdog(); }
 
-// Re-enables MPPT if BQ25798 disabled it (e.g., during !PG state).
-// BQ25798 does not persist MPPT=1 and automatically sets MPPT=0 when PG=0;
-// this restores MPPT=1 when PG returns to 1.
-// Only runs when PowerGood=1 to avoid false positives; exception: PG-stuck
-// recovery toggles HIZ when VBUS is present but PG=0.
+// Retry source qualification at !PG without relying on ADC availability.
+// With PG set, restore configured MPPT if the charger disabled it.
 void BoardConfigContainer::checkAndFixSolarLogic() {
   if (!bqDriverInstance) return;
 
@@ -96,16 +95,21 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
 
   if (!mpptEnabled) {
     // MPPT disabled in config - only disable if currently enabled (avoid unnecessary writes)
-    uint8_t mpptVal = bqDriverInstance->readReg(0x15);
-    if ((mpptVal & 0x01) != 0) {
-      bqDriverInstance->writeReg(0x15, mpptVal & ~0x01);
+    uint8_t mpptVal;
+    if (bqDriverInstance->readReg(0x15, mpptVal) && (mpptVal & 0x01) &&
+        bqDriverInstance->writeReg(0x15, mpptVal & ~0x01)) {
       MESH_DEBUG_PRINTLN("MPPT disabled via config");
     }
     return;
   }
 
-  // Check if PowerGood is currently set
-  bool powerGood = bqDriverInstance->getChargerStatusPowerGood();
+  const BatteryProperties* props = getBatteryProperties(cachedBatteryType);
+  if (!props || !props->charge_enable) return;
+
+  // A missing/unpowered BQ must not be mistaken for PG=0.
+  uint8_t status;
+  if (!bqDriverInstance->readReg(0x1B, status)) return;
+  bool powerGood = (status & 0x08) != 0;
 
   if (!powerGood) {
     // PG-Stuck recovery: Panel may be connected but BQ didn't qualify it.
@@ -113,26 +117,36 @@ void BoardConfigContainer::checkAndFixSolarLogic() {
     // Toggling HIZ forces a new input source qualification cycle (per datasheet).
     // Cooldown: max once per 5 minutes to prevent excessive toggling
     uint32_t now = millis();
-    if (lastPgStuckToggleTime != 0 && (now - lastPgStuckToggleTime) < PG_STUCK_COOLDOWN_MS) {
+    if (pgStuckRecoveryAttempted && (now - lastPgStuckAttemptTime) < PG_STUCK_COOLDOWN_MS) {
       return;
     }
+    lastPgStuckAttemptTime = now;
+    pgStuckRecoveryAttempted = true;
 
-    uint16_t vbus_mv = bqDriverInstance->getVBUS();
-    if (vbus_mv >= PG_STUCK_VBUS_THRESHOLD_MV) {
-      bqDriverInstance->setHIZMode(true);
-      delay(50);  // BQ needs time to enter HIZ and reset input detection
-      bqDriverInstance->setHIZMode(false);
-      lastPgStuckToggleTime = now;
-      MESH_DEBUG_PRINTLN("PG-Stuck recovery: VBUS=%dmV but PG=0, toggled HIZ", vbus_mv);
+    // Low VBAT + HIZ can leave ADC unavailable. Let the BQ qualify the
+    // source itself, including at night or with a weak panel.
+    uint8_t control;
+    if (!bqDriverInstance->readReg(BQ25798_REG_CHARGER_CONTROL_0, control)) return;
+    if (!bqDriverInstance->writeReg(BQ25798_REG_CHARGER_CONTROL_0, control | 0x04)) return;
+    delay(50);
+    for (int retry = 0; retry < 3; ++retry) {
+      // Re-read to preserve any control bits changed by the charger.
+      if (bqDriverInstance->readReg(BQ25798_REG_CHARGER_CONTROL_0, control) &&
+          bqDriverInstance->writeReg(BQ25798_REG_CHARGER_CONTROL_0, control & ~0x04)) {
+        lastPgStuckToggleTime = now;
+        MESH_DEBUG_PRINTLN("PG recovery: PG=0, toggled HIZ");
+        break;
+      }
+      delay(10);
     }
     return;
   }
 
   // Re-enable MPPT when PGOOD=1
-  uint8_t mpptVal = bqDriverInstance->readReg(0x15);
-
-  if ((mpptVal & 0x01) == 0) {
-    bqDriverInstance->writeReg(0x15, mpptVal | 0x01);
+  uint8_t mpptVal;
+  if (bqDriverInstance->readReg(0x15, mpptVal) && !(mpptVal & 0x01) &&
+      bqDriverInstance->writeReg(0x15, mpptVal | 0x01) &&
+      bqDriverInstance->readReg(0x15, mpptVal) && (mpptVal & 0x01)) {
     MESH_DEBUG_PRINTLN("MPPT re-enabled via register");
   }
 }
@@ -480,6 +494,20 @@ void BoardConfigContainer::getSelfTest(char* buffer, uint32_t bufferSize) {
   }
 
   snprintf(buffer, bufferSize, "INA:%s BQ:%s RTC:%s BME:%s", ina, bq, rtc, bme);
+}
+
+void BoardConfigContainer::getAdcDiagnostics(char* buffer, uint32_t bufferSize, int8_t tsOverride) {
+  uint16_t vbat_mv = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
+  bq.getAdcDiagnostics(buffer, bufferSize, vbat_mv, tsOverride);
+}
+
+void BoardConfigContainer::compareAdcSequences(char* buffer, uint32_t bufferSize, bool reverse) {
+  uint16_t vbat_mv = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
+  bq.compareAdcSequences(buffer, bufferSize, vbat_mv, reverse);
+}
+
+void BoardConfigContainer::getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy) {
+  bq.getAdcSequenceTrace(buffer, bufferSize, legacy);
 }
 
 // Reads BQ25798 status/fault registers and produces a compact diagnostic string.

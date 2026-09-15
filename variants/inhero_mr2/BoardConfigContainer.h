@@ -163,9 +163,6 @@ public:
   static constexpr float IINDPM_PANEL_V = 4.0f;
   static constexpr float IINDPM_MARGIN  = 1.2f;
 
-  // If PG=0 but VBUS >= this, toggle HIZ to force input re-qualification.
-  static constexpr uint16_t PG_STUCK_VBUS_THRESHOLD_MV = 4500;
-
   static BatteryType getBatteryTypeFromCommandString(const char* cmdStr);
   static char* trim(char* str);
   static const char* getBatteryTypeCommandString(BatteryType type);
@@ -216,6 +213,9 @@ public:
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
   void getBqDiagnostics(char* buffer, uint32_t bufferSize);
+  void getAdcDiagnostics(char* buffer, uint32_t bufferSize, int8_t tsOverride = -1);
+  void compareAdcSequences(char* buffer, uint32_t bufferSize, bool reverse = false);
+  void getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy);
 
   // "INA:OK BQ:OK RTC:OK BME:OK". RTC probe writes/reads user-RAM to catch
   // zombie chips that ACK but don't persist.
