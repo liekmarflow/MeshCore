@@ -95,21 +95,13 @@ bq25798_charging_status BqDriver::getChargingStatus() {
 // vbat_mv: battery voltage in mV from INA228 (0 = unknown, assume sufficient).
 // Returns pointer to internal Telemetry struct (valid until next call).
 const Telemetry* BqDriver::getTelemetryData(uint16_t vbat_mv) {
-  return readTelemetry(vbat_mv, -1);
-}
-
-const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
   telemetryData = { 0 };
   telemetryData.battery.temperature = -888.0f;
-  adcDiagnostics = {};
-  adcDiagnostics.result = "NOT-INIT";
   if (!ih_i2c_dev) return &telemetryData;
 
   Adafruit_BusIO_Register inputStatus(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
-  Adafruit_BusIO_Register chargerControl(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
-  adcDiagnostics.result = "STATE-I2C";
-  if (!inputStatus.read(&adcDiagnostics.inputBefore, 1) ||
-      !chargerControl.read(&adcDiagnostics.chargerBefore, 1)) return &telemetryData;
+  uint8_t input;
+  if (!inputStatus.read(&input, 1)) return &telemetryData;
 
   // The TS channel runs regardless of chemistry. A missing NTC then decodes
   // through the RT2-only pole to a bogus ≈-46°C that slips past the open-pin
@@ -123,10 +115,9 @@ const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
   // channel would stall the whole conversion, costing the solar readings too,
   // so it is switched off there.
   bool ts_enabled = true;
-  if (vbat_mv > 0 && vbat_mv < 3200 && !(adcDiagnostics.inputBefore & 0x08)) {
+  if (vbat_mv > 0 && vbat_mv < 3200 && !(input & 0x08)) {
     ts_enabled = false;  // Disable TS → ADC threshold drops to 2.9V
   }
-  if (tsOverride >= 0) ts_enabled = tsOverride != 0;
 
   bool success = this->startADCOneShot(ts_enabled);
 
@@ -147,11 +138,8 @@ const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
   while ((millis() - start) < ADC_TIMEOUT_MS) {
     uint8_t control = 0, flags = 0;
     if (!adc_control.read(&control, 1) || !adc_flags.read(&flags, 1)) {
-      adcDiagnostics.result = "POLL-I2C";
       break;
     }
-    adcDiagnostics.endControl = control;
-    adcDiagnostics.flags |= flags;
     doneSeen = doneSeen || (flags & 0x20);
     if (!(control & 0x80) && doneSeen) {
       conversion_done = true;
@@ -159,21 +147,12 @@ const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
     }
     delay(10);
   }
-  adcDiagnostics.elapsedMs = millis() - start;
-  Adafruit_BusIO_Register adc_status(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_3);
-  adc_status.read(&adcDiagnostics.status, 1);
-  inputStatus.read(&adcDiagnostics.inputAfter, 1);
-  chargerControl.read(&adcDiagnostics.chargerAfter, 1);
 
   if (!conversion_done) {
-    if (strcmp(adcDiagnostics.result, "WAIT") == 0) {
-      adcDiagnostics.result = (adcDiagnostics.endControl & 0x80) ? "TIMEOUT" : "NO-DONE";
-    }
     this->setADCEnabled(false);
   }
 
   if (conversion_done) {
-    adcDiagnostics.result = "DATA-I2C";
     Adafruit_BusIO_Register vbus(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
     Adafruit_BusIO_Register ibus(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
     uint16_t voltage = 0, current = 0;
@@ -181,7 +160,6 @@ const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
       telemetryData.solar.voltage = voltage;
       telemetryData.solar.current = (int16_t)current;
       telemetryData.solar.valid = true;
-      adcDiagnostics.result = "OK";
     }
     if (telemetryData.solar.current < 0) {
       telemetryData.solar.current = 0;
@@ -202,176 +180,6 @@ const Telemetry* BqDriver::readTelemetry(uint16_t vbat_mv, int8_t tsOverride) {
   telemetryData.solar.mppt = getMPPTenable();
 
   return &telemetryData;
-}
-
-void BqDriver::getAdcDiagnostics(char* buffer, uint32_t bufferSize, uint16_t vbat_mv, int8_t tsOverride) {
-  if (!buffer || bufferSize == 0) return;
-  readTelemetry(vbat_mv, tsOverride);
-  snprintf(buffer, bufferSize, "ADC:%s %lums C:%02X>%02X S:%02X F:%02X M:%02X/%02X VB:%u P:%02X>%02X H:%02X>%02X",
-           adcDiagnostics.result, (unsigned long)adcDiagnostics.elapsedMs,
-           adcDiagnostics.startControl, adcDiagnostics.endControl,
-           adcDiagnostics.status, adcDiagnostics.flags,
-           adcDiagnostics.disable0, adcDiagnostics.disable1, vbat_mv,
-           adcDiagnostics.inputBefore, adcDiagnostics.inputAfter,
-           adcDiagnostics.chargerBefore, adcDiagnostics.chargerAfter);
-}
-
-void BqDriver::captureAdcSequence(AdcSequenceTrace& trace, bool legacy, bool tsEnabled) {
-  trace = {};
-  trace.captured = true;
-  trace.result = "NOT-INIT";
-  if (!ih_i2c_dev) return;
-
-  Adafruit_BusIO_Register control(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
-  Adafruit_BusIO_Register status(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_3);
-  Adafruit_BusIO_Register flags(ih_i2c_dev, 0x24);
-  Adafruit_BusIO_Register input(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
-  Adafruit_BusIO_Register charger(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
-  Adafruit_BusIO_Register voltage(ih_i2c_dev, BQ25798_REG_VBUS_ADC, 2, MSBFIRST);
-  Adafruit_BusIO_Register current(ih_i2c_dev, BQ25798_REG_IBUS_ADC, 2, MSBFIRST);
-
-  trace.result = "BEFORE-I2C";
-  if (!control.read(&trace.before.control, 1)) return;
-  // Do not stop an existing conversion to prepare OLD: that would defeat the
-  // comparison. All board I2C work runs synchronously in the main loop.
-  if (trace.before.control & 0x80) {
-    trace.result = "BUSY";
-    return;
-  }
-  if (!status.read(&trace.before.status, 1) ||
-      !input.read(&trace.inputBefore, 1) || !charger.read(&trace.chargerBefore, 1) ||
-      !voltage.read(&trace.voltageBefore) || !current.read(&trace.currentBefore) ||
-      !flags.read(&trace.before.flags, 1)) return;
-  // The baseline FLAG read above clears retained events in BOTH cases. OLD
-  // keeps the historical write sequence, but never treats retained data as fresh.
-  trace.inputAfter = trace.inputBefore;
-  trace.chargerAfter = trace.chargerBefore;
-  trace.stopped = false;
-  bool started;
-  if (legacy) {
-    Adafruit_BusIO_Register disable0(ih_i2c_dev, 0x2F);
-    Adafruit_BusIO_Register disable1(ih_i2c_dev, 0x30);
-    uint8_t discardedFlags;
-    // Historical ADC start: channel masks, then C0. No preceding ADC disable and
-    // no mask readback. Both variants now release HIZ immediately before C0.
-    started = false;
-    trace.result = "START-I2C";
-    if (flags.read(&discardedFlags, 1) && disable0.write(tsEnabled ? 0x58 : 0x5C) &&
-        disable1.write(0xF0)) {
-      if (prepareADCInput()) started = control.write(0xC0);
-      else trace.result = adcDiagnostics.result;
-    }
-  } else {
-    started = startADCOneShot(tsEnabled);
-    trace.result = adcDiagnostics.result;
-  }
-
-  if (started) {
-    trace.result = "POLL-I2C";
-    const uint16_t sampleTimes[] = {0, 10, 25, 50, 100, 150, 250};
-    const uint32_t start = millis();
-    bool completed = false;
-    bool doneSeen = false;
-    bool pollsOk = true;
-    for (uint8_t i = 0; i < 7; ++i) {
-      uint32_t elapsed = millis() - start;
-      if (elapsed < sampleTimes[i]) delay(sampleTimes[i] - elapsed);
-      AdcTracePoint& point = trace.points[trace.count];
-      point.ms = (uint16_t)(millis() - start);
-      if (!control.read(&point.control, 1) || !status.read(&point.status, 1) ||
-          !flags.read(&point.flags, 1) || !input.read(&trace.inputAfter, 1) ||
-          !charger.read(&trace.chargerAfter, 1)) {
-        pollsOk = false;
-        break;
-      }
-      ++trace.count;
-      trace.stateChanged |= trace.inputAfter != trace.inputBefore ||
-                            trace.chargerAfter != trace.chargerBefore;
-      doneSeen |= (point.flags & 0x20) != 0;
-      completed |= !(point.control & 0x80) && doneSeen;
-      // Keep sampling after completion: capture the distinction between the
-      // persistent DONE_STAT and the read-to-clear DONE_FLAG.
-    }
-    if (pollsOk) {
-      trace.result = completed ? "OK" :
-          ((trace.points[trace.count - 1].control & 0x80) ? "TIMEOUT" : "NO-DONE");
-    }
-    // Always show raw register contents, even after NO-DONE. These diagnostic
-    // values are NOT published through Telemetry or used for PG recovery.
-    bool voltageOk = voltage.read(&trace.voltageAfter);
-    bool currentOk = current.read(&trace.currentAfter);
-    if ((!voltageOk || !currentOk) && pollsOk) trace.result = "DATA-I2C";
-  }
-
-  // No extra disable write if the ADC has already stopped. This preserves the
-  // end state of OLD for NEW and vice versa. Bound a hung/failed start and verify
-  // cleanup before allowing a second test. Do not restore HIZ after conversion.
-  uint8_t endControl = 0;
-  if (control.read(&endControl, 1) && !(endControl & 0x80)) {
-    trace.stopped = true;
-  } else if (setADCEnabled(false) && control.read(&endControl, 1) && !(endControl & 0x80)) {
-    trace.stopped = true;
-  } else {
-    trace.result = "STOP-I2C";
-  }
-}
-
-void BqDriver::compareAdcSequences(char* buffer, uint32_t bufferSize, uint16_t vbat_mv, bool reverse) {
-  if (!buffer || bufferSize == 0) return;
-  adcSequenceTraces[0] = {};
-  adcSequenceTraces[1] = {};
-  uint8_t initialInput = 0;
-  if (!ih_i2c_dev) {
-    snprintf(buffer, bufferSize, "ADC A/B:NOT-INIT");
-    return;
-  }
-  Adafruit_BusIO_Register input(ih_i2c_dev, BQ25798_REG_CHARGER_STATUS_0);
-  if (!input.read(&initialInput, 1)) {
-    snprintf(buffer, bufferSize, "ADC A/B:STATE-I2C");
-    return;
-  }
-  // Freeze the channel choice for BOTH runs, even if PG changes meanwhile.
-  const bool tsEnabled = !(vbat_mv > 0 && vbat_mv < 3200 && !(initialInput & 0x08));
-  const uint8_t first = reverse ? 1 : 0;
-  const uint8_t second = 1 - first;
-  captureAdcSequence(adcSequenceTraces[first], first == 0, tsEnabled);
-  const AdcSequenceTrace& a = adcSequenceTraces[first];
-  if (a.stopped && (strcmp(a.result, "OK") == 0 || strcmp(a.result, "NO-DONE") == 0 ||
-                    strcmp(a.result, "TIMEOUT") == 0)) {
-    captureAdcSequence(adcSequenceTraces[second], second == 0, tsEnabled);
-  }
-  const AdcSequenceTrace& b = adcSequenceTraces[second];
-  bool changed = a.stateChanged || b.stateChanged || a.inputBefore != initialInput ||
-                 a.inputAfter != b.inputBefore || a.chargerAfter != b.chargerBefore;
-  const bool bothRan = a.count == 7 && b.count == 7;
-  snprintf(buffer, bufferSize,
-           "ADC A/B:%s VBAT:%u M:%02X/F0\nOLD:%s NEW:%s\nP:%02X>%02X H:%02X>%02X %s",
-           reverse ? "NEW>OLD" : "OLD>NEW", vbat_mv, tsEnabled ? 0x58 : 0x5C,
-           adcSequenceTraces[0].result, adcSequenceTraces[1].result,
-           a.inputBefore, b.inputAfter, a.chargerBefore, b.chargerAfter,
-           !bothRan ? "INCOMPLETE" : (changed ? "CHANGED" : "STABLE"));
-}
-
-void BqDriver::getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy) const {
-  if (!buffer || bufferSize == 0) return;
-  const AdcSequenceTrace& trace = adcSequenceTraces[legacy ? 0 : 1];
-  if (!trace.captured) {
-    snprintf(buffer, bufferSize, "No capture: get board.adc compare");
-    return;
-  }
-  // U/I are raw hexadecimal register words (mV / signed mA). C/S/F are raw
-  // ADC_CONTROL / STATUS_3 / FLAG_2. Seven samples fit in the 160-byte CLI reply.
-  snprintf(buffer, bufferSize, "%s U:%04X>%04X I:%04X>%04X\npre:%02X/%02X/%02X\n",
-           legacy ? "OLD" : "NEW", trace.voltageBefore, trace.voltageAfter,
-           trace.currentBefore, trace.currentAfter,
-           trace.before.control, trace.before.status, trace.before.flags);
-  for (uint8_t i = 0; i < trace.count; ++i) {
-    const AdcTracePoint& point = trace.points[i];
-    size_t used = strlen(buffer);
-    if (used >= bufferSize - 1) break;
-    snprintf(buffer + used, bufferSize - used, "%s%u:%02X/%02X/%02X",
-             i ? " " : "", point.ms, point.control, point.status, point.flags);
-  }
 }
 
 // Calculates battery temperature in °C using Steinhart-Hart equation.
@@ -632,7 +440,6 @@ bool BqDriver::setTsIgnore(bool ignore) {
 //
 // Release the input before a one-shot, without changing charge enable.
 bool BqDriver::prepareADCInput() {
-  adcDiagnostics.result = "HIZ-I2C";
   if (!ih_i2c_dev) return false;
   Adafruit_BusIO_Register charger(ih_i2c_dev, BQ25798_REG_CHARGER_CONTROL_0);
   uint8_t control;
@@ -647,7 +454,6 @@ bool BqDriver::prepareADCInput() {
 // ts_enabled: true = enable TS (requires VBAT > 3.2V in battery-only operation).
 // Success confirms setup/start register accesses, not conversion completion.
 bool BqDriver::startADCOneShot(bool ts_enabled) {
-  adcDiagnostics.result = "SETUP-I2C";
   // Stop any previous conversion, then discard its read-to-clear done flag.
   if (!setADCEnabled(false)) return false;
   Adafruit_BusIO_Register adc_flags(ih_i2c_dev, 0x24);
@@ -667,20 +473,16 @@ bool BqDriver::startADCOneShot(bool ts_enabled) {
   // Reg 0x30: Disable all — D+(7), D-(6), VAC2(5), VAC1(4) not connected on MR2
   if (!disable_reg_1.write(0xF0)) { return false; }
 
-  if (!disable_reg_0.read(&adcDiagnostics.disable0, 1) ||
-      !disable_reg_1.read(&adcDiagnostics.disable1, 1)) return false;
-  if (adcDiagnostics.disable0 != disable0 || adcDiagnostics.disable1 != 0xF0) {
-    adcDiagnostics.result = "MASK-MISMATCH";
-    return false;
-  }
+  uint8_t mask0, mask1;
+  if (!disable_reg_0.read(&mask0, 1) || !disable_reg_1.read(&mask1, 1)) return false;
+  if (mask0 != disable0 || mask1 != 0xF0) return false;
 
   Adafruit_BusIO_Register adc_ctrl_reg = Adafruit_BusIO_Register(ih_i2c_dev, BQ25798_REG_ADC_CONTROL);
   // Release HIZ only after setup, immediately before ADC_EN. Waiting here can
   // let source qualification reassert HIZ before our conversion even starts.
   if (!prepareADCInput()) return false;
-  adcDiagnostics.result = "START-I2C";
-  if (!adc_ctrl_reg.write(0xC0) || !adc_ctrl_reg.read(&adcDiagnostics.startControl, 1)) return false;
-  adcDiagnostics.result = "WAIT";
+  uint8_t control;
+  if (!adc_ctrl_reg.write(0xC0) || !adc_ctrl_reg.read(&control, 1)) return false;
   return true;
 }
 

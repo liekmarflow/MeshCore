@@ -213,9 +213,6 @@ public:
   const char* getChargeCurrentAsStr();
   void getChargerInfo(char* buffer, uint32_t bufferSize);
   void getBqDiagnostics(char* buffer, uint32_t bufferSize);
-  void getAdcDiagnostics(char* buffer, uint32_t bufferSize, int8_t tsOverride = -1);
-  void compareAdcSequences(char* buffer, uint32_t bufferSize, bool reverse = false);
-  void getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy);
 
   // "INA:OK BQ:OK RTC:OK BME:OK". RTC probe writes/reads user-RAM to catch
   // zombie chips that ACK but don't persist.

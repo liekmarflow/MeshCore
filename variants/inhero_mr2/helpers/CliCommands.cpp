@@ -180,21 +180,6 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
     cfg.getBqDiagnostics(diagBuffer, sizeof(diagBuffer));
     snprintf(reply, maxlen, "%s", diagBuffer);
     return true;
-  } else if (strcmp(cmd, "adc") == 0) {
-    cfg.getAdcDiagnostics(reply, maxlen);
-    return true;
-  } else if (strcmp(cmd, "adc ts") == 0) {
-    cfg.getAdcDiagnostics(reply, maxlen, 1);
-    return true;
-  } else if (strcmp(cmd, "adc nots") == 0) {
-    cfg.getAdcDiagnostics(reply, maxlen, 0);
-    return true;
-  } else if (strcmp(cmd, "adc compare") == 0 || strcmp(cmd, "adc compare reverse") == 0) {
-    cfg.compareAdcSequences(reply, maxlen, strcmp(cmd, "adc compare reverse") == 0);
-    return true;
-  } else if (strcmp(cmd, "adc old") == 0 || strcmp(cmd, "adc new") == 0) {
-    cfg.getAdcSequenceTrace(reply, maxlen, strcmp(cmd, "adc old") == 0);
-    return true;
   } else if (strcmp(cmd, "selftest") == 0) {
     char stBuffer[64];
     cfg.getSelfTest(stBuffer, sizeof(stBuffer));

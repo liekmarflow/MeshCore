@@ -496,20 +496,6 @@ void BoardConfigContainer::getSelfTest(char* buffer, uint32_t bufferSize) {
   snprintf(buffer, bufferSize, "INA:%s BQ:%s RTC:%s BME:%s", ina, bq, rtc, bme);
 }
 
-void BoardConfigContainer::getAdcDiagnostics(char* buffer, uint32_t bufferSize, int8_t tsOverride) {
-  uint16_t vbat_mv = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
-  bq.getAdcDiagnostics(buffer, bufferSize, vbat_mv, tsOverride);
-}
-
-void BoardConfigContainer::compareAdcSequences(char* buffer, uint32_t bufferSize, bool reverse) {
-  uint16_t vbat_mv = ina228DriverInstance ? ina228DriverInstance->readVoltage_mV() : 0;
-  bq.compareAdcSequences(buffer, bufferSize, vbat_mv, reverse);
-}
-
-void BoardConfigContainer::getAdcSequenceTrace(char* buffer, uint32_t bufferSize, bool legacy) {
-  bq.getAdcSequenceTrace(buffer, bufferSize, legacy);
-}
-
 // Reads BQ25798 status/fault registers and produces a compact diagnostic string.
 // Register layout (BQ25798 datasheet SLUSDV2B):
 //   0x1B STATUS_0: IINDPM[7] VINDPM[6] WD[5] rsvd[4] PG[3] AC2[2] AC1[1] VBUS[0]

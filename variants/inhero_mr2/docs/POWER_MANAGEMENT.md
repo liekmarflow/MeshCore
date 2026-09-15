@@ -244,14 +244,14 @@ Hourly UV wakes also perform one attempt, then wait up to 1 s for PG and restore
 MPPT if possible before returning to sleep. CE follows the stored battery configuration.
 
 After setting up ADC channels and flags, firmware clears HIZ immediately before
-starting each telemetry/diagnostic one-shot, preserving EN_CHG and other bits.
+starting each telemetry one-shot, preserving EN_CHG and other bits.
 There is no fixed delay during which source qualification could reassert HIZ
 before the ADC start. Firmware does not clear HIZ repeatedly during a measurement
 if the BQ sets it again. A fresh DONE flag and cleared ADC_EN are still required
 within the 250 ms measurement timeout. HIZ is not restored after the measurement.
 Invalid solar readings appear
-as `S:N/A` and are omitted from LPP. Both OLD and NEW diagnostic sequences now use
-the same HIZ preparation; their cached traces remain read-only.
+as `S:N/A` and are omitted from LPP. Temporary ADC/TS/A-B diagnostic commands have been removed from the release
+firmware. Existing cinfo, bqdiag and selftest commands remain available.
 
 ### BQ25798 Interrupt Handling
 
