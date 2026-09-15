@@ -77,8 +77,9 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 ### Implementation (Rev 1.1 — Flag/Tick Architecture)
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT on P1.02
 - **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → sets `lowVoltageAlertFired = true` (flag only, no FreeRTOS call)
-- **Processing**: `tickPeriodic()` checks flag in main loop context → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
-- **Arming**: `armLowVoltageAlert()` is called during battery configuration (sets BUVL threshold + enables ISR)
+- **Processing**: `tickPeriodic()` checks the ISR flag and ALERT pin level in the main loop → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
+- **Fallback**: Once per second, the averaged INA228 battery voltage is checked against the active sleep threshold, independently of SOC and CLI requests. A failed read (0 mV) is ignored. Detection also includes ADC averaging time and the shutdown sequence.
+- **Arming**: `armLowVoltageAlert(type)` receives the new battery type directly when configuration changes, sets BUVL, and enables the ISR. An already LOW pin is captured after attaching the interrupt. `none` disables the interrupt and voltage fallback and clears any pending alert.
 
 ### Low-Voltage Flow
 
@@ -257,7 +258,7 @@ All I2C operations run in main loop context via `tickPeriodic()` (called by `Inh
 **tickPeriodic()** dispatches periodic work via `millis()` timers:
 ```
 tickPeriodic()  [called by tick(), main loop]
-  ├─ Check low-voltage alert flag → initiateShutdown()
+  ├─ Check low-voltage alert flag/pin and 1s voltage fallback → initiateShutdown()
   ├─ Every 60s: runMpptCycle()
   │   ├─ checkAndFixSolarLogic() — PG-stuck recovery (HIZ toggle) + MPPT recovery
   │   └─ updateMpptStats() — Update MPPT statistics

@@ -77,8 +77,9 @@ Das System kombiniert **INA228 ALERT-basierte Low-Voltage-Erkennung** + **System
 ### Implementierung (Rev 1.1 — Flag/Tick-Architektur)
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT auf P1.02
 - **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → setzt `lowVoltageAlertFired = true` (nur Flag, kein FreeRTOS-Aufruf)
-- **Verarbeitung**: `tickPeriodic()` prüft Flag im Main-Loop-Kontext → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
-- **Arming**: `armLowVoltageAlert()` wird bei Akku-Konfiguration aufgerufen (setzt BUVL-Schwelle + aktiviert ISR)
+- **Verarbeitung**: `tickPeriodic()` prüft ISR-Flag und ALERT-Pegel im Main-Loop → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
+- **Absicherung**: Einmal pro Sekunde wird die gemittelte INA228-Akkuspannung mit der aktiven Sleep-Schwelle verglichen, unabhängig von SOC und CLI-Abfragen. Fehlgeschlagene Messungen (0 mV) werden ignoriert. Zur Reaktionszeit kommen die ADC-Mittelung und die Abschaltsequenz hinzu.
+- **Arming**: `armLowVoltageAlert(type)` erhält bei einer Konfigurationsänderung direkt den neuen Akkutyp, setzt BUVL und aktiviert die ISR. Ein bereits anliegender LOW-Pegel wird nach der Interruptregistrierung erfasst. `none` deaktiviert Interrupt und Spannungsprüfung und löscht einen ausstehenden Alarm.
 
 ### Low-Voltage-Flow
 
@@ -257,7 +258,7 @@ Alle I2C-Operationen laufen im Main-Loop-Kontext über `tickPeriodic()` (aufgeru
 **tickPeriodic()** dispatcht periodische Arbeit via `millis()`-Timer:
 ```
 tickPeriodic()  [aufgerufen von tick(), Main-Loop]
-  ├─ Low-Voltage Alert Flag prüfen → initiateShutdown()
+  ├─ Low-Voltage-Flag/Pegel und 1s-Spannungsprüfung → initiateShutdown()
   ├─ Alle 60s: runMpptCycle()
   │   ├─ checkAndFixSolarLogic() — PG-Stuck Recovery (HIZ-Toggle) + MPPT-Recovery
   │   └─ updateMpptStats() — MPPT-Statistiken aktualisieren
