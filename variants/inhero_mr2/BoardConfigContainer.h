@@ -155,6 +155,8 @@ public:
   static constexpr FrostChargeBehaviour DEFAULT_FROST_BEHAVIOUR = NO_CHARGE;
   static constexpr uint16_t DEFAULT_MAX_CHARGE_CURRENT_MA = 200;
   static constexpr bool DEFAULT_MPPT_ENABLED = false;
+  static constexpr float MIN_STATION_ALTITUDE_M = -500.0f;
+  static constexpr float MAX_STATION_ALTITUDE_M = 9000.0f;
 
   // IINDPM = 1.2 × (V_charge × I_charge) / V_panel_assumed.
   // Prevents weak panels from tripping POORSRC after PG qualification.
@@ -202,6 +204,12 @@ public:
 
   bool getMPPTEnabled() const;
   bool setMPPTEnable(bool enableMPPT);
+
+  // Installation altitude used to reduce BME280 station pressure to QNH.
+  // Returns false when the operator has not configured an altitude yet.
+  bool getStationAltitude(float& altitude_m) const;
+  bool setStationAltitude(float altitude_m);
+  bool clearStationAltitude();
 
   float getMaxChargeVoltage() const;
 
@@ -329,6 +337,7 @@ private:
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
   static constexpr const char* JEITAIGNKEY = "jeitaIgn";         // JEITA override user wish
+  static constexpr const char* ALTITUDEKEY = "altitude";         // BME280 installation altitude (m)
 
   bool applyJeitaIgnore(const BatteryProperties* props);  // derive + program TS_IGNORE/ISETC/ISETH
   bool loadJeitaIgnoreWish(bool& on) const;
@@ -337,6 +346,7 @@ private:
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
   bool loadBatteryCapacity(float& capacity_mah) const;
   bool loadTcCalOffset(float& offset) const;  // NTC temperature calibration
+  bool loadStationAltitude(float& altitude_m) const;
 
   // MPPT Statistics helper
   static void updateMpptStats();

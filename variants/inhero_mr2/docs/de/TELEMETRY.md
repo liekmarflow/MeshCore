@@ -44,10 +44,14 @@ Daten des BME280-Umgebungssensors (immer auf dem MR2 vorhanden).
 |------|---------|--------|--------------|
 | Temperatur | °C / °F | BME280 | Umgebungstemperatur |
 | Relative Luftfeuchtigkeit | % | BME280 | Relative Luftfeuchtigkeit |
-| Luftdruck | hPa | BME280 | Barometrischer Druck |
-| Höhe | m / ft | BME280 | Aus dem Luftdruck berechnete Höhe (Referenz: Meereshöhe) |
+| Luftdruck | hPa | BME280 | QNH (auf Meereshöhe reduzierter Druck), wenn `board.altitude` gesetzt ist; sonst Stationsdruck |
+| Höhe | m / ft | BME280 | Konfigurierte Aufstellhöhe; sonst aus dem Luftdruck berechnete Höhe |
 
-> **Hinweis:** Die Höhenberechnung basiert auf dem Standard-Meeresspiegeldruck (1013,25 hPa) und kann je nach Wetterlage abweichen.
+Die Aufstellhöhe wird einmalig mit `set board.altitude <Meter>` eingetragen (gültiger Bereich: −500 bis 9000 m) und persistent gespeichert. Die Firmware rechnet den gemessenen Stationsdruck dann mit der ICAO-Standardatmosphäre auf QNH um und sendet diesen direkt vergleichbaren Meeresspiegelwert. `get board.altitude` zeigt den aktiven Wert.
+
+Mit `set board.altitude clear` wird die gespeicherte Höhe gelöscht und wieder der unkorrigierte Stationsdruck ausgegeben.
+
+> **Kompatibilität:** Solange keine Höhe konfiguriert ist, bleibt das bisherige Verhalten erhalten: unkorrigierter Stationsdruck plus eine aus dem festen Standard-Meeresspiegeldruck von 1013,25 hPa abgeleitete Höhe.
 
 ---
 

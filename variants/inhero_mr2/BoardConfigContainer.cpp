@@ -888,6 +888,50 @@ bool BoardConfigContainer::loadMpptEnabled(bool& enabled) {
   return false;
 }
 
+bool BoardConfigContainer::loadStationAltitude(float& altitude_m) const {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+
+  char buffer[24];
+  if (prefs.getString(ALTITUDEKEY, buffer, sizeof(buffer), "") == 0) {
+    return false;
+  }
+
+  char* end = nullptr;
+  const float value = strtof(buffer, &end);
+  if (end == buffer || *end != '\0' || !isfinite(value) ||
+      value < MIN_STATION_ALTITUDE_M || value > MAX_STATION_ALTITUDE_M) {
+    return false;
+  }
+
+  altitude_m = value;
+  return true;
+}
+
+bool BoardConfigContainer::getStationAltitude(float& altitude_m) const {
+  return loadStationAltitude(altitude_m);
+}
+
+bool BoardConfigContainer::setStationAltitude(float altitude_m) {
+  if (!isfinite(altitude_m) || altitude_m < MIN_STATION_ALTITUDE_M ||
+      altitude_m > MAX_STATION_ALTITUDE_M) {
+    return false;
+  }
+
+  char buffer[24];
+  snprintf(buffer, sizeof(buffer), "%.1f", altitude_m);
+
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  return prefs.putString(ALTITUDEKEY, buffer) > 0;
+}
+
+bool BoardConfigContainer::clearStationAltitude() {
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  return prefs.remove(ALTITUDEKEY);
+}
+
 // Returns combined telemetry from INA228 (battery) and BQ25798 (solar + temperature).
 // Battery voltage/current come from the INA228 (20-bit ADC, ±0.1% accuracy);
 // solar data and battery temperature from the BQ25798 ADC.

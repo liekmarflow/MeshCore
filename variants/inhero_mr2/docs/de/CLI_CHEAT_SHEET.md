@@ -44,6 +44,10 @@ set board.jeitaignore 0        # zurück zum Hardware-JEITA (0/false)
 set board.mppt 1               # MPPT aktivieren
 set board.mppt 0               # MPPT deaktivieren
 
+# Aufstellhöhe (-500 bis 9000 m); Druck auf Kanal 2 wird dadurch zu QNH
+set board.altitude 312
+set board.altitude clear       # Höhe löschen; wieder Stationsdruck ausgeben
+
 # LEDs ein/aus (Heartbeat + BQ-Stat)
 set board.leds on              # LEDs aktivieren  (on/1)
 set board.leds off             # LEDs deaktivieren (off/0)
@@ -51,7 +55,7 @@ set board.leds off             # LEDs deaktivieren (off/0)
 # SOC manuell setzen (0–100%)
 set board.soc 85.0
 
-# Unbekannter Setter:  "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore"
+# Unbekannter Setter:  "Err: bat|imax|fmax|mppt|altitude|batcap|tccal|leds|soc|jeitaignore"
 ```
 
 ### Kalibrierung
@@ -77,6 +81,7 @@ get board.fmax                 # Frost-Ladeverhalten (0%/20%/40%/100%, oder N/A 
                                #   aktivem JEITA-Override)
 get board.jeitaignore          # Zustand des JEITA-Overrides (siehe Abschnitt unten)
 get board.mppt                 # MPPT-Status (0/1)
+get board.altitude             # Aufstellhöhe für die BME280-QNH-Korrektur
 get board.leds                 # LED-Status (ON/OFF)
 get board.conf                 # Kurzübersicht aller Konfigs (B, F, M, I, Vco, V0)
                                #   zusätzlich " J:1" bei aktivem JEITA-Override
@@ -119,7 +124,7 @@ get board.socdebug             # Diagnose/Debug: SOC-Tracking-Interna
 get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 
 # Unbekannter Getter:
-#   "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore"
+#   "Err: bat|fmax|imax|mppt|altitude|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore"
 #   bqdiag, selftest und socdebug funktionieren, stehen aber nicht in dieser Liste
 ```
 
@@ -135,6 +140,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `get board.fmax` | Frost-Ladeverhalten (`0%`/`20%`/`40%`/`100%`; `N/A` bei aktivem JEITA-Override) |
 | `get board.jeitaignore` | Zustand des JEITA-Overrides — `jeitaignore 1`, `jeitaignore 0`, `jeitaignore 1 (chemistry)`, eine blockierte Variante oder `N/A`, solange keine Chemie gesetzt ist |
 | `get board.mppt` | MPPT-Status (`0`/`1`) |
+| `get board.altitude` | Aufstellhöhe in Metern oder `N/A (station pressure)`, solange die QNH-Korrektur nicht konfiguriert ist |
 | `get board.leds` | LED-Status Heartbeat + BQ-Stat (`ON`/`OFF`) |
 | `get board.conf` | Kurzübersicht: B(at) F(max) M(ppt) I(max) Vco V0, zusätzlich `J:1` bei Li-ion / LiFePO4 mit aktivem JEITA-Override; bei `none` lautet die ganze Antwort `B:none (no battery, charging disabled)` |
 | `get board.telem` | Echtzeit-Telemetrie: Battery/Solar V, I, T, SOC — siehe [TELEMETRY.md](TELEMETRY.md) |
@@ -157,6 +163,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (abgelehnt bei LTO/Na-ion und bei aktivem `jeitaignore`) |
 | `set board.jeitaignore` | `1`/`0` · `true`/`false` | JEITA-Override, nur Li-ion/LiFePO4 — Gate: `batcap` gesetzt und `imax` ≤ 0,05C |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
+| `set board.altitude` | `-500`–`9000` (m) · `clear` | Aufstellhöhe speichern und den BME280-Druck auf Kanal 2 als QNH ausgeben oder die Höhe löschen und zum Stationsdruck zurückkehren |
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
 | `set board.tccal` | `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zurücksetzen |

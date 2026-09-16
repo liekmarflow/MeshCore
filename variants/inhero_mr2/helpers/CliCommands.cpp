@@ -140,6 +140,14 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
   } else if (strcmp(cmd, "mppt") == 0) {
     snprintf(reply, maxlen, "MPPT=%s", cfg.getMPPTEnabled() ? "1" : "0");
     return true;
+  } else if (strcmp(cmd, "altitude") == 0) {
+    float altitude_m = 0.0f;
+    if (cfg.getStationAltitude(altitude_m)) {
+      snprintf(reply, maxlen, "%.1f m", altitude_m);
+    } else {
+      snprintf(reply, maxlen, "N/A (station pressure)");
+    }
+    return true;
   } else if (strcmp(cmd, "stats") == 0) {
     const BatterySOCStats* socStats = cfg.getSOCStats();
     if (!socStats) {
@@ -315,7 +323,7 @@ bool handleGet(BoardConfigContainer& cfg, const char* getCommand, char* reply, u
   }
 
   snprintf(reply, maxlen,
-           "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore");
+           "Err: bat|fmax|imax|mppt|altitude|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore");
   return true;
 }
 
@@ -399,6 +407,26 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
       return ret;
     }
     return "Err: Try true|false or 1|0";
+  } else if (strncmp(setCommand, "altitude ", 9) == 0) {
+    const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[9]));
+    if (strcmp(value, "clear") == 0) {
+      if (!cfg.clearStationAltitude()) {
+        return "Err: Failed to clear altitude";
+      }
+      return "Altitude cleared (BME280 reports station pressure)";
+    }
+    char* end = nullptr;
+    const float altitude_m = strtof(value, &end);
+    if (end == value || *end != '\0' || !isfinite(altitude_m) ||
+        altitude_m < BoardConfigContainer::MIN_STATION_ALTITUDE_M ||
+        altitude_m > BoardConfigContainer::MAX_STATION_ALTITUDE_M) {
+      return "Err: Try -500 to 9000 m";
+    }
+    if (!cfg.setStationAltitude(altitude_m)) {
+      return "Err: Failed to store altitude";
+    }
+    snprintf(ret, sizeof(ret), "Altitude set to %.1f m (BME280 pressure is now QNH)", altitude_m);
+    return ret;
   } else if (strncmp(setCommand, "batcap ", 7) == 0) {
     const char* value = BoardConfigContainer::trim(const_cast<char*>(&setCommand[7]));
     float capacity_mah = atof(value);
@@ -494,7 +522,7 @@ const char* handleSet(BoardConfigContainer& cfg, const char* setCommand) {
     return ret;
   }
 
-  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore");
+  snprintf(ret, sizeof(ret), "Err: bat|imax|fmax|mppt|altitude|batcap|tccal|leds|soc|jeitaignore");
   return ret;
 }
 

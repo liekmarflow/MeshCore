@@ -44,6 +44,10 @@ set board.jeitaignore 0        # Back to hardware JEITA (0/false)
 set board.mppt 1               # Enable MPPT
 set board.mppt 0               # Disable MPPT
 
+# Installation altitude (-500 to 9000 m); changes Channel 2 pressure to QNH
+set board.altitude 312
+set board.altitude clear       # Remove altitude; report station pressure again
+
 # LEDs on/off (Heartbeat + BQ Stat)
 set board.leds on              # Enable LEDs  (on/1)
 set board.leds off             # Disable LEDs (off/0)
@@ -51,7 +55,7 @@ set board.leds off             # Disable LEDs (off/0)
 # Manually set SOC (0–100%)
 set board.soc 85.0
 
-# Unknown setter:  "Err: bat|imax|fmax|mppt|batcap|tccal|leds|soc|jeitaignore"
+# Unknown setter:  "Err: bat|imax|fmax|mppt|altitude|batcap|tccal|leds|soc|jeitaignore"
 ```
 
 ### Calibration
@@ -77,6 +81,7 @@ get board.fmax                 # Frost charge behavior (0%/20%/40%/100%, or N/A 
                                #   the JEITA override is active)
 get board.jeitaignore          # JEITA override state (see section below)
 get board.mppt                 # MPPT status (0/1)
+get board.altitude             # Installation altitude used for BME280 QNH correction
 get board.leds                 # LED status (ON/OFF)
 get board.conf                 # Summary of all configs (B, F, M, I, Vco, V0)
                                #   plus " J:1" while the JEITA override is active
@@ -119,7 +124,7 @@ get board.socdebug             # Diagnostic/debug: SOC tracking internals
 get board.tccal                # NTC temperature offset in °C (0.00 = default)
 
 # Unknown getter:
-#   "Err: bat|fmax|imax|mppt|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore"
+#   "Err: bat|fmax|imax|mppt|altitude|telem|stats|cinfo|conf|tccal|leds|batcap|jeitaignore"
 #   bqdiag, selftest and socdebug work but are not part of that list
 ```
 
@@ -135,6 +140,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `get board.fmax` | Frost charge behavior (`0%`/`20%`/`40%`/`100%`; `N/A` while the JEITA override is active) |
 | `get board.jeitaignore` | JEITA override state — `jeitaignore 1`, `jeitaignore 0`, `jeitaignore 1 (chemistry)`, a blocked variant, or `N/A` before a chemistry is set |
 | `get board.mppt` | MPPT status (`0`/`1`) |
+| `get board.altitude` | Installation altitude in metres, or `N/A (station pressure)` when QNH correction is not configured |
 | `get board.leds` | LED status Heartbeat + BQ Stat (`ON`/`OFF`) |
 | `get board.conf` | Summary: B(at) F(max) M(ppt) I(max) Vco V0, plus `J:1` on Li-ion / LiFePO4 while the JEITA override is active; with `none` the whole reply is `B:none (no battery, charging disabled)` |
 | `get board.telem` | Real-time telemetry: Battery/Solar V, I, T, SOC — see [TELEMETRY.md](TELEMETRY.md) |
@@ -157,6 +163,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (refused on LTO/Na-ion and while `jeitaignore` is on) |
 | `set board.jeitaignore` | `1`/`0` · `true`/`false` | JEITA override, Li-ion/LiFePO4 only — gate: `batcap` set and `imax` ≤ 0.05C |
 | `set board.mppt` | `0`/`1` · `true`/`false` | Enable/disable MPPT |
+| `set board.altitude` | `-500`–`9000` (m) · `clear` | Store the installation altitude and report BME280 pressure as QNH on Channel 2, or remove it and return to station pressure |
 | `set board.leds` | `on`/`off` · `1`/`0` | Enable/disable LEDs |
 | `set board.soc` | `0`–`100` (%) | Manually set SOC |
 | `set board.tccal` | `reset` · *(empty = auto)* | Calibrate or reset NTC temperature |

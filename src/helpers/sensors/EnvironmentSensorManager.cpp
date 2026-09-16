@@ -2,6 +2,8 @@
 
 #include <Wire.h>
 
+static float BME280_station_altitude_m = NAN;
+
 #if ENV_PIN_SDA && ENV_PIN_SCL
 #define TELEM_WIRE &Wire1  // Use Wire1 as the I2C bus for Environment Sensors
 #else
@@ -268,6 +270,20 @@ static void query_bme680(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 }
 #endif
 
+void EnvironmentSensorManager::setBme280StationAltitude(float altitude_m) {
+  BME280_station_altitude_m = altitude_m;
+}
+
+float EnvironmentSensorManager::getBme280StationAltitude() {
+  return BME280_station_altitude_m;
+}
+
+float EnvironmentSensorManager::pressureToQnh(float pressure_hpa, float altitude_m) {
+  // ICAO standard-atmosphere reduction, equivalent to the formula used by
+  // Adafruit_BME280::seaLevelForAltitude().
+  return pressure_hpa / powf(1.0f - altitude_m / 44330.0f, 5.255f);
+}
+
 #if ENV_INCLUDE_BME280
 static uint8_t init_bme280(TwoWire* wire, uint8_t addr) {
   if (!BME280.begin(addr, wire)) return 0;
@@ -283,8 +299,15 @@ static void query_bme280(uint8_t ch, uint8_t, CayenneLPP& lpp) {
   if (BME280.takeForcedMeasurement()) {
     lpp.addTemperature(ch, BME280.readTemperature());
     lpp.addRelativeHumidity(ch, BME280.readHumidity());
-    lpp.addBarometricPressure(ch, BME280.readPressure() / 100);
-    lpp.addAltitude(ch, BME280.readAltitude(TELEM_BME280_SEALEVELPRESSURE_HPA));
+    const float pressure_hpa = BME280.readPressure() / 100.0f;
+    if (isnan(BME280_station_altitude_m)) {
+      lpp.addBarometricPressure(ch, pressure_hpa);
+      lpp.addAltitude(ch, BME280.readAltitude(TELEM_BME280_SEALEVELPRESSURE_HPA));
+    } else {
+      lpp.addBarometricPressure(
+          ch, EnvironmentSensorManager::pressureToQnh(pressure_hpa, BME280_station_altitude_m));
+      lpp.addAltitude(ch, BME280_station_altitude_m);
+    }
   }
 }
 #endif

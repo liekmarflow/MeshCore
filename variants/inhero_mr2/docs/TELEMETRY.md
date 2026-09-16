@@ -44,10 +44,14 @@ Data from the BME280 environment sensor (always present on the MR2).
 |-------|------|--------|-------------|
 | Temperature | °C / °F | BME280 | Ambient temperature |
 | Relative Humidity | % | BME280 | Relative humidity |
-| Barometric Pressure | hPa | BME280 | Barometric pressure |
-| Altitude | m / ft | BME280 | Altitude derived from barometric pressure (reference: sea level) |
+| Barometric Pressure | hPa | BME280 | QNH (sea-level pressure) when `board.altitude` is configured; otherwise station pressure |
+| Altitude | m / ft | BME280 | Configured installation altitude; otherwise altitude derived from pressure |
 
-> **Note:** The altitude calculation is based on standard sea level pressure (1013.25 hPa) and may deviate depending on weather conditions.
+Set the installation altitude once with `set board.altitude <metres>` (valid range: −500 to 9000 m). The setting is persistent. The firmware then reduces the measured station pressure to QNH using the ICAO standard-atmosphere formula and transmits that directly comparable sea-level value. `get board.altitude` shows the active value.
+
+Use `set board.altitude clear` to remove the stored altitude and return to uncorrected station pressure.
+
+> **Compatibility:** Until an altitude is configured, telemetry keeps the previous behaviour: uncorrected station pressure plus an altitude derived from the fixed standard sea-level pressure of 1013.25 hPa.
 
 ---
 

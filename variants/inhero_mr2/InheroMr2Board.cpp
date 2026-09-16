@@ -299,6 +299,15 @@ void InheroMr2Board::begin() {
   MESH_DEBUG_PRINTLN("Initializing Rev 1.1 features (BQ25798, INA228, RTC, CE-FET)");
   boardConfig.begin();
 
+  float station_altitude_m = NAN;
+  if (boardConfig.getStationAltitude(station_altitude_m)) {
+    sensors.setBme280StationAltitude(station_altitude_m);
+    MESH_DEBUG_PRINTLN("BME280 pressure correction: QNH at %.1f m", station_altitude_m);
+  } else {
+    sensors.setBme280StationAltitude(NAN);
+    MESH_DEBUG_PRINTLN("BME280 pressure correction: disabled (station pressure)");
+  }
+
   // Handle low-voltage recovery (deferred until after boardConfig.begin())
   if (isLowVoltageRecovery) {
     boardConfig.setLowVoltageRecovery();
@@ -424,7 +433,11 @@ bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32
 
 // Handles custom CLI setter commands for board configuration
 const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
-  return inhero::handleSet(boardConfig, setCommand);
+  const char* result = inhero::handleSet(boardConfig, setCommand);
+  float station_altitude_m = NAN;
+  sensors.setBme280StationAltitude(
+      boardConfig.getStationAltitude(station_altitude_m) ? station_altitude_m : NAN);
+  return result;
 }
 
 // ===== Power Management Methods (Rev 1.1) =====
