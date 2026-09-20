@@ -1,0 +1,37 @@
+RewriteEngine On
+
+# HTTPS erzwingen – Strato-Variante (TLS-Proxy, daher ENV:HTTPS statt %{HTTPS})
+RewriteCond %{ENV:HTTPS} !=on
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+# --- Umzug der Doku-Struktur (alt: /FAQ/ bzw. /mr-2/  neu: /mr2/) -----------------
+# Nur noetig, solange die alten URLs noch im Umlauf sind. Kann in einigen
+# Monaten entfernt werden.
+RedirectMatch 301 ^/(en/)?QUICK_START/?$        /$1mr2/quick-start/
+RedirectMatch 301 ^/(en/)?DATASHEET/?$          /$1mr2/datasheet/
+RedirectMatch 301 ^/(en/)?BATTERY_GUIDE/?$      /$1mr2/battery-guide/
+RedirectMatch 301 ^/(en/)?POWER_MANAGEMENT/?$   /$1mr2/power-management/
+RedirectMatch 301 ^/(en/)?CLI_CHEAT_SHEET/?$    /$1mr2/cli-cheat-sheet/
+RedirectMatch 301 ^/(en/)?TELEMETRY/?$          /$1mr2/telemetry/
+RedirectMatch 301 ^/(en/)?FAQ/?$                /$1mr2/faq/
+
+# Zwischenstand mit Bindestrich-Slug
+RedirectMatch 301 ^/(en/)?mr-2/(.*)$            /$1mr2/$2
+
+# 404-Seite von MkDocs Material
+ErrorDocument 404 /404.html
+
+AddDefaultCharset UTF-8
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 1 hour"
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>
+
+Options -Indexes

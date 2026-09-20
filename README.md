@@ -38,6 +38,11 @@ All variant documentation lives under [`variants/inhero_mr2/docs/`](variants/inh
 | FAQ | [FAQ.md](variants/inhero_mr2/docs/FAQ.md) | [de/FAQ.md](variants/inhero_mr2/docs/de/FAQ.md) |
 | Power management | [POWER_MANAGEMENT.md](variants/inhero_mr2/docs/POWER_MANAGEMENT.md) | [de/POWER_MANAGEMENT.md](variants/inhero_mr2/docs/de/POWER_MANAGEMENT.md) |
 
+The reusable [documentation exporter](tools/inhero-docs/README.md) builds
+docs.inhero.de from these sources, including the Fable conversion, bilingual
+navigation, SEO metadata, and Strato deployment files. It produces a checked
+SFTP package; deployment is performed manually.
+
 ### Building the firmware
 
 PlatformIO environment: `Inhero_MR2_repeater`.

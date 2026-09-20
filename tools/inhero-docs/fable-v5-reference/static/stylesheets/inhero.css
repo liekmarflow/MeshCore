@@ -1,0 +1,11 @@
+/* Inhero Markenfarbe */
+:root {
+  --md-primary-fg-color: #F55C61;
+  --md-primary-fg-color--light: #f88a8d;
+  --md-primary-fg-color--dark: #d43e43;
+  --md-accent-fg-color: #d43e43;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #F55C61;
+  --md-accent-fg-color: #f88a8d;
+}

@@ -1,0 +1,106 @@
+site_name: Inhero Dokumentation
+site_url: https://docs.inhero.de/
+site_description: >-
+  Technische Dokumentation der Inhero-Hardware fuer LoRa-Mesh-Infrastruktur:
+  Inbetriebnahme, Akkuchemie, Energieverwaltung, CLI-Referenz, Telemetrie
+  und FAQ.
+copyright: "© Inhero GmbH · <a href='https://shop.inhero.de/policies/legal-notice'>Impressum</a> · <a href='https://shop.inhero.de/policies/privacy-policy'>Datenschutz</a>"
+
+theme:
+  name: material
+  language: de
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      toggle:
+        icon: material/weather-night
+        name: Dunkles Design
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Helles Design
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.tracking
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+extra_css:
+  - stylesheets/inhero.css
+
+extra:
+  homepage: https://docs.inhero.de/
+  social:
+    - icon: material/storefront
+      link: https://shop.inhero.de/
+      name: Inhero Shop
+    - icon: fontawesome/brands/github
+      link: https://github.com/liekmarflow/MeshCore
+      name: MeshCore-Fork mit MR2-Support
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+plugins:
+  - search:
+      lang:
+        - de
+        - en
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: de
+          name: Deutsch
+          default: true
+          build: true
+        - locale: en
+          name: English
+          build: true
+          site_name: Inhero Documentation
+          site_description: >-
+            Technical documentation for Inhero LoRa mesh infrastructure
+            hardware: commissioning, battery chemistry, power management,
+            CLI reference, telemetry and FAQ.
+          nav_translations:
+            Startseite: Home
+            Übersicht: Overview
+            Schnellstart: Quick Start
+            Datenblatt: Datasheet
+            Akkuchemie-Ratgeber: Battery Guide
+            Energieverwaltung: Power Management
+            CLI-Referenz: CLI Cheat Sheet
+            Telemetrie: Telemetry
+            FAQ: FAQ
+
+nav:
+  - Startseite: index.md
+  - Inhero MR2:
+      - Übersicht: mr2/index.md
+      - Schnellstart: mr2/quick-start.md
+      - Datenblatt: mr2/datasheet.md
+      - Akkuchemie-Ratgeber: mr2/battery-guide.md
+      - Energieverwaltung: mr2/power-management.md
+      - CLI-Referenz: mr2/cli-cheat-sheet.md
+      - Telemetrie: mr2/telemetry.md
+      - FAQ: mr2/faq.md

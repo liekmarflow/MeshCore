@@ -1,0 +1,2 @@
+# Keep the supplied reference byte-for-byte intact on Windows and Linux.
+fable-v5-reference/** -text
