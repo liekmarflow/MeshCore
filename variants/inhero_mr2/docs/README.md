@@ -215,6 +215,9 @@ get board.imax      # Query maximum charge current
 get board.mppt      # Query MPPT status
                     # Output: MPPT=1 (enabled) | MPPT=0 (disabled)
 
+get board.altitude  # Query installation altitude for BME280 QNH correction
+                    # Output: <metres> m or N/A (station pressure)
+
 get board.telem     # Query real-time telemetry with SOC
                     # Output: B:<V>V/<I>mA/<T>C SOC:<percent>% S:<V>V/<solar current>
                     # Examples:
@@ -320,6 +323,10 @@ set board.imax <current>       # Set maximum charge current in mA
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
+
+set board.altitude <metres>    # Store installation altitude (-500 to 9000 m)
+                               # BME280 pressure is then reported as QNH
+set board.altitude clear       # Remove altitude; report station pressure again
 
 set board.batcap <capacity>    # Set battery capacity in mAh
                                # Range: 100-100000 mAh

@@ -93,6 +93,17 @@ This guide walks you through commissioning and the most important CLI commands.
 
 > **Cold weather note:** SOC% is purely Coulomb-based and does not change with temperature. However, `get board.telem` shows both the stored and extractable capacity when it's cold: `SOC:95.0% (78%)`. The firmware uses a Trapped Charge model — at low SOC and cold temperatures, the extractable value drops steeply (the bottom of the discharge curve is "locked"). See [FAQ #13](FAQ.md#13-how-does-temperature-derating-work) for details.
 
+## 14) Set Installation Altitude for QNH (optional)
+
+Enter the site's altitude above sea level once, for example `set board.altitude 312`.
+The valid range is −500 to 9000 m; the value survives reboots. BME280 pressure
+telemetry then reports QNH (pressure reduced to sea level), and altitude telemetry
+reports the configured installation altitude. Check the setting with `get board.altitude`.
+
+Use `set board.altitude clear` to return to station pressure and pressure-derived
+altitude. Without a configured altitude, the previous behaviour remains unchanged.
+See [TELEMETRY.md](TELEMETRY.md) for details.
+
 ## Additional Notes (Practical)
 - After setting the battery chemistry, a quick check with `get board.bat` confirms the setting was saved.
 - For solar operation, `set board.mppt 1` is recommended; for USB-only operation, MPPT can stay off.
@@ -205,6 +216,7 @@ get board.conf
 - `get board.fmax` - Current frost charge behavior (0%/20%/40%/100%; N/A whenever the JEITA override is active).
 - `get board.imax` - Maximum charge current in mA.
 - `get board.mppt` - MPPT status (0/1).
+- `get board.altitude` - Installation altitude for QNH, or `N/A (station pressure)`.
 - `get board.leds` - LED status (Heartbeat + BQ Stat).
 - `get board.batcap` - Battery capacity in mAh (set/default).
 - `get board.jeitaignore` - Frost charging override: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` for LTO/Na-ion, or the stored setting with its blocker (`jeitaignore 1, N/A, batcap not set` / `jeitaignore 1, N/A, C>0.05`).

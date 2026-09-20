@@ -918,8 +918,8 @@ bq.setChargeEnable(props->charge_enable);     // Software-Schicht (I2C Register)
 
 In Rev 1.1 wird **System Sleep mit GPIO-Latch** verwendet (via `initiateShutdown()`):
 - CE wird vor System Sleep anhand der gespeicherten Batterie-Konfiguration gesetzt (unbekannte Chemie: GPIO LOW).
-- P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → GPIO-Output-Latch bleibt HIGH
-- GPIO4 gelatcht HIGH → CE-FET ON → CE LOW → **Laden aktiv**
+- P0.04 wird von `disconnectLeakyPullups()` ausgeschlossen → der konfigurierte GPIO-Output-Latch bleibt erhalten
+- Bei freigegebenem Laden: GPIO4 gelatcht HIGH → CE-FET ON → CE LOW → **Laden aktiv**
 - BQ25798 MPPT/CC/CV läuft autonom in Hardware → Solar-Laden möglich
 
 Beim stündlichen UV-Wake wird CE nach dem GPIO-Reset anhand der gespeicherten
@@ -953,6 +953,7 @@ Die 168h-Ringpuffer-Statistiken (Coulomb Counter, MPPT-Daten, SOC-Zustand) sind 
 - Akkukapazität (`batCap`)
 - NTC-Kalibrierung (`tcCal`)
 - MPPT-Einstellung (`mpptEn`)
+- Aufstellhöhe für die QNH-Korrektur (`altitude`)
 - Frostverhalten (`frost`)
 - Max. Ladestrom (`maxChrg`)
 - LED-Einstellung (`leds_en`)

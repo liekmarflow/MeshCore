@@ -93,6 +93,18 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 
 > **Hinweis Kältebetrieb:** SOC% ist rein Coulomb-basiert und ändert sich nur durch reale Ladungsflüsse. Bei Kälte sperrt das Trapped-Charge-Modell den Boden der Entladekurve — bei niedrigem SOC fällt die entnehmbare Kapazität steil, und `get board.telem` zeigt den derateten Wert in Klammern: `SOC:95.0% (78%)`. Siehe [FAQ #13](FAQ.md#13-wie-funktioniert-das-temperatur-derating) für Details.
 
+## 14) Aufstellhöhe für QNH setzen (optional)
+
+Die Höhe des Standorts über dem Meeresspiegel einmalig eintragen, zum Beispiel
+`set board.altitude 312`. Gültig sind −500 bis 9000 m; der Wert bleibt nach einem
+Neustart erhalten. Die BME280-Drucktelemetrie meldet dann QNH (auf Meereshöhe
+reduzierten Luftdruck), die Höhentelemetrie die konfigurierte Aufstellhöhe.
+`get board.altitude` zeigt die Einstellung.
+
+Mit `set board.altitude clear` wieder auf Stationsdruck und aus dem Druck
+berechnete Höhe zurückstellen. Ohne konfigurierte Aufstellhöhe bleibt das
+bisherige Verhalten erhalten. Details stehen in [TELEMETRY.md](TELEMETRY.md).
+
 ## Zusatzhinweise (Praxis)
 - Nach dem Setzen der Akkuchemie lohnt ein kurzer Check mit `get board.bat`, ob die Einstellung gespeichert wurde.
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
@@ -205,6 +217,7 @@ get board.conf
 - `get board.fmax` - Aktuelles Frost-Ladeverhalten (0%/20%/40%/100%; N/A immer dann, wenn der JEITA-Override aktiv ist).
 - `get board.imax` - Maximaler Ladestrom in mA.
 - `get board.mppt` - MPPT-Status (0/1).
+- `get board.altitude` - Aufstellhöhe für QNH oder `N/A (station pressure)`.
 - `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
 - `get board.batcap` - Akkukapazität in mAh (set/default).
 - `get board.jeitaignore` - Frost-Lade-Override: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` bei LTO/Na-ion oder die gespeicherte Einstellung mit ihrem Blocker (`jeitaignore 1, N/A, batcap not set` / `jeitaignore 1, N/A, C>0.05`).

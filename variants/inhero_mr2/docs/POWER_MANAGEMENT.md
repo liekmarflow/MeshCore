@@ -294,7 +294,7 @@ tickPeriodic()  [called by tick(), main loop]
 
 #### Problem
 
-The 15-bit ADC in the BQ25798 has **voltage-dependent operating thresholds** that become relevant in battery-only operation (without solar). At low battery voltages, the ADC cannot complete its conversion — `ADC_EN` stays set and the firmware runs into a timeout.
+The 15-bit ADC in the BQ25798 has **voltage-dependent operating thresholds**. With insufficient supply, a conversion may never start. In the observed low-VBAT state with HIZ=1, `ADC_EN` remained clear despite a start request; this bit alone therefore cannot confirm completion.
 
 #### Datasheet Quote (Section 9.3.10, Rev. B)
 
@@ -307,7 +307,7 @@ The 15-bit ADC in the BQ25798 has **voltage-dependent operating thresholds** tha
 
 | Condition | VBUS | VBAT | TS Channel | ADC | Temperature |
 |-----------|------|------|------------|-----|-------------|
-| Solar connected | > 3.4V | any | enabled | ✅ runs | ✅ available |
+| Solar source qualified (PG=1) | > 3.4V | any | enabled | ✅ runs | ✅ available |
 | Battery operation, normal | — | ≥ 3.2V | enabled | ✅ runs | ✅ available |
 | Battery operation, low | — | 2.9–3.2V | **disabled** | ✅ runs | ❌ not available |
 | Battery operation, critical | — | < 2.9V | disabled | ❌ timeout | ❌ not available |
@@ -347,7 +347,30 @@ On the MR2, D+, D−, VAC1, VAC2 are not connected. The firmware enables only th
 
 TDIE (bit 1) is cleared in both values, i.e. the charger's own silicon die temperature is converted in every one-shot. That is where the `TDIE:` field of `board.cinfo` comes from — it is the BQ25798 junction temperature, not the battery, not the board, not the MCU.
 
-**Important:** In one-shot mode, `ADC_EN` is only cleared when **all enabled channels** have completed conversion. Unconnected channels can block this → therefore only required channels are enabled.
+In one-shot mode, a fresh ADC_DONE_FLAG together with cleared ADC_EN confirms completion of the enabled channels. ADC_EN=0 alone is insufficient. Unused channels are disabled to reduce conversion time.
+
+#### Fresh Solar Measurements
+
+Before each one-shot, firmware stops any previous conversion, clears old completion
+flags and verifies the channel mask. It clears HIZ immediately before setting
+ADC_EN=1, with no additional startup delay and no repeated HIZ clearing within
+the same measurement if the BQ sets it again. CE, EN_CHG and the stored
+configuration remain unchanged.
+
+A measurement is fresh only when a new ADC_DONE_FLAG and cleared ADC_EN are
+observed within 250 ms and both voltage/current register reads succeed.
+Otherwise, `get board.telem` shows `S:N/A` and invalid solar voltage/current values
+are omitted from LPP. Firmware does not restore HIZ after the measurement.
+
+In the Na-ion test at about 2.59 V, high panel open-circuit voltage with !PG was
+insufficient for a successful ADC conversion. Clearing HIZ and successfully
+qualifying the source (PG=1) restored charging and ADC operation. With a weak
+source, the BQ reasserted HIZ and the measurement remained invalid. PG recovery
+therefore does not require an ADC/VBUS measurement.
+
+Temporary ADC, TS and A/B diagnostic commands have been removed from the release
+firmware. Regular board diagnostics remain available through `cinfo`, `bqdiag`
+and `selftest`.
 
 #### Temperature Sentinel Values
 
@@ -902,10 +925,19 @@ bq.setChargeEnable(props->charge_enable);     // Software layer (I2C register)
 ### Behavior in System Sleep with GPIO latch (Rev 1.1)
 
 In Rev 1.1, **System Sleep with GPIO latch** is used (via `initiateShutdown()`):
-- `digitalWrite(BQ_CE_PIN, HIGH)` is called before entering System Sleep
-- P0.04 is excluded from `disconnectLeakyPullups()` → GPIO output latch preserved at HIGH
-- GPIO4 latched HIGH → CE FET ON → CE LOW → **charging active**
+- CE is set from the stored battery configuration before System Sleep (unknown chemistry: GPIO LOW).
+- P0.04 is excluded from `disconnectLeakyPullups()` → the configured GPIO output latch is preserved
+- With charging enabled: GPIO4 latched HIGH → CE FET ON → CE LOW → **charging active**
 - BQ25798 MPPT/CC/CV runs autonomously in hardware → solar charging possible
+
+During each hourly low-voltage wake, CE is restored as an output according to the
+stored chemistry after the GPIO reset. If charging and MPPT are configured on,
+firmware first checks whether the BQ25798 responds. This maintenance requires no
+ADC or VBUS measurement and stops on I²C errors. With PG=0, it performs one HIZ
+toggle, waits up to 1 s for PG and re-enables MPPT in the same wake if PG=1.
+Before returning to sleep, ADC and interrupts return to their low-power state.
+The RAK continues to drive CE during sleep; software maintenance runs only on wake.
+
 - Power consumption: **< 500µA** (nRF52840 System-Off + RTC + quiescent currents of all components)
 
 | State | CE Pin | Charging | Solar Recovery |
@@ -929,6 +961,7 @@ The 168h ring buffer statistics (coulomb counter, MPPT data, SOC state) are stor
 - Battery capacity (`batCap`)
 - NTC calibration (`tcCal`)
 - MPPT setting (`mpptEn`)
+- Installation altitude for QNH correction (`altitude`)
 - Frost behavior (`frost`)
 - Max charge current (`maxChrg`)
 - LED setting (`leds_en`)

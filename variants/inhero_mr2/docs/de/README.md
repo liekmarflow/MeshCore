@@ -215,6 +215,9 @@ get board.imax      # Maximalen Ladestrom abfragen
 get board.mppt      # MPPT-Status abfragen
                     # Ausgabe: MPPT=1 (aktiviert) | MPPT=0 (deaktiviert)
 
+get board.altitude  # Aufstellhöhe für die BME280-QNH-Korrektur abfragen
+                    # Ausgabe: <Meter> m oder N/A (station pressure)
+
 get board.telem     # Echtzeit-Telemetrie mit SOC abfragen
                     # Ausgabe: B:<V>V/<I>mA/<T>C SOC:<Prozent>% S:<V>V/<SolarStrom>
                     # Beispiele:
@@ -321,6 +324,10 @@ set board.imax <current>       # Maximalen Ladestrom in mA setzen
 
 set board.mppt <1|0>           # MPPT aktivieren/deaktivieren
                                # 1 = aktiviert, 0 = deaktiviert
+
+set board.altitude <Meter>     # Aufstellhöhe speichern (-500 bis 9000 m)
+                               # BME280-Druck wird anschließend als QNH gemeldet
+set board.altitude clear       # Höhe löschen; wieder Stationsdruck ausgeben
 
 set board.batcap <capacity>    # Akkukapazität in mAh setzen
                                # Bereich: 100-100000 mAh
