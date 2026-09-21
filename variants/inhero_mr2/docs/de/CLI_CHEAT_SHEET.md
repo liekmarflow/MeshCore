@@ -80,7 +80,9 @@ get board.imax                 # Maximaler Ladestrom in mA
 get board.fmax                 # Frost-Ladeverhalten (0%/20%/40%/100%, oder N/A bei
                                #   aktivem JEITA-Override)
 get board.jeitaignore          # Zustand des JEITA-Overrides (siehe Abschnitt unten)
-get board.mppt                 # MPPT-Status (0/1)
+get board.mppt                 # Gespeicherte MPPT-Einstellung (0/1)
+get board.mpptdiag             # MPPT Soll/Ist, VSYSMIN, VINDPM, VSYS_MIN,
+                               # PG, CELL, ICHG, VREG (Spannungen mV, Strom mA)
 get board.altitude             # Aufstellhöhe für die BME280-QNH-Korrektur
 get board.leds                 # LED-Status (ON/OFF)
 get board.conf                 # Kurzübersicht aller Konfigs (B, F, M, I, Vco, V0)

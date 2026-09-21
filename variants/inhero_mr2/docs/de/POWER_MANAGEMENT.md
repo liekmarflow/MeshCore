@@ -228,6 +228,27 @@ Kein INT-Pin-Interrupt — alles läuft über Polling in `runMpptCycle()` (60s I
 - PFM-Forward-Modus ist ab Werk im BQ25798 aktiv (PFM_FWD_DIS=0, REG0x12); die Firmware ändert ihn nicht
 - PFM verbessert die Effizienz bei niedrigen Solarströmen
 
+### Minimale Systemspannung und MPPT
+
+Die Firmware setzt `VSYSMIN` auf **2,50 V** (`REG00[5:0] = 0`), auch nach jedem
+CELL-Schreibzugriff. Das Schreiben der Zellzahl setzt VSYSMIN, VREG und ICHG auf
+die zellzahlabhängigen Standardwerte zurück. Alle drei wiederherzustellen
+verhindert den früheren LTO-2S-Hitzefehler durch linearen BATFET-Betrieb.
+Die thermische Regelgrenze des Chips bleibt bei 60 °C.
+
+Unterhalb von VSYSMIN arbeitet der BQ25798 in der Minimal-Systemspannungsregelung
+und lässt Hardware-MPPT nicht zu. Die bisherigen 2,75 V blockierten deshalb MPPT
+bei einer Na-Ion-Zelle mit 2,62–2,65 V. Die gespeicherte MPPT-Einstellung wird nun
+nach dem Wiederherstellen der Chemieparameter angewendet. Die Sleep-/Wake-Schwellen
+des Akkus ändern sich dadurch nicht.
+
+`get board.mppt` zeigt die gespeicherte Einstellung. `get board.mpptdiag`
+vergleicht sie mit dem tatsächlichen Hardware-Bit und liest die Spannungs- und
+Stromeinstellungen zurück. `MPPT:cfg=1/hw=0` bedeutet gewünscht an, Hardware aus;
+`VSYS_MIN:1` zeigt die Minimal-Systemspannungsregelung an. VSYSMIN, VINDPM und VREG
+stehen in mV, ICHG in mA. Die Diagnose liest nur Register und meldet fehlgeschlagene
+Lesezugriffe als Fehler.
+
 ### MPPT Recovery + PG-Stuck
 
 `checkAndFixSolarLogic()` behandelt zwei Szenarien:
@@ -514,7 +535,7 @@ Das Gate liest die **persistierte** Kapazität über `loadBatteryCapacity()`. `g
 |---------|--------------|
 | POR | `jeitaIgnoreActive` ist eine statische Variable mit Startwert false; der BQ25798 kommt mit gelöschtem TS_IGNORE hoch |
 | `configureBaseBQ()` | ruft explizit `bq.setTsIgnore(false)` — ab hier führt der Hardware-Temperaturschutz |
-| `configureChemistry()` | stellt Zellzahl, VREG, VSYSMIN und ICHG wieder her und ruft dann als **letzten** Schritt `applyJeitaIgnore(props)` |
+| `configureChemistry()` | stellt Zellzahl, VREG, VSYSMIN und ICHG wieder her, leitet dann den JEITA-Override ab und wendet die gespeicherte MPPT-Einstellung an |
 | `begin()` | ruft danach `setFrostChargeBehaviour(frost)`, was JEITA_ISETC aus dem gespeicherten fmax-Mapping neu schreibt |
 
 Die Ableitung steht mit Absicht am Ende von `configureChemistry()`. Das Schreiben der CELL-Bits setzt ICHG auf den POR-Default 1 A zurück; eine frühere Ableitung würde ein Fenster öffnen, in dem der Temperaturschutz schon aus ist, während ICHG noch auf 1 A steht — und ein I2C-Fehler in diesem Fenster würde das Board genau so einfrieren. Auf dem nicht ladenden Early-Return-Pfad für `BAT_UNKNOWN` läuft die Ableitung trotzdem, allein damit der gemeldete Zustand ehrlich bleibt.

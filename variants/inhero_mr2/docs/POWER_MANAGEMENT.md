@@ -228,6 +228,24 @@ No INT pin interrupt — everything runs via polling in `runMpptCycle()` (60s in
 - PFM forward mode is enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it
 - PFM improves efficiency at low solar currents
 
+### Minimum system voltage and MPPT
+
+The firmware sets `VSYSMIN` to **2.50 V** (`REG00[5:0] = 0`), including after
+every CELL write. CELL programming resets VSYSMIN, VREG and ICHG to the cell-count
+defaults; restoring all three prevents the previous LTO 2S linear-BATFET heating
+problem. The die thermal-regulation setting remains 60 °C.
+
+Below VSYSMIN the BQ25798 operates in minimum-system regulation and rejects
+hardware MPPT. The former 2.75 V setting therefore blocked MPPT on a Na-ion cell
+at 2.62–2.65 V. Configured MPPT is now applied after the chemistry parameters
+have been restored. This does not change the battery sleep/wake thresholds.
+
+`get board.mppt` reports the stored preference. Use `get board.mpptdiag` to compare
+that preference with the actual hardware bit and read back the voltage/current
+settings. `MPPT:cfg=1/hw=0` means requested on, hardware off; `VSYS_MIN:1` indicates
+minimum-system regulation. VSYSMIN, VINDPM and VREG are in mV; ICHG is in mA.
+The diagnostic only reads registers and reports an error on a failed read.
+
 ### MPPT Recovery + PG-Stuck
 
 `checkAndFixSolarLogic()` handles two scenarios:
@@ -523,7 +541,7 @@ The gate reads the **persisted** capacity via `loadBatteryCapacity()`. `getBatte
 |------|--------------|
 | POR | `jeitaIgnoreActive` is a static initialised to false; the BQ25798 comes up with TS_IGNORE cleared |
 | `configureBaseBQ()` | calls `bq.setTsIgnore(false)` explicitly — the hardware temperature guard is in charge from here |
-| `configureChemistry()` | restores cell count, VREG, VSYSMIN and ICHG, then calls `applyJeitaIgnore(props)` as its **last** step |
+| `configureChemistry()` | restores cell count, VREG, VSYSMIN and ICHG, then derives the JEITA override and applies the stored MPPT setting |
 | `begin()` | calls `setFrostChargeBehaviour(frost)` afterwards, which re-writes JEITA_ISETC from the stored fmax mapping |
 
 The derivation sits at the end of `configureChemistry()` on purpose. Writing the CELL bits resets ICHG to the 1 A POR default; deriving the override earlier would open a window in which the temperature guard is already off while ICHG is still 1 A, and an I2C failure inside that window would freeze the board in exactly that state. On the non-charging `BAT_UNKNOWN` early-return path the derivation still runs, purely so the reported state stays truthful.

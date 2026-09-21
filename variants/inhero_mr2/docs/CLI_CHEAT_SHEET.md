@@ -80,7 +80,9 @@ get board.imax                 # Maximum charge current in mA
 get board.fmax                 # Frost charge behavior (0%/20%/40%/100%, or N/A while
                                #   the JEITA override is active)
 get board.jeitaignore          # JEITA override state (see section below)
-get board.mppt                 # MPPT status (0/1)
+get board.mppt                 # Stored MPPT preference (0/1)
+get board.mpptdiag             # Requested/actual MPPT, VSYSMIN, VINDPM, VSYS_MIN,
+                               # PG, CELL, ICHG, VREG (voltages mV, current mA)
 get board.altitude             # Installation altitude used for BME280 QNH correction
 get board.leds                 # LED status (ON/OFF)
 get board.conf                 # Summary of all configs (B, F, M, I, Vco, V0)
