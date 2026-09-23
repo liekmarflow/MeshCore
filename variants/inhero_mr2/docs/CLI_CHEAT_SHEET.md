@@ -161,7 +161,7 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 |---|---|---|
 | `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Set battery chemistry — re-derives the JEITA override and resets `fmax` to `0%` on Li-ion / LiFePO4 |
 | `set board.batcap` | `100`–`100000` (mAh) | Set battery capacity — also the reference for the `jeitaignore` gate |
-| `set board.imax` | `50`–`1500` (mA) | Set max charge current — also the `jeitaignore` gate quantity |
+| `set board.imax` | `50`–`1500` (mA) | Set max charge current and precharge current for every charging chemistry — also the `jeitaignore` gate quantity |
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost charge reduction (refused on LTO/Na-ion and while `jeitaignore` is on) |
 | `set board.jeitaignore` | `1`/`0` · `true`/`false` | JEITA override, Li-ion/LiFePO4 only — gate: `batcap` set and `imax` ≤ 0.05C |
 | `set board.mppt` | `0`/`1` · `true`/`false` | Enable/disable MPPT |
@@ -169,6 +169,8 @@ get board.tccal                # NTC temperature offset in °C (0.00 = default)
 | `set board.leds` | `on`/`off` · `1`/`0` | Enable/disable LEDs |
 | `set board.soc` | `0`–`100` (%) | Manually set SOC |
 | `set board.tccal` | `reset` · *(empty = auto)* | Calibrate or reset NTC temperature |
+
+The BQ25798 precharge register uses 40 mA steps, so precharge is rounded down to the nearest step (for example, `imax 200` gives 200 mA; `imax 500` gives 480 mA). Its separate trickle-charge limit below the short-battery threshold is unchanged.
 
 ---
 

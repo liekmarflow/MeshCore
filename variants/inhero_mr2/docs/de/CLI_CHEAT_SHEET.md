@@ -161,7 +161,7 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 |---|---|---|
 | `set board.bat` | `liion1s` · `lifepo1s` · `lto2s` · `naion1s` · `none` | Akkuchemie wählen — leitet den JEITA-Override neu ab und setzt `fmax` bei Li-ion / LiFePO4 auf `0%` zurück |
 | `set board.batcap` | `100`–`100000` (mAh) | Akkukapazität setzen — zugleich Bezugsgröße für das `jeitaignore`-Gate |
-| `set board.imax` | `50`–`1500` (mA) | Max. Ladestrom setzen — zugleich Gate-Größe für `jeitaignore` |
+| `set board.imax` | `50`–`1500` (mA) | Max. Lade- und Vorladestrom für alle ladbaren Akkuchemien setzen — zugleich Gate-Größe für `jeitaignore` |
 | `set board.fmax` | `0%` · `20%` · `40%` · `100%` | Frost-Ladestromabsenkung (abgelehnt bei LTO/Na-ion und bei aktivem `jeitaignore`) |
 | `set board.jeitaignore` | `1`/`0` · `true`/`false` | JEITA-Override, nur Li-ion/LiFePO4 — Gate: `batcap` gesetzt und `imax` ≤ 0,05C |
 | `set board.mppt` | `0`/`1` · `true`/`false` | MPPT ein-/ausschalten |
@@ -169,6 +169,8 @@ get board.tccal                # NTC-Temperatur-Offset in °C (0.00 = default)
 | `set board.leds` | `on`/`off` · `1`/`0` | LEDs ein-/ausschalten |
 | `set board.soc` | `0`–`100` (%) | SOC manuell setzen |
 | `set board.tccal` | `reset` · *(leer = auto)* | NTC-Temperatur kalibrieren oder zurücksetzen |
+
+Das Vorladeregister des BQ25798 hat 40-mA-Schritte; der Vorladestrom wird auf den nächsten Schritt abgerundet (`imax 200` ergibt 200 mA, `imax 500` ergibt 480 mA). Die separate Trickle-Charge-Phase unterhalb der Tiefentladeschwelle bleibt unverändert.
 
 ---
 
