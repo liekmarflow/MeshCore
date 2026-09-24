@@ -407,14 +407,18 @@ Die mAh-Spalte unten ist bei 3,3 V berechnet (≈ LiFePO4- / Na-ion-Nennspannung
 
 ## 6. Solar-Ladebetrachtungen
 
-**Formel für maximalen Ladestrom:** `I_Ladung (mA) = Panel-Leistung (W) / Nennspannung Akku (V)`
+**Faustformel für den maximalen Ladestrom:** `imax (mA) ≈ Panelleistung (W) ÷ Akkunennspannung (V) × 1,2 × 1000`
 
-| Chemie | Panel | Ladestrom | `set board.imax` |
+Die Akkunennspannung ist 3,7 V für Li-ion 1S, 3,2 V für LiFePO4 1S, 4,6 V für LTO 2S und 3,1 V für Na-ion 1S. Der Faktor 1000 rechnet A in mA um. Die Panelspannung wird für diese Formel nicht verwendet.
+
+Die Beispiele sind auf 10 mA gerundet. Den Firmwarebereich von 50–1500 mA und den zulässigen Ladestrom des Akkus einhalten; für den JEITA-Override gilt zusätzlich die 0,05C-Grenze.
+
+| Chemie | Panel | Berechnetes `imax` | `set board.imax` |
 |---|---|---|---|
-| Li-ion (3,7 V) | 2 W | 540 mA | `set board.imax 540` |
-| LiFePO4 (3,2 V) | 1 W | 310 mA | `set board.imax 310` |
-| LTO (4,6 V) | 5 W | 1090 mA | `set board.imax 1090` |
-| Na-ion (3,1 V) | 3 W | 970 mA | `set board.imax 970` |
+| Li-ion (3,7 V) | 2 W | ≈ 649 mA | `set board.imax 650` |
+| LiFePO4 (3,2 V) | 1 W | ≈ 375 mA | `set board.imax 380` |
+| LTO (4,6 V) | 5 W | ≈ 1304 mA | `set board.imax 1300` |
+| Na-ion (3,1 V) | 3 W | ≈ 1161 mA | `set board.imax 1160` |
 
 **Richtlinien zur Panel-Dimensionierung:**
 - Das Inhero MR2 verbraucht ~7,6 mA @ 3,3 V im Idle, **gemessen ~12,3 mA typisch** (~0,98 Wh/Tag), Worst Case ~19,8 mA bei vollem EU868-g3-10%-Duty-Cycle (~1,57 Wh/Tag)

@@ -115,8 +115,13 @@ Why set `imax` correctly?
 
 4. **Ceiling for the JEITA override:** `set board.jeitaignore 1` only becomes active while `imax` is at or below 0.05C of `board.batcap` — 9,000 mAh allows up to `imax 450`. On a site where the override is wanted, that ceiling can sit well below what the panel could deliver (see [FAQ #6](#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together)).
 
-**Calculation:** Panel power ÷ battery voltage = imax.
-Example: 2 W panel, Li-ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax 540`.
+**Calculation:** `imax (mA) ≈ panel power (W) ÷ nominal battery voltage (V) × 1.2 × 1000`.
+
+The nominal battery voltage is 3.7 V for Li-ion 1S, 3.2 V for LiFePO4 1S, 4.6 V for LTO 2S, and 3.1 V for Na-ion 1S. The factor 1000 converts A to mA. Panel voltage is not used in this formula.
+
+Example: 2 W panel, Li-ion 1S (3.7 V) → 2 ÷ 3.7 × 1.2 × 1000 ≈ 649 mA → `set board.imax 650`.
+
+Examples are rounded to 10 mA. Stay within the firmware range of 50–1500 mA and the battery's permitted charge current; the JEITA override additionally requires the 0.05C ceiling.
 
 ---
 

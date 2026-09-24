@@ -115,8 +115,13 @@ Warum `imax` korrekt einstellen?
 
 4. **Obergrenze für den JEITA-Override:** `set board.jeitaignore 1` wird nur wirksam, solange `imax` höchstens 0,05C von `board.batcap` beträgt — 9.000 mAh erlauben bis zu `imax 450`. An einem Standort, an dem der Override gewünscht ist, kann diese Obergrenze deutlich unter dem liegen, was das Panel liefern könnte (siehe [FAQ #6](#6-was-ist-frostladen-und-wie-wirken-fmax-und-jeitaignore-zusammen)).
 
-**Berechnung:** Panelleistung ÷ Akkuspannung = imax.
-Beispiel: 2-W-Panel, Li-ion (3,7 V) → 2000 / 3,7 ≈ 540 mA → `set board.imax 540`.
+**Berechnung:** `imax (mA) ≈ Panelleistung (W) ÷ Akkunennspannung (V) × 1,2 × 1000`.
+
+Die Akkunennspannung ist 3,7 V für Li-ion 1S, 3,2 V für LiFePO4 1S, 4,6 V für LTO 2S und 3,1 V für Na-ion 1S. Der Faktor 1000 rechnet A in mA um. Die Panelspannung wird für diese Formel nicht verwendet.
+
+Beispiel: 2-W-Panel, Li-ion 1S (3,7 V) → 2 ÷ 3,7 × 1,2 × 1000 ≈ 649 mA → `set board.imax 650`.
+
+Die Beispiele sind auf 10 mA gerundet. Den Firmwarebereich von 50–1500 mA und den zulässigen Ladestrom des Akkus einhalten; für den JEITA-Override gilt zusätzlich die 0,05C-Grenze.
 
 ---
 

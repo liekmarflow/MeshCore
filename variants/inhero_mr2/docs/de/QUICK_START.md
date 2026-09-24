@@ -52,7 +52,8 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Command: set board.imax <mA>
 - Bereich laut Firmware: 50 bis 1500 mA (BQ25798-Minimum: 50mA).
 - Passend zum Solar-Setup wählen, damit die Ströme zum PG-Check passen.
-- Faustformel: Panelleistung / Panelspannung * 1.2
+- Faustformel: `imax (mA) ≈ Panelleistung (W) ÷ Akkunennspannung (V) × 1,2 × 1000`
+- Die Akkunennspannung ist 3,7 V für Li-ion 1S, 3,2 V für LiFePO4 1S, 4,6 V für LTO 2S und 3,1 V für Na-ion 1S. Der Faktor 1000 rechnet A in mA um. Die Panelspannung wird für diese Formel nicht verwendet.
 - → [FAQ #5 — Warum imax setzen?](FAQ.md#5-warum-ist-es-wichtig-den-maximalen-ladestrom-set-boardimax-einzustellen)
 
 ## 9) Frost-Ladestromabsenkung einstellen
@@ -72,7 +73,7 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Nur für Li-ion und LiFePO4. LTO und Na-ion laufen ohnehin ohne JEITA und lehnen den Command mit `Err: This chemistry runs without JEITA (always 1)` ab.
 - Mit 1 ignoriert der Charger den TS-Pin: Das Laden läuft unter -2 °C weiter, und die obere Abschaltung des Chargers bei ca. +58 °C entfällt ebenfalls.
 - Voraussetzung: `board.batcap` muss gesetzt sein (Schritt 7) und `board.imax` höchstens 0,05C dieser Kapazität betragen (10000 mAh → 500 mA). Sonst benennt die Antwort den Blocker — `jeitaignore set to 1, N/A, batcap not set` oder `jeitaignore set to 1, N/A, C>0.05`. Die Einstellung bleibt in beiden Fällen gespeichert und greift von selbst, sobald imax oder batcap passen.
-- Die 0,05C-Grenze gilt, solange der Override an ist, und sie kann deutlich unter dem liegen, was das Panel liefert: Ein 4000-mAh-Akku erlaubt 200 mA; das 2-W-Panel aus Schritt 8 gibt rund 480 mA.
+- Die 0,05C-Grenze gilt, solange der Override an ist, und kann deutlich unter dem berechneten Solar-`imax` liegen: Ein 4000-mAh-Akku erlaubt 200 mA; für ein 2-W-Panel mit Li-ion 1S (3,7 V) ergibt die Faustformel dagegen rund 650 mA.
 - Laden von Li-ion oder LiFePO4 bei Frost scheidet metallisches Lithium an der Anode ab, kumulativ und dauerhaft; das zeigt sich später als verlorene Kapazität.
 - Solange der Override an ist, zeigt `get board.fmax` N/A, und `set board.fmax` wird mit `Err: Fmax N/A while jeitaignore is on` abgelehnt.
 - → [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Laden bei Kälte, Felderfahrung und die vollständige Abwägung
@@ -110,33 +111,35 @@ bisherige Verhalten erhalten. Details stehen in [TELEMETRY.md](TELEMETRY.md).
 - Bei Solarbetrieb ist `set board.mppt 1` empfehlenswert; bei reinem USB-Betrieb kann MPPT aus bleiben.
 
 ## Beispielwerte je Akkuchemie (Startpunkt)
-Diese Werte sind sichere Startpunkte und sollten an Akku, Panel und Einsatzprofil angepasst werden.
+Diese Beispielwerte sollten an Akku, Panel und Einsatzprofil angepasst werden.
 
 Die `imax`-Werte unten leiten sich aus der Faustformel aus Abschnitt 8 ab:
-**`imax ≈ Panelleistung ÷ Panelspannung × 1.2`** (z.B. 2 W ÷ 5 V × 1.2 ≈ 480 mA → aufgerundet auf 500).
+**`imax (mA) ≈ Panelleistung (W) ÷ Akkunennspannung (V) × 1,2 × 1000`**
+
+Die Beispiele sind auf 10 mA gerundet. Den Firmwarebereich von 50–1500 mA und den zulässigen Ladestrom des Akkus einhalten; für den JEITA-Override gilt zusätzlich die 0,05C-Grenze.
 `fmax` ist ein Prozentwert von `imax` und wirkt nur in der T-Cool-Zone (ca. -2 °C bis +3 °C, siehe JEITA-Tabelle im README).
 
 ### Li-ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # Chemie: 1S Li-ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.batcap 10000   # Akkukapazität — SOC und die 0,05C-Grenze für Schritt 10 (→ 500 mA)
-set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 500 mA = 100 mA
+set board.imax 650       # max. Ladestrom — 2 W Panel ÷ 3,7 V Akkunennspannung × 1,2 × 1000 ≈ 649 mA → 650
+set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 650 mA = 130 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # Chemie: 1S LiFePO4 (setzt Ladeprofil + Low-V-Schwellen)
 set board.batcap 9000    # Akkukapazität — SOC und die 0,05C-Grenze für Schritt 10 (→ 450 mA)
-set board.imax 300       # max. Ladestrom — ≈ 1 W Panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, aufgerundet als Reserve)
-set board.fmax 40%       # T-Cool (ca. -2…+3 °C): begrenzt auf 40 % × 300 mA = 120 mA
+set board.imax 380       # max. Ladestrom — 1 W Panel ÷ 3,2 V Akkunennspannung × 1,2 × 1000 ≈ 375 mA → 380
+set board.fmax 40%       # T-Cool (ca. -2…+3 °C): begrenzt auf 40 % × 380 mA = 152 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s      # Chemie: 2S LTO (setzt Ladeprofil + Low-V-Schwellen)
 set board.batcap 10000   # Akkukapazität — für die SOC-Berechnung
-set board.imax 700       # max. Ladestrom — ≈ 3 W Panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
+set board.imax 780       # max. Ladestrom — 3 W Panel ÷ 4,6 V Akkunennspannung × 1,2 × 1000 ≈ 783 mA → 780
                          # fmax entfällt: wird bei LTO abgelehnt (JEITA deaktiviert — LTO lädt auch bei Frost)
 ```
 
@@ -144,7 +147,7 @@ set board.imax 700       # max. Ladestrom — ≈ 3 W Panel @ 5 V (3 W ÷ 5 V ×
 ```bash
 set board.bat naion1s    # Chemie: 1S Na-ion (setzt Ladeprofil + Low-V-Schwellen)
 set board.batcap 10000   # Akkukapazität — für die SOC-Berechnung
-set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+set board.imax 770       # max. Ladestrom — 2 W Panel ÷ 3,1 V Akkunennspannung × 1,2 × 1000 ≈ 774 mA → 770
                          # fmax entfällt: wird bei Na-ion abgelehnt (JEITA deaktiviert)
 ```
 
