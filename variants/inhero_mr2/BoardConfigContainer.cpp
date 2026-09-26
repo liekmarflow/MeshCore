@@ -771,7 +771,7 @@ bool BoardConfigContainer::begin() {
   // Charger active by default — HIZ-Gate removed (Rev 1.1 PCB stable).
   bq.setHIZMode(false);
 
-  this->setFrostChargeBehaviour(frost);
+  this->setFrostChargeBehaviour(getFrostChargeBehaviour());
   this->setMaxChargeCurrent_mA(maxChargeCurrent_mA);
 
   // Mask ALL BQ25798 interrupts — INT pin is not used (polling only).
@@ -1197,8 +1197,8 @@ bool BoardConfigContainer::getMPPTEnabled() const {
 
 // === JEITA override (board.jeitaignore) ===
 
-// Loads the stored user wish. Only meaningful for needs_jeita chemistries.
-bool BoardConfigContainer::loadJeitaIgnoreWish(bool& on) const {
+// Loads the accepted user override. Only meaningful for needs_jeita chemistries.
+bool BoardConfigContainer::loadJeitaIgnoreEnabled(bool& on) const {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
 
@@ -1211,13 +1211,13 @@ bool BoardConfigContainer::loadJeitaIgnoreWish(bool& on) const {
   return false;
 }
 
-bool BoardConfigContainer::getJeitaIgnoreWish() const {
+bool BoardConfigContainer::getJeitaIgnoreEnabled() const {
   bool on = false;
-  loadJeitaIgnoreWish(on);
+  loadJeitaIgnoreEnabled(on);
   return on;
 }
 
-// The gate: batcap must be user-set and imax must not exceed 0.05C of it.
+// The gate: batcap must be user-set and imax must be strictly below 0.05C.
 // The safety is this static bound, not a firmware control loop — in SYSTEMOFF
 // sleep the charger stays enabled and no loop runs, so an unattended frozen
 // cell must never see more than that rate.
@@ -1230,22 +1230,29 @@ bool BoardConfigContainer::jeitaIgnoreGateOk() const {
   // the boot derivation would gate against 0 mAh and always fail.
   float cap_mah = 0.0f;
   loadBatteryCapacity(cap_mah);
-  return getMaxChargeCurrent_mA() <= jeitaIgnoreLimit_mA(cap_mah);
+  return isJeitaIgnoreCurrentAllowed(getMaxChargeCurrent_mA(), cap_mah);
 }
 
-// Stores the wish and re-derives the effective state. The wish survives a
-// failed gate — it re-arms as soon as imax/batcap pass again.
-bool BoardConfigContainer::setJeitaIgnoreWish(bool on) {
+bool BoardConfigContainer::setJeitaIgnore(bool on) {
+  const auto* props = getBatteryProperties(getBatteryType());
+  if (!props || !props->needs_jeita || (on && !jeitaIgnoreGateOk())) return false;
+  const bool wasEnabled = getJeitaIgnoreEnabled();
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
+  // No hidden frost value: enabling and a real 1->0 transition reset it.
+  if ((on || wasEnabled) &&
+      !prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(DEFAULT_FROST_BEHAVIOUR))) return false;
   if (!prefs.putString(JEITAIGNKEY, on ? "1" : "0")) {
     return false;
   }
-  applyJeitaIgnore();
+  if (!applyJeitaIgnore(props)) {
+    prefs.putString(JEITAIGNKEY, wasEnabled ? "1" : "0");
+    return false;
+  }
   return true;
 }
 
-// Re-derives for the current chemistry (CLI writers of imax/batcap/wish).
+// Applies the accepted setting for the current chemistry.
 bool BoardConfigContainer::applyJeitaIgnore() {
   return applyJeitaIgnore(getBatteryProperties(getBatteryType()));
 }
@@ -1253,28 +1260,39 @@ bool BoardConfigContainer::applyJeitaIgnore() {
 // Derives the effective JEITA override and programs the BQ:
 //   chemistry runs without JEITA (LTO, Na-ion, UNKNOWN) → forced on; for
 //   Na-ion the cell datasheet sets the charge window, the board does not
-//   otherwise → user wish AND 0.05C gate
+//   otherwise → accepted user override
 // TS_IGNORE stops the BQ's temperature regulation permanently — deliberately
-// including SYSTEMOFF sleep. Turning the override off restores the stored
-// fmax mapping (ISETC); ISETH needs no restore, its POR default is UNCHANGED.
+// including SYSTEMOFF sleep. Turning the override off restores default fmax.
 bool BoardConfigContainer::applyJeitaIgnore(const BatteryProperties* props) {
   if (!bqInitialized || !props) {
     jeitaIgnoreActive = false;
     return false;
   }
 
-  bool ignore = !props->needs_jeita || (getJeitaIgnoreWish() && jeitaIgnoreGateOk());
-  bool was_active = jeitaIgnoreActive;
-  jeitaIgnoreActive = ignore;
-
-  bq.setTsIgnore(ignore);
-  if (ignore) {
-    bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED);
-    bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED);
-  } else if (was_active) {
-    setFrostChargeBehaviour(getFrostChargeBehaviour());
+  bool enabled = getJeitaIgnoreEnabled();
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  // Remove legacy deferred requests, and discard any frost value they hid.
+  if (enabled || !props->needs_jeita) {
+    if (getFrostChargeBehaviour() != DEFAULT_FROST_BEHAVIOUR &&
+        !prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(DEFAULT_FROST_BEHAVIOUR))) return false;
   }
-  return ignore;
+  if (enabled && (!props->needs_jeita || !jeitaIgnoreGateOk())) {
+    if (!prefs.putString(JEITAIGNKEY, "0")) return false;
+    enabled = false;
+  }
+  bool ignore = !props->needs_jeita || enabled;
+  bool was_active = jeitaIgnoreActive;
+
+  bool ok = bq.setTsIgnore(ignore);
+  if (ignore) {
+    ok = bq.setJeitaISetC(BQ25798_JEITA_ISETC_UNCHANGED) && ok;
+    ok = bq.setJeitaISetH(BQ25798_JEITA_ISETH_UNCHANGED) && ok;
+  } else if (was_active) {
+    ok = setFrostChargeBehaviour(getFrostChargeBehaviour()) && ok;
+  }
+  jeitaIgnoreActive = ok && ignore;
+  return ok;
 }
 
 // Enables or disables MPPT
@@ -1306,6 +1324,20 @@ float BoardConfigContainer::getMaxChargeVoltage() const {
 
 // Sets battery type and reconfigures BQ accordingly
 bool BoardConfigContainer::setBatteryType(BatteryType type) {
+  if (!getBatteryProperties(type)) return false;
+  if (type == getBatteryType()) return true;
+
+  // An actual chemistry change starts with battery/charging defaults.
+  SimplePreferences prefs;
+  prefs.begin(PREFS_NAMESPACE);
+  if (!prefs.putInt(MAXCHARGECURRENTKEY, DEFAULT_MAX_CHARGE_CURRENT_MA) ||
+      !prefs.putString(MPPTENABLEKEY, "0") ||
+      !prefs.putString(JEITAIGNKEY, "0") ||
+      !prefs.putString(FROSTKEY, getFrostChargeBehaviourCommandString(DEFAULT_FROST_BEHAVIOUR)) ||
+      !prefs.remove(BATTERY_CAPACITY_KEY) ||
+      !prefs.putString(BATTKEY, getBatteryTypeCommandString(type))) return false;
+  loadBatteryCapacity(socStats.capacity_mah);
+
   bool bqBaseConfigured = this->configureBaseBQ();
   bool bqConfigured = this->configureChemistry(type);
   cachedBatteryType = type;  // Update cache for static methods (updateBatterySOC, calculateTTL)
@@ -1326,15 +1358,9 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
 
   // === CRITICAL: Update INA228 low-voltage alert threshold when battery type changes ===
   if (ina228DriverInstance) {
-    // Preferences still contain the previous chemistry until the write below.
     armLowVoltageAlert(type);
     delay(10);
   }
-
-  // Store battery type in preferences
-  SimplePreferences prefs;
-  prefs.begin(PREFS_NAMESPACE);
-  prefs.putString(BATTKEY, getBatteryTypeCommandString(type));
 
   // Safety: When switching to Li-Ion or LiFePO4, reset frost charge to NO_CHARGE
   // These chemistries should not be charged at low temperatures
@@ -1347,6 +1373,8 @@ bool BoardConfigContainer::setBatteryType(BatteryType type) {
 
 // Sets frost charge behavior (JEITA cold region)
 bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviour) {
+  const auto* props = getBatteryProperties(getBatteryType());
+  if (!props || !props->needs_jeita || getJeitaIgnoreEnabled()) return false;
   switch (behaviour) {
   case BoardConfigContainer::FrostChargeBehaviour::NO_CHARGE:
     bq.setJeitaISetC(BQ25798_JEITA_ISETC_SUSPEND);
@@ -1370,6 +1398,10 @@ bool BoardConfigContainer::setFrostChargeBehaviour(FrostChargeBehaviour behaviou
 // Sets maximum charge current (ICHG) and recalculates solar IINDPM
 // Note: Also calls updateSolarIINDPM() because IINDPM depends on ICHG.
 bool BoardConfigContainer::setMaxChargeCurrent_mA(uint16_t maxChrgI) {
+  if (getJeitaIgnoreEnabled()) {
+    float capacity = 0.0f;
+    if (!loadBatteryCapacity(capacity) || !isJeitaIgnoreCurrentAllowed(maxChrgI, capacity)) return false;
+  }
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
   prefs.putInt(MAXCHARGECURRENTKEY, maxChrgI);
@@ -1521,9 +1553,15 @@ bool BoardConfigContainer::isBatteryCapacitySet() const {
 
 // Set battery capacity manually via CLI (converts to mWh internally)
 bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
-  if (capacity_mah < 100.0f || capacity_mah > 100000.0f) {
+  if (!(capacity_mah >= 100.0f && capacity_mah <= 100000.0f)) {
     return false;  // Sanity check
   }
+  // Check the same one-decimal value the existing storage format will retain.
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "%.1f", capacity_mah);
+  capacity_mah = atof(buffer);
+  if (getJeitaIgnoreEnabled() &&
+      !isJeitaIgnoreCurrentAllowed(getMaxChargeCurrent_mA(), capacity_mah)) return false;
 
   // Store user-configured capacity in mAh
   socStats.capacity_mah = capacity_mah;
@@ -1540,8 +1578,6 @@ bool BoardConfigContainer::setBatteryCapacity(float capacity_mah) {
   SimplePreferences prefs;
   prefs.begin(PREFS_NAMESPACE);
 
-  char buffer[20];
-  snprintf(buffer, sizeof(buffer), "%.1f", capacity_mah);
   prefs.putString(BATTERY_CAPACITY_KEY, buffer);
 
   MESH_DEBUG_PRINTLN("Battery capacity set to %.0f mAh @ %.1fV",

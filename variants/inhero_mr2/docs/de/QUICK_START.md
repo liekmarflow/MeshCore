@@ -42,6 +42,8 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Legt Ladeparameter und Low-Voltage-Schwellen fest.
 - → [FAQ #1](FAQ.md#1-welche-akkuchemie-soll-ich-einsetzen) | [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Welche Akkuchemie soll ich einsetzen?
 
+Ein Wechsel zu einer **anderen Akkuchemie**, auch nach oder von `none`, setzt die Akku- und Ladekonfiguration zurück: `imax` auf 200 mA, MPPT aus, `fmax` auf 0% und den Benutzer-JEITA-Override aus. Die Kapazität fällt auf den Chemie-Default (1500 mAh bei LiFePO4, sonst 2000 mAh) zurück und gilt nicht mehr als ausdrücklich gesetzt. Der SOC wird ungültig und bleibt bis zu einer neuen Referenz unbekannt. Ladespannung und Low-V-Schwellen folgen der neuen Chemie. Deshalb zuerst die Chemie, danach Kapazität und Ladeparameter setzen. Das erneute Setzen derselben Chemie und normale Neustarts erhalten gültige Einstellungen. LEDs, Aufstellhöhe und NTC-Kalibrierung bleiben erhalten.
+
 ## 7) Akkukapazität setzen
 - Command: set board.batcap <mAh>
 - Beispiel: set board.batcap 10000
@@ -71,10 +73,10 @@ Diese Anleitung führt Sie durch die Inbetriebnahme und die wichtigsten CLI-Comm
 - Command: set board.jeitaignore <1|0> — Default 0.
 - Nur für Li-ion und LiFePO4. LTO und Na-ion laufen ohnehin ohne JEITA und lehnen den Command mit `Err: This chemistry runs without JEITA (always 1)` ab.
 - Mit 1 ignoriert der Charger den TS-Pin: Das Laden läuft unter -2 °C weiter, und die obere Abschaltung des Chargers bei ca. +58 °C entfällt ebenfalls.
-- Voraussetzung: `board.batcap` muss gesetzt sein (Schritt 7) und `board.imax` höchstens 0,05C dieser Kapazität betragen (10000 mAh → 500 mA). Sonst benennt die Antwort den Blocker — `jeitaignore set to 1, N/A, batcap not set` oder `jeitaignore set to 1, N/A, C>0.05`. Die Einstellung bleibt in beiden Fällen gespeichert und greift von selbst, sobald imax oder batcap passen.
-- Die 0,05C-Grenze gilt, solange der Override an ist, und sie kann deutlich unter dem liegen, was das Panel liefert: Ein 4000-mAh-Akku erlaubt 200 mA; das 2-W-Panel aus Schritt 8 gibt rund 480 mA.
+- Der Override erfordert eine ausdrücklich gesetzte `board.batcap` und **`imax < 0,05C`**. Gleichheit wird abgelehnt: Bei 10000 mAh bestehen 450 mA das Gate, 500 mA nicht. `set board.jeitaignore 1` antwortet bei fehlender Kapazitätsangabe mit `N/A, batcap not set`, bei zu hohem Strom mit `N/A, imax >=0,05C`. Diese Gate-Abweisungen (`N/A, …`) ändern weder Einstellungen noch Hardware und speichern keinen vorgemerkten Wunsch. Solange der Benutzer-Override an ist, wird eine Änderung von `imax` oder `batcap`, die das Gate verletzen würde, mit `N/A, jeitaignore=1` abgelehnt; alle bisherigen Werte bleiben erhalten. Für eine solche Änderung zuerst den Override ausschalten. Eine spätere Parameteränderung aktiviert ihn niemals von selbst wieder.
+- Die 0,05C-Grenze gilt, solange der Override an ist, und sie kann deutlich unter dem liegen, was das Panel liefert: Ein 4000-mAh-Akku erfordert weniger als 200 mA; das 2-W-Panel aus Schritt 8 gibt rund 480 mA.
 - Laden von Li-ion oder LiFePO4 bei Frost scheidet metallisches Lithium an der Anode ab, kumulativ und dauerhaft; das zeigt sich später als verlorene Kapazität.
-- Solange der Override an ist, zeigt `get board.fmax` N/A, und `set board.fmax` wird mit `Err: Fmax N/A while jeitaignore is on` abgelehnt.
+- Das Einschalten des Overrides verwirft einen individuellen `fmax` und speichert den Default 0%. Solange er an ist, liefert `get board.fmax` `N/A`; `set board.fmax` wird mit `Err: Fmax N/A while jeitaignore is on` abgelehnt. Beim Wechsel von `jeitaignore 1` auf `0` gilt wieder Hardware-JEITA mit `fmax=0%`; kein alter Frostwert kehrt zurück. Ein erneutes `set board.jeitaignore 0` bei bereits ausgeschaltetem Override erhält einen inzwischen neu eingestellten `fmax`. `get board.conf` hängt bei aktivem Benutzer-Override ` J:1` an.
 - → [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Laden bei Kälte, Felderfahrung und die vollständige Abwägung
 
 ## 11) MPPT aktivieren
@@ -119,7 +121,7 @@ Die `imax`-Werte unten leiten sich aus der Faustformel aus Abschnitt 8 ab:
 ### Li-ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # Chemie: 1S Li-ion (setzt Ladeprofil + Low-V-Schwellen)
-set board.batcap 10000   # Akkukapazität — SOC und die 0,05C-Grenze für Schritt 10 (→ 500 mA)
+set board.batcap 10000   # Akkukapazität — SOC; Override in Schritt 10 erfordert imax < 500 mA
 set board.imax 500       # max. Ladestrom — ≈ 2 W Panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
 set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 500 mA = 100 mA
 ```
@@ -127,7 +129,7 @@ set board.fmax 20%       # T-Cool (ca. -2…+3 °C): begrenzt auf 20 % × 500 mA
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # Chemie: 1S LiFePO4 (setzt Ladeprofil + Low-V-Schwellen)
-set board.batcap 9000    # Akkukapazität — SOC und die 0,05C-Grenze für Schritt 10 (→ 450 mA)
+set board.batcap 9000    # Akkukapazität — SOC; Override in Schritt 10 erfordert imax < 450 mA
 set board.imax 300       # max. Ladestrom — ≈ 1 W Panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, aufgerundet als Reserve)
 set board.fmax 40%       # T-Cool (ca. -2…+3 °C): begrenzt auf 40 % × 300 mA = 120 mA
 ```
@@ -220,7 +222,7 @@ get board.conf
 - `get board.altitude` - Aufstellhöhe für QNH oder `N/A (station pressure)`.
 - `get board.leds` - LED-Status (Heartbeat + BQ-Stat).
 - `get board.batcap` - Akkukapazität in mAh (set/default).
-- `get board.jeitaignore` - Frost-Lade-Override: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` bei LTO/Na-ion oder die gespeicherte Einstellung mit ihrem Blocker (`jeitaignore 1, N/A, batcap not set` / `jeitaignore 1, N/A, C>0.05`).
+- `get board.jeitaignore` — Akzeptierte Einstellung: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` bei LTO/Na-ion; `N/A` bei `none`.
 - `get board.telem` - Echtzeit-Telemetrie (Battery/Solar inkl. SOC, V/I/T). Siehe [TELEMETRY.md](TELEMETRY.md) für die App-Anzeige.
 - `get board.stats` - Energie-Bilanz (24h/3d/7d), Charge/Discharge-Breakdown und MPPT-Anteil.
 - `get board.cinfo` - Ladegerät-Status (Charger State + Flags).

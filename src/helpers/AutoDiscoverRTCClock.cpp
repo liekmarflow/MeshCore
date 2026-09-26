@@ -36,9 +36,21 @@ void AutoDiscoverRTCClock::begin(TwoWire& wire) {
   if (i2c_probe(wire, RV3028_ADDRESS)) {
     rtc_rv3028.initI2C(wire);
     rtc_rv3028.writeToRegister(0x35, 0x00);
+#if defined(INHERO_MR2)
+    // MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply.
+    // Keep the RAM configuration from being overwritten by EEPROM refresh.
+    rtc_rv3028.writeToRegister(0x0F, rtc_rv3028.readFromRegister(0x0F) | 0x08); // EERD
+    rv3028_success = rtc_rv3028.waitforEEPROM();
+    if (rv3028_success) {
+      const uint8_t backup = rtc_rv3028.readFromRegister(0x37);
+      // BSM=00, TCE=0, BSIE=0, FEDE=1; preserve EEOffset[0] and TCR.
+      rtc_rv3028.writeToRegister(0x37, (backup & 0x83) | 0x10);
+    }
+#else
     rtc_rv3028.writeToRegister(0x37, 0xB4); // Direct Switching Mode (DSM): when VDD < VBACKUP, switchover occurs from VDD to VBACKUP
-    rtc_rv3028.set24HourMode(); // Set the device to use the 24hour format (default) instead of the 12 hour format
     rv3028_success = true;
+#endif
+    rtc_rv3028.set24HourMode(); // Set the device to use the 24hour format (default) instead of the 12 hour format
   }
 
   if (i2c_probe(wire, PCF8563_ADDRESS)) {

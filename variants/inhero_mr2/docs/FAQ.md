@@ -58,6 +58,8 @@ In short: **LiFePO4** for most indoor/temperate setups, **LTO** for extreme cold
 
 → **Setup:** [QUICK_START.md — Step 6](QUICK_START.md#6-set-battery-chemistry) | [CLI_CHEAT_SHEET.md — Quick-Start Recipes](CLI_CHEAT_SHEET.md#quick-start-recipes)
 
+A change to a **different battery chemistry**, including to or from `none`, resets the battery and charging configuration: `imax` to 200 mA, MPPT off, `fmax` to 0%, and the user JEITA override off. Capacity returns to the chemistry default (1500 mAh for LiFePO4, otherwise 2000 mAh) and is no longer marked as explicitly set. SOC becomes unknown until a new reference is established. Charge voltage and low-voltage thresholds follow the new chemistry. Set chemistry first, then capacity and charging parameters. Re-selecting the same chemistry and normal reboots preserve valid settings. LEDs, installation altitude and NTC calibration are retained.
+
 ---
 
 ### 2. Can I use battery packs without a built-in NTC?
@@ -99,6 +101,8 @@ Enter the **nominal capacity minus a deduction**. Since the charge cutoff voltag
 
 For parallel cells, add capacities before the deduction: Two 5,000 mAh cells in parallel = 10,000 mAh nominal → `set board.batcap 9000`.
 
+Capacity retains the existing storage precision of one decimal place (mAh). The gate checks this stored value; `get board.batcap` displays rounded whole mAh.
+
 ---
 
 ### 5. Why is it important to set the maximum charge current with `set board.imax`?
@@ -113,7 +117,7 @@ Why set `imax` correctly?
 
 3. **Panel compatibility:** If `imax` is set too high, the board briefly tries to draw more current from the panel than it can deliver — the charger detects the voltage drop and stops charging.
 
-4. **Ceiling for the JEITA override:** `set board.jeitaignore 1` only becomes active while `imax` is at or below 0.05C of `board.batcap` — 9,000 mAh allows up to `imax 450`. On a site where the override is wanted, that ceiling can sit well below what the panel could deliver (see [FAQ #6](#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together)).
+4. **Ceiling for the JEITA override:** `set board.jeitaignore 1` only becomes active while `imax` is strictly below 0.05C of `board.batcap` — 9,000 mAh allows `imax 400`, but not 450. On a site where the override is wanted, that ceiling can sit well below what the panel could deliver (see [FAQ #6](#6-what-is-frost-charging-and-how-do-fmax-and-jeitaignore-work-together)).
 
 **Calculation:** Panel power ÷ battery voltage = imax.
 Example: 2 W panel, Li-ion (3.7 V) → 2000 / 3.7 ≈ 540 mA → `set board.imax 540`.
@@ -167,13 +171,13 @@ Stage one is the conservative default: no charging below +3 °C. Stage two is bo
 
 The command sets the TS_IGNORE bit in the BQ25798, which makes the charger treat the TS pin as always good: the cold block below –2 °C and the hot-side suspend above ~58 °C both stop acting, and the firmware has no software replacement for either. Charging continues through frost at the configured `imax`. It is off by default and is only accepted for Li-ion and LiFePO4; for LTO and Na-ion it is refused with `Err: This chemistry runs without JEITA (always 1)`.
 
-The override is bounded by a gate: `set board.batcap` must have been set, and `imax` must be at or below **0.05C** of that capacity — 5,000 mAh allows up to `imax 250`. (With the 50 mA lower limit of `imax`, the gate can only pass from about 1,000 mAh upward.) Inside the gate the reply is `jeitaignore set to 1`. Outside it, the setting is stored but stays inactive and the reply names the blocker: `jeitaignore set to 1, N/A, C>0.05` or `jeitaignore set to 1, N/A, batcap not set`. Nothing is discarded in that case — a later `set board.imax` or `set board.batcap` that satisfies the gate arms the override on its own and says so with `; jeitaignore 1`. `get board.jeitaignore` reports the current state.
+The override requires an explicitly set `board.batcap` and **`imax < 0.05C`**. Equality is rejected: at 10000 mAh, 450 mA passes and 500 mA fails. `set board.jeitaignore 1` returns `N/A, batcap not set` if capacity was not set, or `N/A, imax >=0,05C` if the current is too high. These gate refusals (`N/A, …`) change neither settings nor hardware and store no pending request. While the user override is on, an `imax` or `batcap` change that would violate the gate returns `N/A, jeitaignore=1` and leaves all existing values unchanged. Switch the override off first to make such a change; it never re-enables itself after a later parameter change.
 
 **What it costs:** Charging a cold Li-ion or LiFePO4 cell is at the operator's own risk. The 0.05C gate bounds the rate; lithium plating on the graphite anode stays cumulative and permanent, and it shows up as capacity quietly gone.
 
 → **Field experience, the temperature scope and the full argument:** [BATTERY_GUIDE.md — Charging in Cold Conditions](BATTERY_GUIDE.md#charging-in-cold-conditions)
 
-On Li-ion and LiFePO4 with the override armed, `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`, and `get board.conf` appends ` J:1`. `get board.fmax` answers `N/A` for as long as the override is active, on every chemistry. `set board.jeitaignore 0` switches it off again, and the stored `fmax` setting takes effect once more.
+Enabling the override discards any custom `fmax` and stores the default 0%. While it is on, `get board.fmax` returns `N/A` and `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`. Switching from `jeitaignore 1` to `0` restores hardware JEITA with `fmax=0%`; no older frost setting returns. Repeating `set board.jeitaignore 0` while already off preserves a subsequently configured `fmax`. `get board.conf` appends ` J:1` while the user override is on.
 
 ---
 
@@ -408,11 +412,11 @@ The castellated pads can be soldered directly to a carrier board. See [DATASHEET
 - MPPT, LED settings
 - NTC calibration offset
 
-**JEITA override:** `board.jeitaignore` stores the setting itself; the resulting state is derived. On every boot the charger starts with its temperature guard active, and the firmware derives the override from the stored setting and the 0.05C gate once the configuration is applied. An override whose gate no longer passes stays off, and the setting is kept.
+**JEITA override:** A valid enabled override survives normal reboots and firmware updates. At startup, the hardware temperature guard remains in charge until the configuration is applied. Legacy settings are normalized: invalid or inapplicable user overrides are cleared, and an old frost setting hidden by an enabled override is reset to 0%. No dormant request is kept for later activation.
 
 **Note:** Energy statistics (168h ring buffers for Batt-TTL) are held in RAM only and restart after any reboot or update.
 
-Settings are only lost on a full flash erase or filesystem corruption (rare). See [POWER_MANAGEMENT.md — Statistics Persistence](POWER_MANAGEMENT.md#11-statistics-persistence) for technical details.
+A deliberate chemistry change resets battery and charging settings as described above. A full flash erase or filesystem corruption can also remove settings. See [POWER_MANAGEMENT.md — Statistics Persistence](POWER_MANAGEMENT.md#11-statistics-persistence) for technical details.
 
 ### 23. Why does the repeater board need a correct time?
 
