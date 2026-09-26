@@ -22,7 +22,7 @@ void configurePeriodicWake(uint16_t minutes) {
   // Step 1: Stop Timer and clear flags
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x08); // TE=0, TD=00; keep EERD=1 for the no-backup RAM configuration
+  Wire.write(0x00); // TE=0, TD=00 (stop timer)
   Wire.endTransmission();
 
   Wire.beginTransmission(RTC_I2C_ADDR);
@@ -45,7 +45,7 @@ void configurePeriodicWake(uint16_t minutes) {
   // Step 3: Enable timer (1/60 Hz, single shot)
   Wire.beginTransmission(RTC_I2C_ADDR);
   Wire.write(RV3028_REG_CTRL1);
-  Wire.write(0x0F); // TE=1, TD=11 (1/60 Hz), TRPT=0; keep EERD=1
+  Wire.write(0x07); // TE=1, TD=11 (1/60 Hz), TRPT=0 (single shot)
   Wire.endTransmission();
 
   // Step 4: Enable timer interrupt

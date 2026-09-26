@@ -645,7 +645,7 @@ or
 ## 6. RTC Wakeup Management
 
 ### RV-3028-C7 Integration
-MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply. During RTC initialization, Control 1 (`0x0F`) gets `EERD=1`; after the EEPROM busy check, Backup (`0x37`) gets `BSM=00`, `TCE=0`, `BSIE=0` and `FEDE=1`, preserving EEOffset[0] and TCR (`(old & 0x83) | 0x10`). This disables backup switching and trickle charging. EERD prevents EEPROM refresh from replacing the RAM configuration and remains set when programming the wake timer (`0x08` / `0x0F` in Control 1). The EEPROM itself is not programmed. See the [RV-3028-C7 application manual](https://www.microcrystal.com/fileadmin/Media/Products/RTC/App.Manual/RV-3028-C7_App-Manual.pdf).
+MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply. Initialization reads EEPROM byte `0x37` and computes `(stored & 0x83) | 0x10`: `BSM=00`, `TCE=0`, `BSIE=0`, `FEDE=1`, preserving EEOffset[0] and TCR. Only a differing byte is programmed and read back; other EEPROM bytes remain untouched. The RAM mirror is also set and verified. EERD temporarily blocks refresh during access and is cleared afterwards; wake-timer Control 1 values are `0x00` / `0x07`. After successful programming, subsequent POR refreshes load the board configuration automatically. Sleep decisions are unchanged. The sequence uses the single-byte commands and delays in sections 4.6.5–4.6.7 of the [RV-3028-C7 application manual](https://www.microcrystal.com/fileadmin/Media/Products/RTC/App.Manual/RV-3028-C7_App-Manual.pdf).
 
 **Pin**: GPIO17 (WB_IO1) → RTC INT
 **Init**: `InheroMr2Board::begin()`
