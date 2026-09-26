@@ -44,7 +44,7 @@ The Inhero MR2 is an application-specific hardware platform for the autonomous, 
 | SOC→Li-ion mV Mapping (workaround) | Active | Will be removed when MeshCore transmits SOC% natively |
 | MPPT Recovery + Stuck-PGOOD Handling | Active | Cooldown logic active |
 | PFM Forward Mode | Active (chip default) | Enabled by BQ25798 power-on default (PFM_FWD_DIS=0, REG0x12); the firmware does not modify it. Improves efficiency at low solar currents |
-| JEITA override (`set board.jeitaignore`) | Available, off by default | Li-ion 1S / LiFePO4 1S only; requires explicit `board.batcap` and `board.imax` < 0.05C |
+| JEITA override (`set board.jeitaignore`) | Available, off by default | Li-ion 1S / LiFePO4 1S only; becomes active while `board.batcap` is set and `board.imax` is at or below 0.05C |
 
 ## Power Management Features
 
@@ -161,23 +161,15 @@ The BQ25798 uses the TS pin (NTC thermistor) for JEITA-compliant temperature-dep
 
 > **Background:** With default BQ25798 settings, the combination of the Inhero divider offset and LiFePO4 chemistry caused a failure chain at ~42 °C: WARM zone entry → VREG reduced to 3.1 V → VBAT_OVP (battery at 3.47 V > 104% × 3.1 V) → active 30 mA discharge → net −45 mA drain despite solar input. The settings above prevent this entirely. The WARM zone (52–58 °C with Inhero divider) now has no effect on charging behavior.
 
-**Chemistry changes**
-
-A change to a **different battery chemistry**, including to or from `none`, resets the battery and charging configuration: `imax` to 200 mA, MPPT off, `fmax` to 0%, and the user JEITA override off. Capacity returns to the chemistry default (1500 mAh for LiFePO4, otherwise 2000 mAh) and is no longer marked as explicitly set. SOC and battery history start again; SOC remains unknown until a new reference is established. Charge voltage and low-voltage thresholds follow the new chemistry. Set chemistry first, then capacity and charging parameters. Re-selecting the same chemistry and normal reboots preserve valid settings. LEDs, installation altitude and NTC calibration are retained.
-
 **JEITA override (`set board.jeitaignore`)**
 
 `set board.jeitaignore 1` sets the BQ25798 TS_IGNORE bit (NTC Control 1, register 0x18, bit 0). The charger then treats the TS pin as always good for charging, so charging continues below the T-Cold threshold. Off by default.
 
 - **Chemistry:** accepted for Li-ion 1S and LiFePO4 1S. LTO 2S and Na-ion 1S need no JEITA supervision (`needs_jeita = false` in the chemistry table) and run with TS_IGNORE set anyway; for them the verb answers `Err: This chemistry runs without JEITA (always 1)`.
-- **Gate:** The override requires an explicitly set `board.batcap` and **`imax < 0.05C`**. Equality is rejected: at 10000 mAh, 450 mA passes and 500 mA fails. `set board.jeitaignore 1` returns `N/A, batcap not set` if capacity was not set, or `N/A, imax >=0,05C` if the current is too high. These gate refusals (`N/A, …`) change neither settings nor hardware and store no pending request. While the user override is on, an `imax` or `batcap` change that would violate the gate returns `N/A, jeitaignore=1` and leaves all existing values unchanged. Switch the override off first to make such a change; it never re-enables itself after a later parameter change.
-- **Persistence:** A valid enabled override survives normal reboots and firmware updates. At startup, the hardware temperature guard remains in charge until the configuration is applied. Legacy settings are normalized: invalid or inapplicable user overrides are cleared, and an old frost setting hidden by an enabled override is reset to 0%. No dormant request is kept for later activation.
+- **Gate:** the override becomes active only while `board.batcap` has been written explicitly and `board.imax` is at or below 0.05C of that capacity. Writes to `imax` or `batcap` re-derive the state, and the reply names the change.
+- **Stored as a wish:** the flag is kept in NVS, the effective state is derived on every chemistry apply and is never persisted. A failing gate does not discard the flag — the override re-arms on its own once `imax`/`batcap` pass again. From power-on until the stored configuration is applied, TS_IGNORE is cleared and the hardware temperature guard is in charge.
 - **Scope of the switch:** with TS_IGNORE set, all four TS status bits report 000, so the charge suspend at T-Hot (~+57.7 °C with the Inhero divider) is disabled as well. The firmware offers no replacement for either limit — the board sleeps in SYSTEMOFF with the charger enabled and no control loop runs there, so the 0.05C bound is the whole safety argument.
 - **Risk:** charging Li-ion or LiFePO4 in frost is at the operator's own risk. The 0.05C bound limits the rate; lithium plating on the graphite anode stays cumulative and permanent, and it shows up as capacity quietly gone. See [BATTERY_GUIDE.md](BATTERY_GUIDE.md) for the field evidence, the temperature scope and the full trade.
-
-Enabling the override discards any custom `fmax` and stores the default 0%. While it is on, `get board.fmax` returns `N/A` and `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`. Switching from `jeitaignore 1` to `0` restores hardware JEITA with `fmax=0%`; no older frost setting returns. Repeating `set board.jeitaignore 0` while already off preserves a subsequently configured `fmax`. `get board.conf` appends ` J:1` while the user override is on.
-
-`get board.jeitaignore` reports the accepted, valid user setting as `0`/`1`. `get board.fmax` and `get board.conf` follow that configuration, including when charging is disabled after a hardware error. Use `get board.bqdiag` for the actual register state; no override request outside the gate is retained.
 
 ## Firmware Build
 
@@ -284,14 +276,16 @@ get board.leds      # Query LED enable status
                     # Shows whether heartbeat LED and BQ25798 stat LED are enabled
 
 get board.jeitaignore  # Query JEITA override state
-                       # Output: N/A
-                       #   → no chemistry set (none)
                        # Output: jeitaignore 0
                        #   → override off
                        # Output: jeitaignore 1
-                       #   → accepted user setting: on
+                       #   → override active
                        # Output: jeitaignore 1 (chemistry)
                        #   → LTO / Na-ion run without JEITA
+                       # Output: jeitaignore 1, N/A, C>0.05
+                       #   → flag stored, imax above 0.05C of batcap
+                       # Output: jeitaignore 1, N/A, batcap not set
+                       #   → flag stored, batcap never written
 ```
 
 ### Set Commands
@@ -323,8 +317,9 @@ set board.fmax <behavior>      # Set frost charge behavior
 
 set board.imax <current>       # Set maximum charge current in mA
                                # Range: 50-1500mA (BQ25798 minimum: 50mA)
-                               # With user override on and a proposed gate violation:
-                               # N/A, jeitaignore=1 (nothing changed)
+                               # imax is part of the jeitaignore gate: when the
+                               # write changes the override state, the reply gains
+                               # "; jeitaignore 1" or "; jeitaignore N/A, C>0.05"
 
 set board.mppt <1|0>           # Enable/disable MPPT
                                # 1 = enabled, 0 = disabled
@@ -336,8 +331,9 @@ set board.altitude clear       # Remove altitude; report station pressure again
 set board.batcap <capacity>    # Set battery capacity in mAh
                                # Range: 100-100000 mAh
                                # Used for accurate SOC calculation
-                               # With user override on and a proposed gate violation:
-                               # N/A, jeitaignore=1 (nothing changed)
+                               # batcap is part of the jeitaignore gate: when the
+                               # write changes the override state, the reply gains
+                               # "; jeitaignore 1" or "; jeitaignore N/A, C>0.05"
 
 set board.tccal                # Calibrate NTC temperature
                                # Two modes:
@@ -356,13 +352,23 @@ set board.soc <percent>        # Manually set SOC
                                # Range: 0-100
                                # Note: INA228 must be initialized
 
-set board.jeitaignore <1|0>    # JEITA user override for Li-ion/LiFePO4 only
-                               # batcap explicitly set AND imax <0.05C
-                               # jeitaignore set to 1 | jeitaignore set to 0
-                               # N/A, imax >=0,05C | N/A, batcap not set
-                               # Gate refusal (N/A) changes nothing; no automatic activation.
-                               # Enabling and 1 -> 0 reset fmax to 0%.
-                               # Risks and chemistry restrictions: see BATTERY_GUIDE.md
+set board.jeitaignore <1|0>    # Allow charging below the JEITA T-Cold threshold
+                               # 1 = charger ignores the TS pin (TS_IGNORE)
+                               # 0 = JEITA temperature control active (default)
+                               # Li-ion 1S / LiFePO4 1S only. LTO / Na-ion:
+                               #   Err: This chemistry runs without JEITA (always 1)
+                               # Gate: board.batcap must be set explicitly and
+                               # board.imax must be at or below 0.05C of it
+                               # Replies: jeitaignore set to 1
+                               #          jeitaignore set to 1, N/A, C>0.05
+                               #          jeitaignore set to 1, N/A, batcap not set
+                               #          jeitaignore set to 0
+                               # The flag stays stored when the gate fails and
+                               # re-arms once imax/batcap pass again
+                               # The override also drops the hot-side charge
+                               # suspend (~ +57.7 °C). Charging Li-ion or LiFePO4
+                               # in frost is at the operator's own risk —
+                               # see BATTERY_GUIDE.md
 ```
 
 ## Diagnostics & Troubleshooting

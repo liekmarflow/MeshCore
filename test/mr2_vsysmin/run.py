@@ -93,9 +93,10 @@ def main():
             mutations = (
                 ("old-2.75V", declarations.replace("BQ_MIN_SYSTEM_V = 2.50f", "BQ_MIN_SYSTEM_V = 2.75f"), functions),
                 ("missing-post-CELL-restore", declarations,
-                 functions.replace("!bq.setMinSystemV(BQ_MIN_SYSTEM_V) ||", "")),
+                 functions.replace("bq.setMinSystemV(BQ_MIN_SYSTEM_V);\n  bq.setChargeLimitA",
+                                   "bq.setChargeLimitA")),
                 ("missing-final-MPPT-enable", declarations,
-                 functions.replace("!bq.setMPPTenable(props->charge_enable && getMPPTEnabled()) ||", "")),
+                 functions.replace("bq.setMPPTenable(getMPPTEnabled());", "")),
             )
             for name, mutant_declarations, mutant_functions in mutations:
                 if (mutant_declarations, mutant_functions) == (declarations, functions):

@@ -15,7 +15,6 @@ enum { BQ25798_TREG_60C = 60, BQ25798_WDT_DISABLE, BQ25798_VOC_DLY_2S,
        BQ25798_TS_WARM_55C, BQ25798_JEITA_VSET_UNCHANGED };
 #define MESH_DEBUG_PRINTLN(...) do {} while (false)
 #define BQ_CE_PIN 42
-#define BQ25798_REG_CHARGER_CONTROL_0 0x0F
 enum { OUTPUT, LOW, HIGH };
 static int ce_level = LOW;
 static void pinMode(int, int) {}
@@ -40,7 +39,7 @@ struct FakeBQ {
 
   void record(const char* name, double value) { events.push_back({name, value}); }
   bool linear() const { return source_present && charging && battery < sysmin; }
-  bool setCellCount(bq25798_cell_count_t count) {
+  void setCellCount(bq25798_cell_count_t count) {
     cells = count == BQ25798_CELL_COUNT_2S ? 2 : 1;
     // CELL writes restore defaults even when the cell count is unchanged.
     sysmin = cells == 2 ? 7.0 : 3.5;
@@ -48,9 +47,8 @@ struct FakeBQ {
     ichg = 1.0;
     if (battery < sysmin) mppt = false;
     record("CELL", cells);
-    return true;
   }
-  bool setMinSystemV(float voltage) {
+  void setMinSystemV(float voltage) {
     // REG00 starts at 2.5 V in 250 mV steps.
     if (voltage < 2.5 || std::abs((voltage - 2.5) / 0.25 -
                                  std::round((voltage - 2.5) / 0.25)) > 0.001)
@@ -58,55 +56,45 @@ struct FakeBQ {
     sysmin = voltage;
     if (battery < sysmin) mppt = false;
     record("VSYSMIN", voltage);
-    return true;
   }
-  bool setChargeLimitV(float voltage) { vreg = voltage; record("VREG", voltage); return true; }
-  bool setChargeLimitA(float amps) { ichg = amps; record("ICHG", amps); return true; }
+  void setChargeLimitV(float voltage) { vreg = voltage; record("VREG", voltage); }
+  void setChargeLimitA(float amps) { ichg = amps; record("ICHG", amps); }
   bool setPrechargeLimitmA(uint16_t ma) {
     precharge_ma = static_cast<int>((ma / 40) * 40);
     record("IPRECHG", precharge_ma);
     return true;
   }
-  bool setChargeEnable(bool enabled) { charging = enabled; record("CHARGE", enabled); return true; }
-  bool setMPPTenable(bool enabled) {
+  void setChargeEnable(bool enabled) { charging = enabled; record("CHARGE", enabled); }
+  void setMPPTenable(bool enabled) {
     mppt = enabled && source_present && battery >= sysmin;
     record("MPPT", enabled);
-    return true;
   }
-  bool readReg(uint8_t address, uint8_t& value) {
-    if (address != BQ25798_REG_CHARGER_CONTROL_0)
-      throw std::runtime_error("Unexpected register read in sequencing fixture");
-    value = charging ? 0x20 : 0;
-    return true;
-  }
-  bool setThermRegulationThresh(int threshold) { treg = threshold; return true; }
-  bool setRechargeThreshOffsetV(float) { return true; }
-  bool setPrechargeTimerEnable(bool) { return true; }
-  bool setFastChargeTimerEnable(bool) { return true; }
-  bool setTsIgnore(bool) { return true; }
-  bool setWDT(int) { return true; }
-  bool setExtILIMpin(bool) { return true; }
-  bool setInputLimitA(float) { return true; }
-  bool setICOEnable(bool) { return true; }
-  bool setVOCdelay(int) { return true; }
-  bool setVOCrate(int) { return true; }
-  bool setVOCpercent(int) { return true; }
-  bool setAutoDPinsDetection(bool) { return true; }
-  bool setStatPinEnable(bool) { return true; }
-  bool setTsCool(int) { return true; }
-  bool setTsWarm(int) { return true; }
-  bool setJeitaVSet(int) { return true; }
-  bool setAutoIBATDIS(bool) { return true; }
+  void setThermRegulationThresh(int threshold) { treg = threshold; }
+  void setRechargeThreshOffsetV(float) {}
+  void setPrechargeTimerEnable(bool) {}
+  void setFastChargeTimerEnable(bool) {}
+  void setTsIgnore(bool) {}
+  void setWDT(int) {}
+  void setExtILIMpin(bool) {}
+  void setInputLimitA(float) {}
+  void setICOEnable(bool) {}
+  void setVOCdelay(int) {}
+  void setVOCrate(int) {}
+  void setVOCpercent(int) {}
+  void setAutoDPinsDetection(bool) {}
+  void setStatPinEnable(bool) {}
+  void setTsCool(int) {}
+  void setTsWarm(int) {}
+  void setJeitaVSet(int) {}
+  void setAutoIBATDIS(bool) {}
   void getTelemetryData(int) {}
 };
 
 class BoardConfigContainer {
  public:
 #include "production_declarations.inc"
-  static constexpr const char* CHARGEFAULTKEY = "chgFault";
   FakeBQ bq;
   bool bqInitialized = true;
-  bool chargeConfigurationFault = false;
   bool leds_enabled = false;
   bool mppt_wish = true;
   uint16_t imax_mA = 200;
@@ -115,11 +103,7 @@ class BoardConfigContainer {
   static const BatteryProperties* getBatteryProperties(BatteryType type);
   bool getMPPTEnabled() const { return mppt_wish; }
   uint16_t getMaxChargeCurrent_mA() const { return imax_mA; }
-  bool applyJeitaIgnore(const BatteryProperties*) { bq.record("JEITA", bq.ichg); return true; }
-  bool normalizeJeitaIgnore(const BatteryProperties*) { return true; }
-  bool verifyChargeConfiguration(const BatteryProperties*) { return true; }
-  bool disableCharging() { pinMode(BQ_CE_PIN, OUTPUT); ce_level = LOW; return bq.setChargeEnable(false); }
-  bool removeSetting(const char*) const { return true; }
+  void applyJeitaIgnore(const BatteryProperties*) { bq.record("JEITA", bq.ichg); }
 };
 
 #include "production_functions.inc"

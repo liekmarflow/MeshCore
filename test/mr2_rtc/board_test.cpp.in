@@ -32,8 +32,6 @@ constexpr int LOW = 0, HIGH = 1, INPUT = 0, OUTPUT = 1, INPUT_PULLUP = 2, FALLIN
 struct State {
   bool rtcOk = false;
   bool knownBattery = true;
-  bool chargeFault = false;
-  bool chargeRecoveryOk = true;
   bool alert = false;
   uint16_t voltage = 2500;
   uint32_t now = 0;
@@ -98,13 +96,6 @@ struct BoardConfigContainer {
   }
   BatteryType getBatteryType() { return state.knownBattery ? BAT_LIPO : BAT_UNKNOWN; }
   bool getMPPTEnabled() { return true; }
-  bool hasChargeConfigurationFault() { return state.chargeFault; }
-  bool recoverChargeConfiguration() {
-    event("chargerRecover");
-    if (!state.chargeRecoveryOk) return false;
-    state.chargeFault = false;
-    return true;
-  }
   void begin() { event("boardBegin"); }
   bool getStationAltitude(float&) { return false; }
   void setLowVoltageRecovery() { event("lowVoltageRecovery"); }
@@ -177,7 +168,7 @@ int main() {
   board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
   assertStillOperating();
   assert(count("rtc") == 1);
-  assert(state.events.size() == count("rtc") + count("chargerRecover"));
+  assert(state.events.size() == 1);
   assert(registers.GPREGRET2 == 0xa0);
 
   // Cold Low-V boot and failed wake/resleep both finish normal initialization.
@@ -192,46 +183,6 @@ int main() {
     assert(count("watchdog") == 1);
     assert(registers.GPREGRET2 == 0);
   }
-
-  // A retained charger-configuration fault bypasses both early sleep paths.
-  // Full board initialization must repair the BQ before it may sleep again.
-  for (bool wake : {false, true}) {
-    reset();
-    state.rtcOk = true;
-    state.chargeFault = true;
-    registers.GPREGRET2 = wake ? GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE : 0;
-    board.begin();
-    assertStillOperating();
-    assert(count("rtc") == 0);
-    assert(count("boardBegin") == 1);
-    assert(count("baseBegin") == 1);
-    assert(count("watchdog") == 1);
-    assert(registers.GPREGRET2 == 0);
-  }
-
-  // An RTC wake timer alone is insufficient after a charger setup fault.
-  reset();
-  state.rtcOk = true;
-  state.chargeFault = true;
-  state.chargeRecoveryOk = false;
-  registers.GPREGRET2 = 0xa0;
-  board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
-  assertStillOperating();
-  assert(count("chargerRecover") == 1);
-  assert(state.chargeFault);
-  assert(registers.GPREGRET2 == 0xa0);
-
-  // A successful checked recovery permits the ordinary runtime sleep path.
-  reset();
-  state.rtcOk = true;
-  state.chargeFault = true;
-  try { board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE); assert(false); }
-  catch (const SystemOff&) {}
-  assert(!state.chargeFault);
-  assert(count("chargerRecover") == 1);
-  assert(count("systemOff") == 1);
-  assert(std::find(state.events.begin(), state.events.end(), "chargerRecover") <
-         std::find(state.events.begin(), state.events.end(), "stopTasks"));
 
   // All three Low-V entries still sleep when the RTC was armed successfully.
   for (int path : {0, 1, 2}) {
@@ -328,5 +279,5 @@ int main() {
     assertStillOperating();
   }
 
-  puts("PASS: all three Low-V sleep gates, retained charger-fault interlock and recovery, abort before side effects, successful/user/thermal shutdown, retry cooldown and rollover");
+  puts("PASS: all three Low-V sleep gates, abort before side effects, successful/user/thermal shutdown, retry cooldown and rollover");
 }

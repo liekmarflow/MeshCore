@@ -76,8 +76,7 @@ void InheroMr2Board::begin() {
     MESH_DEBUG_PRINTLN("LV-Wake: VBAT=%dmV, wake=%dmV", vbat_mv, wake_threshold);
 
     bool voltageRecovered = vbat_mv != 0 && vbat_mv >= wake_threshold;
-    if (!voltageRecovered && !boardConfig.hasChargeConfigurationFault() &&
-        configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
+    if (!voltageRecovered && configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
       // Still too low or read failed, with a verified RTC wake source.
       // INA228 ADC needs shutdown (readVBATDirect left it in one-shot mode).
 
@@ -107,7 +106,7 @@ void InheroMr2Board::begin() {
       while (1) __WFE();
     }
 
-    // Voltage recovered, or RTC/charger needs initialization: normal boot.
+    // Voltage recovered OR RTC sleep preparation failed: continue normal boot.
     Wire.end();
 
     if (voltageRecovered) {
@@ -121,7 +120,7 @@ void InheroMr2Board::begin() {
       }
       MESH_DEBUG_PRINTLN("LV-Wake: Voltage recovered (%dmV >= %dmV) - normal boot", vbat_mv, wake_threshold);
     } else {
-      MESH_DEBUG_PRINTLN("LV-Wake: RTC/charger not ready - sleep aborted, continuing boot");
+      MESH_DEBUG_PRINTLN("LV-Wake: RTC wake failed - sleep aborted, continuing boot");
     }
 
     NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
@@ -210,8 +209,7 @@ void InheroMr2Board::begin() {
         }
       }
       // ColdBoot with voltage below sleep threshold — first entry into LV sleep
-      else if (vbat_mv < sleep_threshold && !boardConfig.hasChargeConfigurationFault() &&
-               configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
+      else if (vbat_mv < sleep_threshold && configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
         MESH_DEBUG_PRINTLN("ColdBoot below sleep threshold (%dmV < %dmV)", vbat_mv, sleep_threshold);
         MESH_DEBUG_PRINTLN("Going to sleep for %d min to avoid motorboating", LOW_VOLTAGE_SLEEP_MINUTES);
 
@@ -293,7 +291,7 @@ void InheroMr2Board::begin() {
         while (1) __WFE();
       }
       else if (vbat_mv < sleep_threshold) {
-        MESH_DEBUG_PRINTLN("ColdBoot: RTC/charger not ready - sleep aborted, continuing boot");
+        MESH_DEBUG_PRINTLN("ColdBoot: RTC wake failed - sleep aborted, continuing boot");
       }
       // Normal ColdBoot — voltage OK
       else {
@@ -469,12 +467,6 @@ void InheroMr2Board::initiateShutdown(uint8_t reason) {
   // shutting down the radio/sensors. A failed attempt leaves normal operation intact.
   if (reason == SHUTDOWN_REASON_LOW_VOLTAGE && !configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
     MESH_DEBUG_PRINTLN("PWRMGT: RTC wake failed - low-voltage sleep aborted");
-    return;
-  }
-  // CE restoration below must not bypass a charger configuration failure.
-  // Recover fully before shutdown, or leave normal operation available.
-  if (reason == SHUTDOWN_REASON_LOW_VOLTAGE && !boardConfig.recoverChargeConfiguration()) {
-    MESH_DEBUG_PRINTLN("PWRMGT: Charger setup failed - low-voltage sleep aborted");
     return;
   }
 

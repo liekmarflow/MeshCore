@@ -42,8 +42,6 @@ This guide walks you through commissioning and the most important CLI commands.
 - Defines charge parameters and low-voltage thresholds.
 - → [FAQ #1](FAQ.md#1-which-battery-chemistry-should-i-choose) | [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — Which battery chemistry should I choose?
 
-A change to a **different battery chemistry**, including to or from `none`, resets the battery and charging configuration: `imax` to 200 mA, MPPT off, `fmax` to 0%, and the user JEITA override off. Capacity returns to the chemistry default (1500 mAh for LiFePO4, otherwise 2000 mAh) and is no longer marked as explicitly set. SOC and battery history start again; SOC remains unknown until a new reference is established. Charge voltage and low-voltage thresholds follow the new chemistry. Set chemistry first, then capacity and charging parameters. Re-selecting the same chemistry and normal reboots preserve valid settings. LEDs, installation altitude and NTC calibration are retained.
-
 ## 7) Set Battery Capacity
 - Command: set board.batcap <mAh>
 - Example: set board.batcap 10000
@@ -73,10 +71,10 @@ A change to a **different battery chemistry**, including to or from `none`, rese
 - Command: set board.jeitaignore <1|0> — default 0.
 - Only for Li-ion and LiFePO4. LTO and Na-ion run without JEITA anyway and reject the command with `Err: This chemistry runs without JEITA (always 1)`.
 - With 1 the charger ignores the TS pin: charging continues below -2 °C, and the charger's upper cut-off at approx. +58 °C is dropped as well.
-- The override requires an explicitly set `board.batcap` and **`imax < 0.05C`**. Equality is rejected: at 10000 mAh, 450 mA passes and 500 mA fails. `set board.jeitaignore 1` returns `N/A, batcap not set` if capacity was not set, or `N/A, imax >=0,05C` if the current is too high. These gate refusals (`N/A, …`) change neither settings nor hardware and store no pending request. While the user override is on, an `imax` or `batcap` change that would violate the gate returns `N/A, jeitaignore=1` and leaves all existing values unchanged. Switch the override off first to make such a change; it never re-enables itself after a later parameter change.
-- The 0.05C ceiling holds for as long as the override is on, and it can sit well below what the panel delivers: a 4000 mAh pack requires less than 200 mA; the 2 W panel from step 8 gives about 480 mA.
+- Precondition: `board.batcap` must be set (step 7) and `board.imax` must be at or below 0.05C of that capacity (10000 mAh → 500 mA). Otherwise the reply names the blocker — `jeitaignore set to 1, N/A, batcap not set` or `jeitaignore set to 1, N/A, C>0.05`. The setting stays stored either way and takes effect on its own once imax or batcap pass.
+- The 0.05C ceiling holds for as long as the override is on, and it can sit well below what the panel delivers: a 4000 mAh pack allows 200 mA; the 2 W panel from step 8 gives about 480 mA.
 - Charging Li-ion or LiFePO4 in frost plates metallic lithium on the anode, cumulatively and permanently; it shows up later as lost capacity.
-- Enabling the override discards any custom `fmax` and stores the default 0%. While it is on, `get board.fmax` returns `N/A` and `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`. Switching from `jeitaignore 1` to `0` restores hardware JEITA with `fmax=0%`; no older frost setting returns. Repeating `set board.jeitaignore 0` while already off preserves a subsequently configured `fmax`. `get board.conf` appends ` J:1` while the user override is on.
+- While the override is on, `get board.fmax` reads N/A and `set board.fmax` is rejected with `Err: Fmax N/A while jeitaignore is on`.
 - → [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — cold charging, field evidence and the full trade
 
 ## 11) Enable MPPT
@@ -120,7 +118,7 @@ The `imax` values below are derived from the rule of thumb from section 8:
 ### Li-ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # chemistry: 1S Li-ion (sets charge profile + low-V thresholds)
-set board.batcap 10000   # pack capacity — SOC; override in step 10 requires imax < 500 mA
+set board.batcap 10000   # pack capacity — SOC, and the 0.05C ceiling for step 10 (→ 500 mA)
 set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
 set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA = 100 mA
 ```
@@ -128,7 +126,7 @@ set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA =
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # chemistry: 1S LiFePO4 (sets charge profile + low-V thresholds)
-set board.batcap 9000    # pack capacity — SOC; override in step 10 requires imax < 450 mA
+set board.batcap 9000    # pack capacity — SOC, and the 0.05C ceiling for step 10 (→ 450 mA)
 set board.imax 300       # max charge current — ≈ 1 W panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, rounded up for headroom)
 set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 300 mA = 120 mA
 ```
@@ -221,7 +219,7 @@ get board.conf
 - `get board.altitude` - Installation altitude for QNH, or `N/A (station pressure)`.
 - `get board.leds` - LED status (Heartbeat + BQ Stat).
 - `get board.batcap` - Battery capacity in mAh (set/default).
-- `get board.jeitaignore` — Accepted setting: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` for LTO/Na-ion; `N/A` for `none`.
+- `get board.jeitaignore` - Frost charging override: `jeitaignore 0`, `jeitaignore 1`, `jeitaignore 1 (chemistry)` for LTO/Na-ion, or the stored setting with its blocker (`jeitaignore 1, N/A, batcap not set` / `jeitaignore 1, N/A, C>0.05`).
 - `get board.telem` - Real-time telemetry (Battery/Solar incl. SOC, V/I/T). See [TELEMETRY.md](TELEMETRY.md) for what the app displays.
 - `get board.stats` - Energy balance (24h/3d/7d), charge/discharge breakdown and MPPT ratio.
 - `get board.cinfo` - Charger status (Charger State + Flags).

@@ -19,9 +19,6 @@ condition. Checks cover Na-ion at 2.63 V, LTO 2S at 4.9 V, repeated chemistry ch
 MPPT disabled, unknown chemistry, voltage below 2.5 V, an absent source, an
 uninitialized driver, LiFePO4 and Li-ion. They also check CE, register restoration
 order, preservation of the MPPT preference and the existing 60 C thermal setting.
-The JEITA normalization and full charger verification helpers are successful
-stubs in this sequencing model; `test/mr2_jeita` exercises their real production
-implementations, persistence, register readbacks and error handling separately.
 
 `--check-mutations` proves the suite rejects the old 2.75 V setting, removal of the
 post-CELL VSYSMIN restoration, and removal of the final MPPT enable request.
