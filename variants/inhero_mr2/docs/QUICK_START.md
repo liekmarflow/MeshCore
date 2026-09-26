@@ -54,7 +54,8 @@ A change to a **different battery chemistry**, including to or from `none`, rese
 - Command: set board.imax <mA>
 - Firmware range: 50 to 1500 mA (BQ25798 minimum: 50mA).
 - Choose to match your solar setup so currents fit the PG check.
-- Rule of thumb: panel power / panel voltage * 1.2
+- Rule of thumb: `imax (mA) ≈ panel power (W) ÷ nominal battery voltage (V) × 1.2 × 1000`
+- The nominal battery voltage is 3.7 V for Li-ion 1S, 3.2 V for LiFePO4 1S, 4.6 V for LTO 2S, and 3.1 V for Na-ion 1S. The factor 1000 converts A to mA. Panel voltage is not used in this formula.
 - → [FAQ #5 — Why set imax?](FAQ.md#5-why-is-it-important-to-set-the-maximum-charge-current-with-set-boardimax)
 
 ## 9) Set Frost Charge Current Reduction
@@ -74,7 +75,7 @@ A change to a **different battery chemistry**, including to or from `none`, rese
 - Only for Li-ion and LiFePO4. LTO and Na-ion run without JEITA anyway and reject the command with `Err: This chemistry runs without JEITA (always 1)`.
 - With 1 the charger ignores the TS pin: charging continues below -2 °C, and the charger's upper cut-off at approx. +58 °C is dropped as well.
 - The override requires an explicitly set `board.batcap` and **`imax < 0.05C`**. Equality is rejected: at 10000 mAh, 450 mA passes and 500 mA fails. `set board.jeitaignore 1` returns `N/A, batcap not set` if capacity was not set, or `N/A, imax >=0,05C` if the current is too high. These gate refusals (`N/A, …`) change neither settings nor hardware and store no pending request. While the user override is on, an `imax` or `batcap` change that would violate the gate returns `N/A, jeitaignore=1` and leaves all existing values unchanged. Switch the override off first to make such a change; it never re-enables itself after a later parameter change.
-- The 0.05C ceiling holds for as long as the override is on, and it can sit well below what the panel delivers: a 4000 mAh pack requires less than 200 mA; the 2 W panel from step 8 gives about 480 mA.
+- The 0.05C ceiling holds for as long as the override is on and can sit well below the calculated solar `imax`: a 4000 mAh pack requires less than 200 mA, whereas the rule of thumb gives about 650 mA for a 2 W panel with Li-ion 1S (3.7 V).
 - Charging Li-ion or LiFePO4 in frost plates metallic lithium on the anode, cumulatively and permanently; it shows up later as lost capacity.
 - Enabling the override discards any custom `fmax` and stores the default 0%. While it is on, `get board.fmax` returns `N/A` and `set board.fmax` is refused with `Err: Fmax N/A while jeitaignore is on`. Switching from `jeitaignore 1` to `0` restores hardware JEITA with `fmax=0%`; no older frost setting returns. Repeating `set board.jeitaignore 0` while already off preserves a subsequently configured `fmax`. `get board.conf` appends ` J:1` while the user override is on.
 - → [BATTERY_GUIDE.md](BATTERY_GUIDE.md) — cold charging, field evidence and the full trade
@@ -111,33 +112,35 @@ See [TELEMETRY.md](TELEMETRY.md) for details.
 - For solar operation, `set board.mppt 1` is recommended; for USB-only operation, MPPT can stay off.
 
 ## Example Values per Battery Chemistry (Starting Point)
-These values are safe starting points and should be adjusted to match battery, panel, and usage profile.
+These example values should be adjusted to match battery, panel, and usage profile.
 
 The `imax` values below are derived from the rule of thumb from section 8:
-**`imax ≈ panel power ÷ panel voltage × 1.2`** (e.g. 2 W ÷ 5 V × 1.2 ≈ 480 mA → round to 500).
+**`imax (mA) ≈ panel power (W) ÷ nominal battery voltage (V) × 1.2 × 1000`**
+
+Examples are rounded to 10 mA. Stay within the firmware range of 50–1500 mA and the battery's permitted charge current; the JEITA override additionally requires the 0.05C ceiling.
 `fmax` is given as a percentage of `imax` and only applies in the T-Cool zone (approx. -2 °C to +3 °C, see JEITA table in README).
 
 ### Li-ion 1S (3.7V nominal)
 ```bash
 set board.bat liion1s    # chemistry: 1S Li-ion (sets charge profile + low-V thresholds)
 set board.batcap 10000   # pack capacity — SOC; override in step 10 requires imax < 500 mA
-set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
-set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 500 mA = 100 mA
+set board.imax 650       # max charge current — 2 W panel ÷ 3.7 V nominal battery voltage × 1.2 × 1000 ≈ 649 mA → 650
+set board.fmax 20%       # T-Cool (approx. -2…+3 °C): cap at 20 % × 650 mA = 130 mA
 ```
 
 ### LiFePO4 1S (3.2V nominal)
 ```bash
 set board.bat lifepo1s   # chemistry: 1S LiFePO4 (sets charge profile + low-V thresholds)
 set board.batcap 9000    # pack capacity — SOC; override in step 10 requires imax < 450 mA
-set board.imax 300       # max charge current — ≈ 1 W panel @ 5 V (1 W ÷ 5 V × 1.2 ≈ 240 mA, rounded up for headroom)
-set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 300 mA = 120 mA
+set board.imax 380       # max charge current — 1 W panel ÷ 3.2 V nominal battery voltage × 1.2 × 1000 ≈ 375 mA → 380
+set board.fmax 40%       # T-Cool (approx. -2…+3 °C): cap at 40 % × 380 mA = 152 mA
 ```
 
 ### LTO 2S (2x 2.3V nominal)
 ```bash
 set board.bat lto2s      # chemistry: 2S LTO (sets charge profile + low-V thresholds)
 set board.batcap 10000   # pack capacity — for the SOC calculation
-set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 V × 1.2 = 720 mA → 700)
+set board.imax 780       # max charge current — 3 W panel ÷ 4.6 V nominal battery voltage × 1.2 × 1000 ≈ 783 mA → 780
                          # fmax is omitted: rejected for LTO (JEITA disabled — LTO charges even at frost)
 ```
 
@@ -145,7 +148,7 @@ set board.imax 700       # max charge current — ≈ 3 W panel @ 5 V (3 W ÷ 5 
 ```bash
 set board.bat naion1s    # chemistry: 1S Na-ion (sets charge profile + low-V thresholds)
 set board.batcap 10000   # pack capacity — for the SOC calculation
-set board.imax 500       # max charge current — ≈ 2 W panel @ 5 V (2 W ÷ 5 V × 1.2 ≈ 480 mA)
+set board.imax 770       # max charge current — 2 W panel ÷ 3.1 V nominal battery voltage × 1.2 × 1000 ≈ 774 mA → 770
                          # fmax is omitted: rejected for Na-ion (JEITA disabled)
 ```
 

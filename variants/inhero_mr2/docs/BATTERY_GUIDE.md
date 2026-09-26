@@ -411,14 +411,18 @@ Set `board.batcap` to **90% of nominal capacity**. The Inhero MR2 uses conservat
 
 ## 6. Solar Charging Considerations
 
-**Maximum charge current formula:** `I_charge (mA) = Panel power (W) / Nominal battery voltage (V)`
+**Rule of thumb for maximum charge current:** `imax (mA) ≈ panel power (W) ÷ nominal battery voltage (V) × 1.2 × 1000`
 
-| Chemistry | Panel | Charge Current | `set board.imax` |
+The nominal battery voltage is 3.7 V for Li-ion 1S, 3.2 V for LiFePO4 1S, 4.6 V for LTO 2S, and 3.1 V for Na-ion 1S. The factor 1000 converts A to mA. Panel voltage is not used in this formula.
+
+Examples are rounded to 10 mA. Stay within the firmware range of 50–1500 mA and the battery's permitted charge current; the JEITA override additionally requires the 0.05C ceiling.
+
+| Chemistry | Panel | Calculated `imax` | `set board.imax` |
 |---|---|---|---|
-| Li-ion (3.7 V) | 2 W | 540 mA | `set board.imax 540` |
-| LiFePO4 (3.2 V) | 1 W | 310 mA | `set board.imax 310` |
-| LTO (4.6 V) | 5 W | 1090 mA | `set board.imax 1090` |
-| Na-ion (3.1 V) | 3 W | 970 mA | `set board.imax 970` |
+| Li-ion (3.7 V) | 2 W | ≈ 649 mA | `set board.imax 650` |
+| LiFePO4 (3.2 V) | 1 W | ≈ 375 mA | `set board.imax 380` |
+| LTO (4.6 V) | 5 W | ≈ 1304 mA | `set board.imax 1300` |
+| Na-ion (3.1 V) | 3 W | ≈ 1161 mA | `set board.imax 1160` |
 
 **Panel sizing guidelines:**
 - The Inhero MR2 consumes ~7.6 mA @ 3.3 V idle, **measured ~12.3 mA typical** (~0.98 Wh/day), worst case ~19.8 mA at full EU868 g3 10% duty cycle (~1.57 Wh/day)
