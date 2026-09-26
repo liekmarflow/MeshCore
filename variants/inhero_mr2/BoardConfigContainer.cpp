@@ -18,6 +18,7 @@
 #include <MeshCore.h>
 
 #include "helpers/Watchdog.h"
+#include "helpers/Rv3028Wake.h"
 #include <nrf_soc.h>  // For NRF_POWER (GPREGRET2)
 
 #if ENV_INCLUDE_BME280
@@ -449,25 +450,35 @@ bool BoardConfigContainer::probeRtc() {
   if (Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1) return false;
   uint8_t saved = Wire.read();
 
+  bool verified = true;
   for (uint8_t pat : {0xA5, 0x5A}) {
     Wire.beginTransmission(0x52);
     Wire.write(0x1F);
     Wire.write(pat);
-    if (Wire.endTransmission() != 0) return false;
+    if (Wire.endTransmission() != 0) {
+      verified = false;
+      break;
+    }
 
     Wire.beginTransmission(0x52);
     Wire.write(0x1F);
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1) return false;
-    if (Wire.read() != pat) return false;
+    if (Wire.endTransmission(false) != 0 ||
+        Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1 || Wire.read() != pat) {
+      verified = false;
+      break;
+    }
   }
 
-  // Restore original byte
+  // Attempt to restore even after a failed pattern, and verify the restore too.
   Wire.beginTransmission(0x52);
   Wire.write(0x1F);
   Wire.write(saved);
-  Wire.endTransmission();
-  return true;
+  if (Wire.endTransmission() != 0) return false;
+  Wire.beginTransmission(0x52);
+  Wire.write(0x1F);
+  if (Wire.endTransmission(false) != 0 ||
+      Wire.requestFrom((uint8_t)0x52, (uint8_t)1) != 1 || Wire.read() != saved) return false;
+  return verified;
 }
 
 namespace {
@@ -720,12 +731,13 @@ bool BoardConfigContainer::begin() {
   }
 
   // === RV-3028 RTC Initialization ===
-  // Address probe + user-RAM write/readback test (catches "zombie" RTCs that
-  // ACK on bus but reject writes — see probeRtc() for details).
-  // Retry up to 3 times — after OTA/warm-reset the I2C bus may need recovery.
+  // Apply the MR2 single-supply settings before reporting boot self-test status.
+  // Initialization checks each write and can recover the bus after a warm reset.
+  // Also test user RAM; retry a failed test after bus recovery.
   bool rtc_initialized = false;
-  for (int attempt = 0; attempt < 3; attempt++) {
-    if (probeRtc()) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    if (attempt != 0 && !inhero::recoverRtcBus()) break;
+    if (inhero::initializeRtc() && probeRtc()) {
       rtc_initialized = true;
       MESH_DEBUG_PRINTLN("RV-3028 RTC OK (attempt %d)", attempt + 1);
       if (leds_enabled) {
@@ -737,7 +749,6 @@ bool BoardConfigContainer::begin() {
       break;
     }
     MESH_DEBUG_PRINTLN("RV-3028 RTC self-test failed (attempt %d)", attempt + 1);
-    delay(20);
   }
 
   // === MR2 Configuration ===
@@ -1874,6 +1885,7 @@ void BoardConfigContainer::armLowVoltageAlert(BatteryType bat_type) {
   // Keep the software check active even if configuring the hardware alert fails.
   lowVoltageSleepMv = sleep_mv;
   lastLowVoltageMs = millis();
+  lowVoltageSleepAttempted = false;
   bool buvl_ok = ina228DriverInstance->setUnderVoltageAlert(sleep_mv);
   ina228DriverInstance->enableAlert(true, false, true);  // active-LOW, LATCHED
 
@@ -2276,15 +2288,30 @@ void BoardConfigContainer::tickPeriodic() {
     }
   }
 
-  // Check low-voltage alert flag (set by ISR, pin level, or voltage fallback)
-  if (lowVoltageAlertFired) {
+  // A failed RTC preparation returns without stopping normal operation. Limit
+  // subsequent attempts so CLI, telemetry and charging continue to be serviced.
+  bool sleepAttemptDue = !lowVoltageSleepAttempted || now - lastLowVoltageSleepAttemptMs >= 60000UL;
+  if (lowVoltageAlertFired && lowVoltageSleepAttempted && sleepAttemptDue && ina228DriverInstance) {
+    // The alert may have latched during the cooldown while the battery has since
+    // recovered. Recheck before retrying sleep; a failed read must not clear it.
+    uint16_t vbat_mv = ina228DriverInstance->readVoltage_mV();
+    if (vbat_mv > 0 && vbat_mv >= lowVoltageSleepMv) {
+      lowVoltageAlertFired = false;
+      ina228DriverInstance->clearAlert();
+    }
+  }
+  if (lowVoltageAlertFired && sleepAttemptDue) {
+    lowVoltageSleepAttempted = true;
+    lastLowVoltageSleepAttemptMs = now;
     MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired - initiating System Sleep");
     blinkRed(1, 100, 100, leds_enabled);
     blinkRed(3, 300, 300, leds_enabled);
 
-    NRF_POWER->GPREGRET2 |= GPREGRET2_LOW_VOLTAGE_SLEEP;
     board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
-    // Never returns
+    // Returned: RTC could not be armed, so sleep was aborted. A fresh alert or
+    // voltage sample must request the next attempt; do not retain a stale trip.
+    lowVoltageAlertFired = false;
+    if (ina228DriverInstance) ina228DriverInstance->clearAlert();
   }
 
   // Every ~60s: MPPT cycle (solar charging control)

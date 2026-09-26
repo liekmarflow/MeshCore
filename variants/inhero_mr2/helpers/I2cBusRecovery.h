@@ -8,10 +8,10 @@
 
 namespace inhero {
 
-// Manually toggles SCL (up to 9 clocks) to release a slave that holds SDA low
-// after OTA/warm-reset. Generates a STOP after recovery. Wire.begin() cannot
-// do this on its own. Pins are released back to INPUT before returning so the
-// Wire library can take them over.
-void recoverI2cBus(uint8_t sda, uint8_t scl);
+// Call with the I2C peripheral disabled. Uses only LOW outputs and released
+// inputs, up to nine clocks, and a bounded wait for SCL. Always attempts a
+// STOP, including when SDA was already HIGH. Returns true only for an idle
+// bus; both pins are restored to INPUT on every return path.
+bool recoverI2cBus(uint8_t sda, uint8_t scl);
 
 } // namespace inhero

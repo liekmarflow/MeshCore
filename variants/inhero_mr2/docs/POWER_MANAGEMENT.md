@@ -683,6 +683,7 @@ or
 
 ### Countdown Timer Configuration
 **Method**: `configureRTCWake()` in `InheroMr2Board.cpp`
+- Returns success only after verified RTC configuration and timer readback.
 - **Tick Rate**: 1/60 Hz (1 minute per tick), configured via TD=11 in CTRL1
 - **Max Countdown**: 4095 minutes ≈ 2.8 days (12-bit timer register)
 - **Low-Voltage Sleep Interval**: `LOW_VOLTAGE_SLEEP_MINUTES` = 60 min (1h)
@@ -697,21 +698,44 @@ RV3028_TIMER_VALUE_0 (0x0A): Countdown value LSB
 RV3028_TIMER_VALUE_1 (0x0B): Countdown value MSB (upper 4 bits)
 ```
 
+### RTC errors and sleep cancellation
+
+The MR2 connects RTC VDD directly to 3.3 V and VBACKUP through R25 (10 kΩ)
+to the same rail. MR2 initialization disables backup switching and the trickle
+charger, preserves the current frequency calibration bit, and disables CLKOUT.
+The configuration is applied to the RAM mirrors; recovery does not write EEPROM.
+EERD remains set to disable the daily EEPROM refresh, so it cannot restore old
+backup settings during operation or sleep. The normal power-on refresh still
+loads the EEPROM calibration. A calibration bit already overwritten in RAM by
+older firmware is not automatically repaired by this initialization.
+Sleep preparation disables other RTC interrupt
+sources and enables only the countdown interrupt.
+
+Initialization and wake-timer programming check I2C results and register readback.
+On failure, one bus recovery and complete retry are attempted: stop Wire, release
+the bus using open-drain clock pulses and a STOP, then restart Wire. This is bus
+recovery, not a full RTC reset. A blocked SCL or SDA line causes recovery to fail.
+
+If the wake timer still cannot be verified, **low-voltage sleep is cancelled**.
+This applies to cold boot, low-voltage wake and shutdown during normal operation.
+The check runs before stopping tasks or shutting down the radio and sensors.
+Boot continues, or the running main loop resumes; no alternative sleep mode is
+entered and no low-voltage shutdown flag is saved for the failed attempt.
+During normal operation, further low-voltage sleep attempts are limited to once
+per minute, so CLI, telemetry and charging control remain available.
+
 ### Interrupt Handler
 **Method**: `rtcInterruptHandler()` — only sets `rtc_irq_pending = true`.
 
-The actual TF clear happens in main loop context in `tick()` via I2C (read-modify-write, clears only the TF bit):
+The actual TF clear happens in main loop context in `tick()` via the checked
+`inhero::clearTimerFlag()` helper. It preserves other status flags, attempts bus
+recovery on failure, and leaves the IRQ pending for another attempt after one
+second if clearing still fails:
 ```cpp
 // In InheroMr2Board::tick() — main loop context:
-if (rtc_irq_pending) {
+if (rtc_irq_pending && retryDue) {
   rtc_irq_pending = false;
-  // Read RV3028_REG_STATUS ...
-  uint8_t status = Wire.read();
-  status &= ~(1 << 3);  // Clear TF bit only → INT pin goes HIGH via pull-up
-  Wire.beginTransmission(RTC_I2C_ADDR);
-  Wire.write(RV3028_REG_STATUS);
-  Wire.write(status);   // write back — other status flags stay untouched
-  Wire.endTransmission();
+  if (!inhero::clearTimerFlag()) rtc_irq_pending = true;
 }
 ```
 

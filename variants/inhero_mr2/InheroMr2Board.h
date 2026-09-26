@@ -57,7 +57,8 @@ public:
   uint16_t getBattMilliVolts() override;
 
   void initiateShutdown(uint8_t reason);
-  void configureRTCWake(uint32_t minutes);
+  // Returns false if the wake timer cannot be armed and verified; do not sleep.
+  bool configureRTCWake(uint32_t minutes);
   uint16_t getLowVoltageSleepThreshold();
   uint16_t getLowVoltageWakeThreshold();
 
