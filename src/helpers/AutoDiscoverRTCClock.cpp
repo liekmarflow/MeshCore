@@ -2,9 +2,6 @@
 #include "RTClib.h"
 #include <Melopero_RV3028.h>
 #include "RTC_RX8130CE.h"
-#if defined(INHERO_MR2)
-#include <helpers/Rv3028Wake.h>
-#endif
 
 static RTC_DS3231 rtc_3231;
 static bool ds3231_success = false;
@@ -36,14 +33,6 @@ void AutoDiscoverRTCClock::begin(TwoWire& wire) {
   }
   #endif
 
-#if defined(INHERO_MR2)
-  // MR2 uses one supply for VDD and VBACKUP. Its checked initialization
-  // disables backup switching and can recover the bus before probing again.
-  rv3028_success = inhero::initializeRtc();
-  if (rv3028_success) {
-    rtc_rv3028.initI2C(wire);
-  }
-#else
   if (i2c_probe(wire, RV3028_ADDRESS)) {
     rtc_rv3028.initI2C(wire);
     rtc_rv3028.writeToRegister(0x35, 0x00);
@@ -51,7 +40,6 @@ void AutoDiscoverRTCClock::begin(TwoWire& wire) {
     rtc_rv3028.set24HourMode(); // Set the device to use the 24hour format (default) instead of the 12 hour format
     rv3028_success = true;
   }
-#endif
 
   if (i2c_probe(wire, PCF8563_ADDRESS)) {
     MESH_DEBUG_PRINTLN("PCF8563: Found");

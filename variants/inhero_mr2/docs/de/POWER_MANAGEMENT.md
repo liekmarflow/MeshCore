@@ -677,7 +677,6 @@ oder
 
 ### Countdown-Timer Konfiguration
 **Methode**: `configureRTCWake()` in `InheroMr2Board.cpp`
-- Meldet Erfolg erst nach geprüfter RTC-Konfiguration und Timer-Readback.
 - **Tick-Rate**: 1/60 Hz (1 Minute pro Tick), konfiguriert via TD=11 in CTRL1
 - **Max. Countdown**: 4095 Minuten ≈ 2,8 Tage (12-bit-Timer-Register)
 - **Low-Voltage-Sleep-Intervall**: `LOW_VOLTAGE_SLEEP_MINUTES` = 60 min (1h)
@@ -692,47 +691,21 @@ RV3028_TIMER_VALUE_0 (0x0A): Countdown value LSB
 RV3028_TIMER_VALUE_1 (0x0B): Countdown value MSB (upper 4 bits)
 ```
 
-### RTC-Fehler und Sleep-Abbruch
-
-Beim MR2 liegt RTC-VDD direkt an 3,3 V und VBACKUP über R25 (10 kΩ) an derselben
-Versorgung. Die MR2-Initialisierung deaktiviert Backup-Umschaltung, Trickle-Charger
-und CLKOUT und erhält das aktuell vorhandene Bit der Frequenzkalibrierung.
-Die Konfiguration erfolgt in den RAM-Spiegelregistern; die Recovery schreibt kein
-EEPROM. EERD bleibt gesetzt und deaktiviert den täglichen EEPROM-Refresh, damit
-dieser im Betrieb oder Schlaf keine alten Backup-Einstellungen wiederherstellt.
-Der normale Power-on-Refresh lädt weiterhin die Kalibrierung aus dem EEPROM.
-Ein durch ältere Firmware bereits im RAM überschriebenes Kalibrierungsbit wird
-durch diese Initialisierung nicht automatisch repariert.
-Die Schlafvorbereitung deaktiviert andere RTC-Interruptquellen und aktiviert
-nur den Countdown-Interrupt.
-
-Initialisierung und Wake-Timer prüfen I2C-Ergebnisse und lesen Register zurück.
-Bei einem Fehler folgen einmalig Bus-Recovery und vollständige Wiederholung:
-Wire stoppen, den Bus durch Open-Drain-Taktimpulse und STOP freigeben und Wire
-neu starten. Das ist eine Bus-Recovery, kein vollständiger RTC-Reset. Bleibt SCL
-oder SDA blockiert, schlägt die Recovery fehl.
-
-Ist der Wake-Timer weiterhin nicht verifizierbar, **wird Low-Voltage-Sleep
-abgebrochen**. Das gilt beim Kaltstart, beim Low-Voltage-Wake und im laufenden
-Betrieb. Die Prüfung erfolgt vor dem Stoppen der Tasks und dem Abschalten von
-Radio und Sensoren. Der Boot beziehungsweise die normale Main-Loop läuft weiter;
-es gibt keinen Ersatz-Sleep und keinen gespeicherten Low-V-Shutdown-Marker für
-den fehlgeschlagenen Versuch. Im laufenden Betrieb wird höchstens einmal pro
-Minute erneut versucht, in Low-V-Sleep zu gehen, damit CLI, Telemetrie und
-Laderegelung bedienbar bleiben.
-
 ### Interrupt Handler
 **Methode**: `rtcInterruptHandler()` — setzt nur `rtc_irq_pending = true`.
 
-Der eigentliche TF-Clear erfolgt im Main-Loop-Kontext in `tick()` durch
-`inhero::clearTimerFlag()`. Der Helper erhält andere Status-Flags, versucht bei
-Fehlern eine Bus-Recovery und lässt bei weiterem Fehlschlag den IRQ für einen
-erneuten Versuch nach einer Sekunde vorgemerkt:
+Der eigentliche TF-Clear passiert im Main-Loop-Kontext in `tick()` per I2C (Read-Modify-Write, nur das TF-Bit wird gelöscht):
 ```cpp
 // In InheroMr2Board::tick() — Main-Loop-Kontext:
-if (rtc_irq_pending && retryDue) {
+if (rtc_irq_pending) {
   rtc_irq_pending = false;
-  if (!inhero::clearTimerFlag()) rtc_irq_pending = true;
+  // RV3028_REG_STATUS lesen ...
+  uint8_t status = Wire.read();
+  status &= ~(1 << 3);  // Nur TF-Bit löschen → INT-Pin geht via Pull-Up wieder HIGH
+  Wire.beginTransmission(RTC_I2C_ADDR);
+  Wire.write(RV3028_REG_STATUS);
+  Wire.write(status);   // zurückschreiben — die übrigen Status-Flags bleiben erhalten
+  Wire.endTransmission();
 }
 ```
 
