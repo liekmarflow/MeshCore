@@ -20,6 +20,10 @@ all three Low-V entry points: an unavailable RTC continues normal boot or aborts
 before shutdown side effects; a verified RTC permits sleep. It also covers user
 and thermal shutdown, a 60-second retry interval across the `millis()` rollover,
 and voltage recovery or failed voltage reads during that interval.
+The retained charger-fault interlock prevents both early boot sleep paths;
+runtime sleep proceeds only after successful checked charger recovery, with no
+shutdown side effects when recovery fails. The actual interlock persistence and
+charger recovery implementations are tested separately in `test/mr2_jeita`.
 
 These tests verify control flow and modeled I2C/GPIO behavior. Actual RTC reset
 recovery, shared-bus electrical timing, and timer wake after SYSTEMOFF still need

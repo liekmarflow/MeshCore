@@ -26,6 +26,9 @@ typedef struct {
   bool usingRTC;
   uint32_t currentHourEnergy_mWh;
   int32_t lastPower_mW;
+  bool initialized;
+  bool lastMpptStatus;
+  uint32_t lastHourCheck;
 } MpptStatistics;
 
 // Battery SOC: mAh-based, uses INA228 hardware coulomb counter (CHARGE register)
@@ -78,6 +81,8 @@ typedef struct {
   uint16_t soc_update_count;
   float temp_derating_factor;     // 0.0–1.0
   float last_battery_temp_c;
+  bool charge_history_initialized;
+  uint8_t done_streak;
 } BatterySOCStats;
 
 class BoardConfigContainer {
@@ -260,17 +265,18 @@ public:
   float performTcCalibration(float* bme_temp_out = nullptr);
   static float readBmeTemperature();
 
-  // JEITA override (board.jeitaignore). The stored value is the USER WISH and
-  // only exists for needs_jeita chemistries; the effective state is derived on
-  // every chemistry apply: forced on when the chemistry needs no JEITA,
-  // otherwise wish AND 0.05C gate. The wish survives a failed gate — it
-  // re-arms as soon as imax/batcap pass again.
-  bool setJeitaIgnoreWish(bool on);    // store wish, re-derive, program the BQ
-  bool getJeitaIgnoreWish() const;     // stored wish (default false)
+  // Accepted user override, never a deferred request. Chemistry bypass is
+  // reported separately by isJeitaIgnoreActive(). Invalid legacy flags clear
+  // during boot; later current/capacity changes must preserve the strict gate.
+  bool setJeitaIgnore(bool on);
+  bool getJeitaIgnoreEnabled() const;
   bool isJeitaIgnoreActive() const { return jeitaIgnoreActive; }
-  bool jeitaIgnoreGateOk() const;      // batcap user-set AND imax <= 0.05C
-  static float jeitaIgnoreLimit_mA(float capacity_mah) { return 0.05f * capacity_mah; }
-  bool applyJeitaIgnore();             // re-derive for the current chemistry
+  bool jeitaIgnoreGateOk() const;      // batcap user-set AND imax < 0.05C
+  static bool isJeitaIgnoreCurrentAllowed(uint16_t imax_mA, float capacity_mah);
+  bool applyJeitaIgnore();             // returns programming success
+  // Runtime shutdown/retry guard; call only after begin() initialized the BQ.
+  bool recoverChargeConfiguration();
+  bool hasChargeConfigurationFault() const;
 
   // INA228 ALERT on P1.02 (Rev 1.1)
   void armLowVoltageAlert(BatteryType type);
@@ -311,6 +317,7 @@ private:
   static BatteryType cachedBatteryType;
 
   bool bqInitialized = false;
+  bool chargeConfigurationFault = false;  // CE held low until a full checked reconfiguration succeeds
   bool ina228Initialized = false;
   bool lowVoltageRecovery = false;  // Set in begin() if booting from low-voltage sleep (GPREGRET2)
   static bool leds_enabled;  // Heartbeat and BQ stat LED control (static for ISR access)
@@ -342,11 +349,18 @@ private:
   static constexpr const char* LEDSKEY = "leds_en";
   static constexpr const char* BATTERY_CAPACITY_KEY = "batCap";
   static constexpr const char* TCCAL_KEY = "tcCal";              // NTC temperature calibration offset
-  static constexpr const char* JEITAIGNKEY = "jeitaIgn";         // JEITA override user wish
+  static constexpr const char* JEITAIGNKEY = "jeitaIgn";         // accepted JEITA user override
+  static constexpr const char* CHARGEFAULTKEY = "chgFault";     // unfinished/failed charger reconfiguration
   static constexpr const char* ALTITUDEKEY = "altitude";         // BME280 installation altitude (m)
 
   bool applyJeitaIgnore(const BatteryProperties* props);  // derive + program TS_IGNORE/ISETC/ISETH
-  bool loadJeitaIgnoreWish(bool& on) const;
+  bool loadJeitaIgnoreEnabled(bool& on) const;
+  bool normalizeJeitaIgnore(const BatteryProperties* props);
+  bool disableCharging();
+  bool verifyChargeConfiguration(const BatteryProperties* props);
+  void resetBatteryStatistics(BatteryType type);
+  bool storeSetting(const char* key, const char* value) const;
+  bool removeSetting(const char* key) const;
   bool loadBatType(BatteryType& type) const;
   bool loadFrost(FrostChargeBehaviour& behaviour) const;
   bool loadMaxChrgI(uint16_t& maxCharge_mA) const;
