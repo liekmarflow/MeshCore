@@ -298,6 +298,8 @@ private:
   uint32_t lastMpptMs = 0;
   uint32_t lastSocMs = 0;
   uint32_t lastLowVoltageMs = 0;
+  uint32_t lastLowVoltageSleepAttemptMs = 0;
+  bool lowVoltageSleepRetryPending = false;  // RTC failure: retry at most once/minute
   uint32_t lastHourlyMs = 0;       // Last updateHourlyStats() execution
   bool tickInitialized = false;    // First-call init flag for MPPT stats
 

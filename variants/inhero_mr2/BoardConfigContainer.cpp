@@ -1895,6 +1895,7 @@ float BoardConfigContainer::readBmeTemperature() {
 // Fires → ISR → flag → tickPeriodic() → System Sleep. BAT_UNKNOWN = disabled.
 void BoardConfigContainer::armLowVoltageAlert(BatteryType bat_type) {
   disarmLowVoltageAlert();
+  lowVoltageSleepRetryPending = false;
   if (!ina228DriverInstance) {
     return;
   }
@@ -2295,7 +2296,24 @@ void BoardConfigContainer::tickPeriodic() {
 
   uint32_t now = millis();
 
-  if (lowVoltageSleepMv != 0 && ina228DriverInstance) {
+  if (lowVoltageSleepMv != 0 && ina228DriverInstance && lowVoltageSleepRetryPending) {
+    // An aborted sleep leaves all hardware running. Bound RTC retries and do
+    // not act later on an old latched alert after the voltage has recovered.
+    if (now - lastLowVoltageSleepAttemptMs >= 60000UL) {
+      lastLowVoltageSleepAttemptMs = now;
+      lowVoltageAlertFired = false;
+      ina228DriverInstance->clearAlert();
+      uint16_t vbat_mv = ina228DriverInstance->readVoltage_mV();
+      if (vbat_mv > 0 && vbat_mv < lowVoltageSleepMv) {
+        lowVoltageSleepRetryPending = false;
+        lowVoltageAlertFired = true;
+      } else if (vbat_mv >= lowVoltageSleepMv && digitalRead(INA_ALERT_PIN) == HIGH) {
+        lowVoltageSleepRetryPending = false;
+        lowVoltageAlertFired = false;
+      }
+      // An unreadable voltage or uncleared latch keeps the bounded retry mode.
+    }
+  } else if (lowVoltageSleepMv != 0 && ina228DriverInstance) {
     if (digitalRead(INA_ALERT_PIN) == LOW) {
       lowVoltageAlertFired = true;
     }
@@ -2313,14 +2331,17 @@ void BoardConfigContainer::tickPeriodic() {
   }
 
   // Check low-voltage alert flag (set by ISR, pin level, or voltage fallback)
-  if (lowVoltageAlertFired) {
+  if (lowVoltageAlertFired && !lowVoltageSleepRetryPending) {
     MESH_DEBUG_PRINTLN("PWRMGT: Low-voltage alert fired - initiating System Sleep");
     blinkRed(1, 100, 100, leds_enabled);
     blinkRed(3, 300, 300, leds_enabled);
 
-    NRF_POWER->GPREGRET2 |= GPREGRET2_LOW_VOLTAGE_SLEEP;
     board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE);
-    // Never returns
+    // Returns only when RTC wake could not be verified, before any shutdown.
+    lastLowVoltageSleepAttemptMs = millis();
+    lowVoltageSleepRetryPending = true;
+    lowVoltageAlertFired = false;
+    if (ina228DriverInstance) ina228DriverInstance->clearAlert();
   }
 
   // Every ~60s: MPPT cycle (solar charging control)

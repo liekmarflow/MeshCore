@@ -76,6 +76,7 @@ The system combines **INA228 ALERT-based low-voltage detection** + **System Slee
 
 ### Implementation (Rev 1.1 — Flag/Tick Architecture)
 - **Trigger**: INA228 BUVL (Bus Under-Voltage Limit) ALERT on P1.02
+- **Filtering**: `SLOWALERT=1` makes the hardware alarm compare the completed ADC average. With 256 samples and the configured conversion times, a full averaging cycle takes about 1.72 s. This filters brief dips; it is not a fixed minimum time below the threshold.
 - **ISR**: `BoardConfigContainer::lowVoltageAlertISR()` → sets `lowVoltageAlertFired = true` (flag only, no FreeRTOS call)
 - **Processing**: `tickPeriodic()` checks the ISR flag and ALERT pin level in the main loop → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`
 - **Fallback**: Once per second, the averaged INA228 battery voltage is checked against the active sleep threshold, independently of SOC and CLI requests. A failed read (0 mV) is ignored. Detection also includes ADC averaging time and the shutdown sequence.
@@ -94,8 +95,9 @@ tickPeriodic()  [Main loop context, next tick()]
         │ Checks lowVoltageAlertFired == true
         ▼
 board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)
+        │ Verify RTC timer and INT HIGH; abort before shutdown on failure
         │ CE latched HIGH (GPIO latch preserved → FET ON → CE LOW → charging stays ON)
-        │ RTC wake configured (LOW_VOLTAGE_SLEEP_MINUTES = 60)
+        │ RTC wake interval: LOW_VOLTAGE_SLEEP_MINUTES = 60
         │ GPREGRET2 → LOW_VOLTAGE_SLEEP flag
         ▼
 sd_power_system_off() → System Sleep with GPIO latch (< 500µA)
@@ -645,7 +647,7 @@ or
 ## 6. RTC Wakeup Management
 
 ### RV-3028-C7 Integration
-MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply. Initialization reads EEPROM byte `0x37` and computes `(stored & 0x83) | 0x10`: `BSM=00`, `TCE=0`, `BSIE=0`, `FEDE=1`, preserving EEOffset[0] and TCR. Only a differing byte is programmed and read back; other EEPROM bytes remain untouched. The RAM mirror is also set and verified. EERD temporarily blocks refresh during access and is cleared afterwards; wake-timer Control 1 values are `0x00` / `0x07`. After successful programming, subsequent POR refreshes load the board configuration automatically. Sleep decisions are unchanged. The sequence uses the single-byte commands and delays in sections 4.6.5–4.6.7 of the [RV-3028-C7 application manual](https://www.microcrystal.com/fileadmin/Media/Products/RTC/App.Manual/RV-3028-C7_App-Manual.pdf).
+MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply. Initialization reads EEPROM byte `0x37` and computes `(stored & 0x83) | 0x10`: `BSM=00`, `TCE=0`, `BSIE=0`, `FEDE=1`, preserving EEOffset[0] and TCR. Only a differing byte is programmed and read back; other EEPROM bytes remain untouched. The RAM mirror is also set and verified. EERD temporarily blocks refresh during access and is cleared afterwards; wake-timer Control 1 values are `0x00` / `0x07`. After successful programming, subsequent POR refreshes load the board configuration automatically. The EEPROM configuration does not change the voltage thresholds. The sequence uses the single-byte commands and delays in sections 4.6.5–4.6.7 of the [RV-3028-C7 application manual](https://www.microcrystal.com/fileadmin/Media/Products/RTC/App.Manual/RV-3028-C7_App-Manual.pdf).
 
 **Pin**: GPIO17 (WB_IO1) → RTC INT
 **Init**: `InheroMr2Board::begin()`
@@ -657,6 +659,8 @@ MR2 has no backup battery: VDD and VBACKUP share the 3.3 V supply. Initializatio
 - **Tick Rate**: 1/60 Hz (1 minute per tick), configured via TD=11 in CTRL1
 - **Max Countdown**: 4095 minutes ≈ 2.8 days (12-bit timer register)
 - **Low-Voltage Sleep Interval**: `LOW_VOLTAGE_SLEEP_MINUTES` = 60 min (1h)
+- **Verification**: Every timer write must succeed. Readback checks that the timer stopped, TF cleared, the preset was stored, and the final timer/interrupt controls are enabled. The board also requires RTC INT HIGH. On failure, it performs one existing I2C bus recovery and one retry.
+- **Failure behavior**: All three low-voltage sleep paths check this result before shutting down sensors or the radio. Failure leaves runtime operation intact or completes normal boot. The main loop retries at most once per minute, requiring a fresh valid voltage below the sleep threshold; a recovered voltage with a released INA ALERT restores normal monitoring. A failed voltage read cannot authorize a retry.
 - **Rationale**: Each wake is a System-ON reset with an early-boot fast path (minimal I2C: clear RTC TF, read VBAT, re-sleep) costing only ~0.03 mAh
 
 **Registers**:
@@ -700,6 +704,8 @@ The ISR only sets the flag; `tick()` checks it in the main loop.
 
 **Flow:** INA228 ALERT ISR → Flag → tickPeriodic() → `board.initiateShutdown(SHUTDOWN_REASON_LOW_VOLTAGE)`:
 
+**Before any shutdown step:** `configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)` must verify the 60-minute wake timer and released INT pin. If this fails, return to normal operation without stopping tasks, sensors or the radio, and without storing a sleep marker.
+
 1. **Stop Background Tasks**: `BoardConfigContainer::stopBackgroundTasks()`
    - Stops heartbeat task (only remaining FreeRTOS task with GPIO)
    - Disarms INA228 low-voltage alert (detach ISR, disable BUVL)
@@ -719,15 +725,13 @@ The ISR only sets the flag; `tick()` checks it in the main loop.
 
 7. **BME280 to sleep**: forced Sleep mode via I2C (saves ~1–7µA; harmless NACK if not populated)
 
-8. **Configure RTC wake**: `configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)` (60 min)
+8. **Clear P0 LATCH for the RTC INT pin** (a stale latch would fire DETECT immediately → instant wake → boot loop)
 
-9. **Clear P0 LATCH for the RTC INT pin** (a stale latch would fire DETECT immediately → instant wake → boot loop)
+9. **Release I2C**: `Wire.end()`, then `inhero::disconnectLeakyPullups()` (each held-LOW pull-up wastes ~250µA)
 
-10. **Release I2C**: `Wire.end()`, then `inhero::disconnectLeakyPullups()` (each held-LOW pull-up wastes ~250µA)
+10. **Save shutdown reason**: `NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason`
 
-11. **Save shutdown reason**: `NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | reason`
-
-12. **System Sleep with GPIO latch**: `sd_power_system_off()` → nRF52840 System-Off (< 500µA total)
+11. **System Sleep with GPIO latch**: `sd_power_system_off()` → nRF52840 System-Off (< 500µA total)
     - GPIO4 latch preserved (excluded from disconnectLeakyPullups) → FET stays ON → CE LOW → **charging active**
     - RAM contents are lost (168h statistics, SOC, etc.)
     - RTC interrupt on GPIO17 wakes system after timer expires
@@ -757,20 +761,20 @@ if ((shutdown_reason & 0x03) == SHUTDOWN_REASON_LOW_VOLTAGE) {
   uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
   uint16_t wake_threshold = getLowVoltageWakeThreshold();
 
-  if (vbat_mv == 0 || vbat_mv < wake_threshold) {
-    // Voltage still too low → back to System Sleep.
+  if ((vbat_mv == 0 || vbat_mv < wake_threshold) &&
+      configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES)) {
+    // Resleep only with a verified next wake.
     // The wake reset cleared all PIN_CNF — the sleep-time GPIO latch does NOT
     // survive it. CE must be re-driven OUTPUT HIGH or solar charging stops.
     pinMode(BQ_CE_PIN, OUTPUT);
     digitalWrite(BQ_CE_PIN, HIGH);
     inhero::prepareIcsForSystemOff();        // INA228 + BQ25798 to minimal current
     inhero::prepareRadioForSystemOff(false); // SX1262 back to Cold Sleep
-    configureRTCWake(LOW_VOLTAGE_SLEEP_MINUTES);
     inhero::disconnectLeakyPullups();
     NRF_POWER->GPREGRET2 = GPREGRET2_LOW_VOLTAGE_SLEEP | SHUTDOWN_REASON_LOW_VOLTAGE;
     sd_power_system_off();  // Stays in low-voltage sleep cycle
   }
-  // Voltage OK → normal boot; low-voltage recovery marking + SOC=0%
+  // Voltage OK or RTC setup failed → normal boot; recovery marking + SOC=0%
   // are applied after boardConfig.begin()
   NRF_POWER->GPREGRET2 = SHUTDOWN_REASON_NONE;
 }
@@ -798,7 +802,7 @@ uint16_t vbat_mv = Ina228Driver::readVBATDirect(&Wire, INA228_I2C_ADDR);
 | LTO 2S | 3900 | 4100 | 200mV |
 | Na-ion 1S | 2500 | 2700 | 200mV |
 
-**Anti-Motorboating**: The early-boot check in `begin()` prevents the system from repeatedly booting and immediately crashing at marginal voltage. Only when VBAT is above `lowv_wake_mv` does it boot normally.
+**Anti-Motorboating**: With verified RTC wake, the board re-sleeps below `lowv_wake_mv` to avoid repeated full boots at marginal voltage. It boots normally at or above that threshold. If the next RTC wake cannot be verified, it also completes normal boot so the main loop can retry sleep later.
 
 **Power consumption in System Sleep with GPIO latch (Low-Voltage Sleep)**:
 - **Total: < 500µA** (nRF52840 System-Off + RTC + quiescent currents of all components)
