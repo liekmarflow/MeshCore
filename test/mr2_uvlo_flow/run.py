@@ -41,7 +41,7 @@ def main():
         *(function(board, signature) for signature in (
             "static bool restoreConfiguredChargeEnable()",
             "void InheroMr2Board::begin()",
-            "void InheroMr2Board::tick()",
+            "void InheroMr2Board::loop()",
             "void InheroMr2Board::initiateShutdown(uint8_t reason)",
             "bool InheroMr2Board::configureRTCWake(uint32_t minutes)",
         )),

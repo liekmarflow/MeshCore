@@ -5,7 +5,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <CayenneLPP.h>
 #include <MeshCore.h>
 #include <helpers/NRF52Board.h>
 
@@ -55,7 +54,7 @@ class InheroMr2Board : public NRF52BoardDCDC {
 public:
   InheroMr2Board() : NRF52Board("InheroMR2_OTA") {}
   void begin();
-  void tick() override;
+  void loop() override;
 
   uint16_t getBattMilliVolts() override;
 
@@ -71,9 +70,7 @@ public:
   void reboot() override { NVIC_SystemReset(); }
 
   bool startOTAUpdate(const char *id, char reply[]) override;
-  bool getCustomGetter(const char *getCommand, char *reply, uint32_t maxlen) override;
-  const char *setCustomSetter(const char *setCommand) override;
-  bool queryBoardTelemetry(CayenneLPP &telemetry) override;
+  bool handleCommand(const char *command, uint32_t sender_timestamp, char *reply) override;
 
 private:
   static volatile bool rtc_irq_pending;

@@ -302,6 +302,7 @@ void InheroMr2Board::begin() {
   // boardConfig.begin() initializes BQ25798, INA228, CE pin, alerts, LEDs, etc.
   MESH_DEBUG_PRINTLN("Initializing Rev 1.1 features (BQ25798, INA228, RTC, CE-FET)");
   boardConfig.begin();
+  sensors.setBoardTelemetrySource(boardConfig);
 
   float station_altitude_m = NAN;
   if (boardConfig.getStationAltitude(station_altitude_m)) {
@@ -337,7 +338,7 @@ void InheroMr2Board::begin() {
   }
 }
 
-void InheroMr2Board::tick() {
+void InheroMr2Board::loop() {
   inhero::serviceUsbAutoManagement();
 
   // Deferred OTA DFU reset: wait for CLI reply to be sent, then enter bootloader
@@ -419,29 +420,38 @@ bool InheroMr2Board::startOTAUpdate(const char* id, char reply[]) {
 
   // Schedule deferred reset into bootloader DFU mode.
   // Return immediately so the CLI handler can send the reply first.
-  // tick() will handle cleanup (stop tasks, radio off) and reset after the delay.
+  // loop() will handle cleanup (stop tasks, radio off) and reset after the delay.
   ota_dfu_reset_at = millis() + 3000;  // 3s delay to ensure reply is transmitted
 
   return true;
 }
 
-// Collects board telemetry and appends to CayenneLPP packet
-bool InheroMr2Board::queryBoardTelemetry(CayenneLPP& telemetry) {
-  return inhero::appendBoardTelemetry(boardConfig, telemetry);
-}
+// Handles this board's own 'get board.*' / 'set board.*' CLI commands.
+// CommonCLI::handleCommand() offers every command to the board before its own
+// dispatch, so returning false just falls through to the core CLI.
+//
+// The reply buffer carries no length. The smallest one a caller on this board's
+// builds provides is 160 bytes (simple_repeater/main.cpp, simple_sensor/main.cpp);
+// the DM path gives 161.
+bool InheroMr2Board::handleCommand(const char* command, uint32_t sender_timestamp, char* reply) {
+  const uint32_t maxlen = 160;
 
-// Handles custom CLI getter commands for board configuration
-bool InheroMr2Board::getCustomGetter(const char* getCommand, char* reply, uint32_t maxlen) {
-  return inhero::handleGet(boardConfig, getCommand, reply, maxlen);
-}
+  if (strncmp(command, "get board.", 10) == 0) {
+    return inhero::handleGet(boardConfig, &command[10], reply, maxlen);
+  }
+  if (strncmp(command, "set board.", 10) == 0) {
+    const char* result = inhero::handleSet(boardConfig, &command[10]);
+    if (result == NULL) return false;
 
-// Handles custom CLI setter commands for board configuration
-const char* InheroMr2Board::setCustomSetter(const char* setCommand) {
-  const char* result = inhero::handleSet(boardConfig, setCommand);
-  float station_altitude_m = NAN;
-  sensors.setBme280StationAltitude(
-      boardConfig.getStationAltitude(station_altitude_m) ? station_altitude_m : NAN);
-  return result;
+    float station_altitude_m = NAN;
+    sensors.setBme280StationAltitude(
+        boardConfig.getStationAltitude(station_altitude_m) ? station_altitude_m : NAN);
+
+    strncpy(reply, result, maxlen - 1);
+    reply[maxlen - 1] = 0;
+    return true;
+  }
+  return false;
 }
 
 // ===== Power Management Methods (Rev 1.1) =====

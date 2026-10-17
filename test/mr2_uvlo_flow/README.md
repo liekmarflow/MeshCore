@@ -7,7 +7,7 @@ python test/mr2_uvlo_flow/run.py --cxx C:/Tools/mingw64/bin/g++.exe
 ```
 
 The runner extracts the production board boot, shutdown, RTC wake wrapper, board
-tick and periodic dispatch functions, then compiles them against host hardware
+loop and periodic dispatch functions, then compiles them against host hardware
 fakes. It exercises validation failure, an asserted RTC INT pin, bounded recovery,
 successful sleep, both early boot paths, continued watchdog/periodic work after a
 failed shutdown, retry throttling, recovered or invalid voltage, sticky INA ALERT

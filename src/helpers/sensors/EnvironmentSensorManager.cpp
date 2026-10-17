@@ -2,8 +2,6 @@
 
 #include <Wire.h>
 
-static float BME280_station_altitude_m = NAN;
-
 #if ENV_PIN_SDA && ENV_PIN_SCL
 #define TELEM_WIRE &Wire1  // Use Wire1 as the I2C bus for Environment Sensors
 #else
@@ -270,20 +268,6 @@ static void query_bme680(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 }
 #endif
 
-void EnvironmentSensorManager::setBme280StationAltitude(float altitude_m) {
-  BME280_station_altitude_m = altitude_m;
-}
-
-float EnvironmentSensorManager::getBme280StationAltitude() {
-  return BME280_station_altitude_m;
-}
-
-float EnvironmentSensorManager::pressureToQnh(float pressure_hpa, float altitude_m) {
-  // ICAO standard-atmosphere reduction, equivalent to the formula used by
-  // Adafruit_BME280::seaLevelForAltitude().
-  return pressure_hpa / powf(1.0f - altitude_m / 44330.0f, 5.255f);
-}
-
 #if ENV_INCLUDE_BME280
 static uint8_t init_bme280(TwoWire* wire, uint8_t addr) {
   if (!BME280.begin(addr, wire)) return 0;
@@ -299,15 +283,8 @@ static void query_bme280(uint8_t ch, uint8_t, CayenneLPP& lpp) {
   if (BME280.takeForcedMeasurement()) {
     lpp.addTemperature(ch, BME280.readTemperature());
     lpp.addRelativeHumidity(ch, BME280.readHumidity());
-    const float pressure_hpa = BME280.readPressure() / 100.0f;
-    if (isnan(BME280_station_altitude_m)) {
-      lpp.addBarometricPressure(ch, pressure_hpa);
-      lpp.addAltitude(ch, BME280.readAltitude(TELEM_BME280_SEALEVELPRESSURE_HPA));
-    } else {
-      lpp.addBarometricPressure(
-          ch, EnvironmentSensorManager::pressureToQnh(pressure_hpa, BME280_station_altitude_m));
-      lpp.addAltitude(ch, BME280_station_altitude_m);
-    }
+    lpp.addBarometricPressure(ch, BME280.readPressure() / 100);
+    lpp.addAltitude(ch, BME280.readAltitude(TELEM_BME280_SEALEVELPRESSURE_HPA));
   }
 }
 #endif
@@ -562,6 +539,8 @@ static void query_bme680_bsec(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 // are compiled in. The sentinel at the end keeps the array
 // non-empty regardless of which sensors are enabled.
 //
+// Bosch BMP/BME SDO selects 0x76 or 0x77; probe both.
+//
 // Ordering here determines channel assignment at runtime:
 // the first detected+initialized sensor gets channel 2, the
 // next gets channel 3, and so on.
@@ -574,21 +553,27 @@ struct SensorDef {
   void      (*query)(uint8_t channel, uint8_t sub_channel, CayenneLPP& telemetry);
 };
 
+#define TELEM_BOSCH_ALT_ADDR(addr) ((uint8_t)((addr) == 0x76 ? 0x77 : 0x76))
+
 static const SensorDef SENSOR_TABLE[] = {
 #if ENV_INCLUDE_AHTX0
   { TELEM_AHTX_ADDRESS,    "AHT10/AHT20", init_ahtx0,    query_ahtx0    },
 #endif
 #ifdef ENV_INCLUDE_BME680
-  { TELEM_BME680_ADDRESS,  "BME680",       init_bme680,   query_bme680   },
+  { TELEM_BME680_ADDRESS,                       "BME680",       init_bme680,      query_bme680      },
+  { TELEM_BOSCH_ALT_ADDR(TELEM_BME680_ADDRESS), "BME680",       init_bme680,      query_bme680      },
 #endif
 #if ENV_INCLUDE_BME680_BSEC
-  { TELEM_BME680_ADDRESS,  "BME680+BSEC",   init_bme680_bsec, query_bme680_bsec },
+  { TELEM_BME680_ADDRESS,                       "BME680+BSEC",  init_bme680_bsec, query_bme680_bsec },
+  { TELEM_BOSCH_ALT_ADDR(TELEM_BME680_ADDRESS), "BME680+BSEC",  init_bme680_bsec, query_bme680_bsec },
 #endif
 #if ENV_INCLUDE_BME280
-  { TELEM_BME280_ADDRESS,  "BME280",       init_bme280,   query_bme280   },
+  { TELEM_BME280_ADDRESS,                       "BME280",       init_bme280,      query_bme280      },
+  { TELEM_BOSCH_ALT_ADDR(TELEM_BME280_ADDRESS), "BME280",       init_bme280,      query_bme280      },
 #endif
 #if ENV_INCLUDE_BMP280
-  { TELEM_BMP280_ADDRESS,  "BMP280",       init_bmp280,   query_bmp280   },
+  { TELEM_BMP280_ADDRESS,                       "BMP280",       init_bmp280,      query_bmp280      },
+  { TELEM_BOSCH_ALT_ADDR(TELEM_BMP280_ADDRESS), "BMP280",       init_bmp280,      query_bmp280      },
 #endif
 #if ENV_INCLUDE_SHTC3
   { 0x70,                  "SHTC3",        init_shtc3,    query_shtc3    },
@@ -625,6 +610,8 @@ static const SensorDef SENSOR_TABLE[] = {
 #endif
   { 0, nullptr, nullptr, nullptr }  // sentinel — keeps the array non-empty
 };
+
+#undef TELEM_BOSCH_ALT_ADDR
 
 static const size_t SENSOR_TABLE_SIZE = (sizeof(SENSOR_TABLE) / sizeof(SENSOR_TABLE[0])) - 1;
 
@@ -663,6 +650,12 @@ bool EnvironmentSensorManager::begin() {
   _active_sensor_count = 0;
   for (size_t i = 0; i < SENSOR_TABLE_SIZE && _active_sensor_count < MAX_ACTIVE_SENSORS; i++) {
     const SensorDef& def = SENSOR_TABLE[i];
+    // One static driver instance per type: an alternate address is a fallback, not a second device.
+    bool already_active = false;
+    for (int j = 0; j < _active_sensor_count; j++) {
+      if (_active_sensors[j].query == def.query) { already_active = true; break; }
+    }
+    if (already_active) continue;
     if (!detected[def.address]) {
       MESH_DEBUG_PRINTLN("%s not detected at I2C address %02X", def.name, def.address);
       continue;
@@ -673,6 +666,7 @@ bool EnvironmentSensorManager::begin() {
       continue;
     }
     MESH_DEBUG_PRINTLN("Found %s at address: %02X", def.name, def.address);
+    detected[def.address] = false;  // consumed; later entries must not re-claim this device
     for (uint8_t sub = 0; sub < n && _active_sensor_count < MAX_ACTIVE_SENSORS; sub++) {
       _active_sensors[_active_sensor_count++] = { def.query, sub };
     }
@@ -771,14 +765,18 @@ void EnvironmentSensorManager::initBasicGPS() {
     MESH_DEBUG_PRINTLN("No GPS wake/reset pin found for this board. Continuing on...");
   #endif
 
-  // Give GPS a moment to power up and send data
-  delay(1000);
-
-  // We'll consider GPS detected if we see any data on Serial1
+  // Give the GPS time to power up and emit its first NMEA sentence. Cold-start
+  // modules can take several seconds, so poll for up to ~5s instead of checking
+  // once after a fixed 1s delay -- returning as soon as any data appears, so
+  // fast modules add no boot delay (issue #2258).
 #ifdef ENV_SKIP_GPS_DETECT
   gps_detected = true;
 #else
-  gps_detected = (Serial1.available() > 0);
+  gps_detected = false;
+  for (int i = 0; i < 20 && !gps_detected; i++) {
+    delay(250);
+    gps_detected = (Serial1.available() > 0);
+  }
 #endif
 
   if (gps_detected) {
@@ -837,11 +835,15 @@ bool EnvironmentSensorManager::gpsIsAwake(uint8_t ioPin){
     }
   #endif
 
+  #ifndef RAK_3401
   //set initial waking state
   pinMode(ioPin,OUTPUT);
   digitalWrite(ioPin,LOW);
   delay(500);
   digitalWrite(ioPin,HIGH);
+  #endif
+
+  // give gps time to power up
   delay(500);
 
   //Try to init RAK12500 on I2C
@@ -877,7 +879,9 @@ bool EnvironmentSensorManager::gpsIsAwake(uint8_t ioPin){
     return true;
   }
 
+  #ifndef RAK_3401
   pinMode(ioPin, INPUT);
+  #endif
   MESH_DEBUG_PRINTLN("GPS did not init with this IO pin... try the next");
   return false;
 }
@@ -886,8 +890,10 @@ bool EnvironmentSensorManager::gpsIsAwake(uint8_t ioPin){
 void EnvironmentSensorManager::start_gps() {
   gps_active = true;
   #ifdef RAK_WISBLOCK_GPS
+    #ifndef RAK_3401
     pinMode(gpsResetPin, OUTPUT);
     digitalWrite(gpsResetPin, HIGH);
+    #endif
     return;
   #endif
 
@@ -902,8 +908,10 @@ void EnvironmentSensorManager::start_gps() {
 void EnvironmentSensorManager::stop_gps() {
   gps_active = false;
   #ifdef RAK_WISBLOCK_GPS
+    #ifndef RAK_3401 // rak3401 shouldn't turn off WB_IO2 as it powers the PA
     pinMode(gpsResetPin, OUTPUT);
     digitalWrite(gpsResetPin, LOW);
+    #endif
     return;
   #endif
 

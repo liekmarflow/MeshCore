@@ -38,17 +38,12 @@ public:
   #if ENV_INCLUDE_GPS
   EnvironmentSensorManager(LocationProvider &location): _location(&location){};
   LocationProvider* getLocationProvider() { return _location; }
+  bool isGPSDetected() const override { return gps_detected; }
   #else
   EnvironmentSensorManager(){};
   #endif
   bool begin() override;
   bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
-  // Configure a known BME280 installation altitude. When set, BME280 pressure
-  // telemetry is reduced to sea level (QNH) instead of reporting station
-  // pressure. Passing NAN keeps the legacy uncorrected behaviour.
-  static void setBme280StationAltitude(float altitude_m);
-  static float getBme280StationAltitude();
-  static float pressureToQnh(float pressure_hpa, float altitude_m);
   #if ENV_INCLUDE_GPS || defined(ENV_INCLUDE_BME680_BSEC)
   void loop() override;
   #endif

@@ -20,9 +20,7 @@
 #include "helpers/Watchdog.h"
 #include <nrf_soc.h>  // For NRF_POWER (GPREGRET2)
 
-#if ENV_INCLUDE_BME280
 #include <Adafruit_BME280.h>
-#endif
 
 // rtc_clock is defined in target.cpp
 extern AutoDiscoverRTCClock rtc_clock;
@@ -821,7 +819,7 @@ bool BoardConfigContainer::begin() {
   }
 
   // MPPT, SOC updates, and voltage monitoring are handled in tickPeriodic()
-  // (called from InheroMr2Board::tick() — no FreeRTOS tasks doing I2C)
+  // (called from InheroMr2Board::loop() — no FreeRTOS tasks doing I2C)
 
   // Load battery capacity from preferences (or default based on chemistry)
   float cap_mah = 0.0f;
@@ -1866,7 +1864,6 @@ float BoardConfigContainer::performTcCalibration(float* bme_temp_out) {
 
 // Read BME280 temperature directly via I2C (temporary instance, no core code changes)
 float BoardConfigContainer::readBmeTemperature() {
-#if ENV_INCLUDE_BME280
   Adafruit_BME280 bme;
   if (!bme.begin(0x76, &Wire)) {
     MESH_DEBUG_PRINTLN("TC Cal: BME280 not found at 0x76");
@@ -1885,10 +1882,6 @@ float BoardConfigContainer::readBmeTemperature() {
   float temp = bme.readTemperature();
   MESH_DEBUG_PRINTLN("TC Cal: BME280 reads %.2f C", temp);
   return temp;
-#else
-  MESH_DEBUG_PRINTLN("TC Cal: BME280 not compiled in (ENV_INCLUDE_BME280=0)");
-  return -999.0f;
-#endif
 }
 
 // Arm INA228 BUVL alert at the chemistry's lowv_sleep_mv threshold.
@@ -2284,7 +2277,7 @@ void BoardConfigContainer::calculateTTL() {
 
 // ===== Tick-based Periodic Dispatch =====
 
-// Called from InheroMr2Board::tick() — dispatches all periodic I2C work with
+// Called from InheroMr2Board::loop() — dispatches all periodic I2C work with
 // millis()-based scheduling in the main loop context.
 // Checks the INA228 alert and polls voltage as a fallback if the interrupt is missed.
 void BoardConfigContainer::tickPeriodic() {

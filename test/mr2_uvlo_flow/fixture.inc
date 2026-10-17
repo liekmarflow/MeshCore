@@ -130,7 +130,7 @@ struct InheroMr2Board : NRF52BoardDCDC {
   static inline volatile bool rtc_irq_pending = false;
   static inline volatile uint32_t ota_dfu_reset_at = 0;
   void begin();
-  void tick();
+  void loop();
   void initiateShutdown(uint8_t);
   bool configureRTCWake(uint32_t);
   uint16_t getLowVoltageWakeThreshold() { return 2700; }
@@ -140,7 +140,10 @@ struct InheroMr2Board : NRF52BoardDCDC {
   void sleep(uint32_t) {}
 } board;
 static BoardConfigContainer boardConfig;
-struct Sensors { void setBme280StationAltitude(float) {} } sensors;
+struct Sensors {
+  void setBme280StationAltitude(float) {}
+  void setBoardTelemetrySource(BoardConfigContainer&) {}
+} sensors;
 
 namespace inhero {
 void clearTimerFlag() {}
@@ -247,7 +250,7 @@ int main() {
 
     reset(); model.now = 3600000;
     BoardConfigContainer::lowVoltageAlertFired = true;
-    board.tick();
+    board.loop();
     no_shutdown_effects();
     require(boardConfig.lowVoltageSleepRetryPending, "failed runtime sleep must enter retry state");
     require(model.wdt_fed == 1 && model.mppt == 1 && model.soc == 1 && model.hourly == 1,
@@ -256,39 +259,39 @@ int main() {
     model.now = retry_at + 59999;
     BoardConfigContainer::lowVoltageAlertFired = true;
     model.ina_level = LOW;
-    board.tick();
+    board.loop();
     require(model.rtc_calls == 2 && model.wdt_fed == 2, "ISR and asserted ALERT must respect 60s cooldown");
     model.now = retry_at + 60000;
     model.rtc_results = {true};
-    require(slept([] { board.tick(); }), "valid persistent low voltage retries after cooldown");
+    require(slept([] { board.loop(); }), "valid persistent low voltage retries after cooldown");
 
     for (uint16_t voltage : {uint16_t(0), uint16_t(3250)}) {
-      reset(); BoardConfigContainer::lowVoltageAlertFired = true; board.tick();
+      reset(); BoardConfigContainer::lowVoltageAlertFired = true; board.loop();
       model.voltage = voltage;
       model.rtc_results = {true};
       model.ina_level = LOW;
       BoardConfigContainer::lowVoltageAlertFired = true;
       model.now = boardConfig.lastLowVoltageSleepAttemptMs + 60000;
-      require(!slept([] { board.tick(); }), "invalid/healed voltage must not retry stale alert");
+      require(!slept([] { board.loop(); }), "invalid/healed voltage must not retry stale alert");
       no_shutdown_effects();
       require(model.rtc_calls == 2, "invalid/healed voltage must not reconfigure RTC");
       require(boardConfig.lowVoltageSleepRetryPending == (voltage == 0), "valid healed voltage releases retry state");
     }
 
-    reset(); BoardConfigContainer::lowVoltageAlertFired = true; board.tick();
+    reset(); BoardConfigContainer::lowVoltageAlertFired = true; board.loop();
     model.voltage = 3250; model.sticky_ina = true; model.ina_level = LOW;
     model.rtc_results = {true};
     model.now = boardConfig.lastLowVoltageSleepAttemptMs + 60000;
-    require(!slept([] { board.tick(); }), "healthy voltage with stuck ALERT must remain awake");
+    require(!slept([] { board.loop(); }), "healthy voltage with stuck ALERT must remain awake");
     require(boardConfig.lowVoltageSleepRetryPending, "stuck ALERT must remain guarded against stale retries");
-    model.now += 1; board.tick();
+    model.now += 1; board.loop();
     require(model.rtc_calls == 2, "stuck pin must not retrigger shutdown on next loop");
 
     reset(); model.now = UINT32_MAX - 30000;
-    BoardConfigContainer::lowVoltageAlertFired = true; board.tick();
+    BoardConfigContainer::lowVoltageAlertFired = true; board.loop();
     model.now = boardConfig.lastLowVoltageSleepAttemptMs + uint32_t(60000);
     model.rtc_results = {true};
-    require(slept([] { board.tick(); }), "retry cooldown must survive millis wraparound");
+    require(slept([] { board.loop(); }), "retry cooldown must survive millis wraparound");
 
     std::cout << "PASS MR2 UVLO flow: RTC/INT failures, bounded recovery, boot/runtime gates, cooldown, voltage recovery, wraparound\n";
     return 0;

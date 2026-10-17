@@ -65,6 +65,8 @@ appears after a double tap on the reset button. See
 
 ## Relation to upstream
 
+- The current MR2 release is based on **MeshCore v1.18.0**, with the MR2
+  board-loop, CLI and sensor-manager integration shared with PR #3132.
 - This fork tracks selected upstream changes manually; it is **not** a
   rolling mirror. The MR2 variant lives in `variants/inhero_mr2/` and
   does not affect any other board.
@@ -75,8 +77,9 @@ appears after a double tap on the reset button. See
   CE-certified (RED 2014/53/EU) — and it has been proposed again, split into
   [#3131](https://github.com/meshcore-dev/MeshCore/pull/3131) (board hooks)
   and [#3132](https://github.com/meshcore-dev/MeshCore/pull/3132) (the
-  variant itself). Until those land, firmware for this board is released
-  from this fork.
+  variant itself). The board loop hook (#3131) is merged upstream and included
+  in MeshCore v1.18.0. The MR2 variant (#3132) is still under review; firmware
+  for this board is released from this fork.
 - For the upstream MeshCore project, ecosystem documentation, and other
   supported boards, see [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore).
 
